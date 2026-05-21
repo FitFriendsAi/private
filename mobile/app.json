@@ -1,0 +1,65 @@
+{
+  "expo": {
+    "name": "FitCore",
+    "slug": "fitfriends",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "fitcore",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0a0a0a"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.joelmiller.fitcore",
+      "infoPlist": {
+        "NSHealthShareUsageDescription": "FitCore reads your heart rate, body weight, steps, and workout data from Apple Health to show your full fitness picture.",
+        "NSHealthUpdateUsageDescription": "FitCore writes workouts and body weight back to Apple Health.",
+        "NSMotionUsageDescription": "FitCore uses motion data to count steps.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "entitlements": {
+        "com.apple.developer.healthkit": true,
+        "com.apple.developer.healthkit.background-delivery": true
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0a0a0a"
+      },
+      "package": "com.fitcore.app"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/icon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      [
+        "react-native-health",
+        {
+          "isClinicalDataEnabled": false
+        }
+      ],
+      "expo-asset"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "1ae426c8-ebb8-4050-b0ba-f2ff66bc7c85"
+      }
+    },
+    "owner": "fitfriends"
+  }
+}

@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* ── Core surface ── */
+    --background: 0 0% 4%;            /* #0a0a0a */
+    --foreground: 0 0% 96%;           /* #f5f5f5 */
+    --card: 0 0% 11%;                  /* #1c1c1c */
+    --card-foreground: 0 0% 96%;
+    --popover: 0 0% 9%;
+    --popover-foreground: 0 0% 96%;
+
+    /* ── Primary = pink accent ── */
+    --primary: 340 82% 90%;           /* #f8c8dc */
+    --primary-foreground: 0 0% 4%;    /* #0a0a0a */
+
+    /* ── Secondary surface ── */
+    --secondary: 0 0% 14%;            /* #242424 */
+    --secondary-foreground: 0 0% 80%;
+    --muted: 0 0% 14%;
+    --muted-foreground: 0 0% 55%;
+    --accent: 0 0% 14%;
+    --accent-foreground: 0 0% 96%;
+
+    /* ── Feedback ── */
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 17%;
+    --input: 0 0% 8%;
+    --ring: 340 82% 90%;
+    --radius: 1.25rem;
+
+    /* ── Chart / macro colours ── */
+    --chart-1: 340 82% 90%;           /* pink  — calories */
+    --chart-2: 75 74% 60%;            /* lime  — protein  */
+    --chart-3: 210 100% 76%;          /* blue  — carbs    */
+    --chart-4: 280 65% 60%;           /* purple — fat     */
+    --chart-5: 0 84% 60%;
+
+    /* ── Brand accents ── */
+    --pink: #f8c8dc;
+    --pink-deep: #f3aac8;
+    --lime: #c8e84c;
+    --lime-dim: #7a8c30;
+    --blue-water: #9bd1ff;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Manrope', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+}
+
+/* ── Doto LED display font ── */
+.dot {
+  font-family: 'Doto', 'DotGothic16', monospace;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+  font-variation-settings: "ROND" 100;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: hsl(var(--background)); }
+::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 3px; }

@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+mobile/node_modules/
+
+# Build output
+dist/
+mobile/.expo/
+mobile/dist/
+
+# Environment variables — NEVER commit these
+.env
+mobile/.env
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Vite cache
+vite.config.ts.timestamp-*
+
+# TypeScript
+*.tsbuildinfo
