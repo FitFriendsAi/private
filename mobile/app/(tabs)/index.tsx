@@ -464,7 +464,7 @@ export default function DashboardScreen() {
         <View style={{ flexDirection: "row", gap: 10, marginBottom: 10 }}>
 
           {/* Water — solid blue card; top half = add, bottom half = remove */}
-          <View style={{ flex: 1, backgroundColor: BLUE, borderRadius: 24, overflow: "hidden" }}>
+          <View style={{ flex: 1, backgroundColor: BLUE, borderRadius: 24, overflow: "hidden", minHeight: 180 }}>
 
             {/* ── Top half: tap to ADD a cup ── */}
             <Pressable
@@ -496,8 +496,8 @@ export default function DashboardScreen() {
               </Text>
               {/* Cup count */}
               <View style={{ flexDirection: "row", alignItems: "baseline", gap: 4, marginTop: 2, marginBottom: 8 }}>
-                <Text style={{ ...(DOT as any), fontSize: 38, color: "#0a0a0a", lineHeight: 42 }}>{waterCups}</Text>
-                <Text style={{ fontSize: 12, fontFamily: "Manrope-Bold", color: "rgba(0,0,0,0.5)" }}>/ {targetCups}</Text>
+                <Text style={{ ...(DOT as any), fontSize: 30, color: "#0a0a0a", lineHeight: 34 }}>{waterCups}</Text>
+                <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: "rgba(0,0,0,0.5)" }}>/ {targetCups}</Text>
               </View>
               {/* Centred + icon */}
               <View style={{ alignItems: "center" }}>
@@ -693,7 +693,7 @@ export default function DashboardScreen() {
           {/* Creatine — top half = add, bottom half = remove */}
           <View style={{
             flex: 1, borderRadius: 24, overflow: "hidden",
-            backgroundColor: LIME,
+            backgroundColor: LIME, minHeight: 180,
           }}>
             {/* ── Top half: tap to ADD creatine ── */}
             <Pressable

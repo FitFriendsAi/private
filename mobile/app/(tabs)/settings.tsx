@@ -558,14 +558,14 @@ export default function SettingsScreen() {
               onPress={() => saveProfile.mutate()}
               disabled={saveProfile.isPending}
               style={({ pressed }) => ({
-                backgroundColor: accent, borderRadius: 14,
+                backgroundColor: "#c8e84c", borderRadius: 14,
                 paddingVertical: 13, alignItems: "center",
                 opacity: pressed || saveProfile.isPending ? 0.75 : 1,
               })}
             >
               {saveProfile.isPending
-                ? <ActivityIndicator size="small" color={accentText} />
-                : <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: accentText }}>Save Profile</Text>
+                ? <ActivityIndicator size="small" color="#0a0a0a" />
+                : <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: "#0a0a0a" }}>Save Profile</Text>
               }
             </Pressable>
           </View>

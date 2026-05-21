@@ -136,6 +136,9 @@ export default function FoodScreen() {
   >([]);
   const [mealIngredientServings, setMealIngredientServings] = useState("1");
 
+  // ── Food detail modal ──
+  const [detailEntry, setDetailEntry] = useState<FoodLogEntry | null>(null);
+
   // ── Queries ──
   const { data: foodLog = [] } = useQuery<FoodLogEntry[]>({
     queryKey: ["/api/food-log", today],
@@ -298,7 +301,7 @@ export default function FoodScreen() {
     });
   }
 
-  const { card, border, text, muted, bg, accent, accentText } = palette;
+  const { card, cardBorder: border, text, muted, bg, accent, accentText } = palette;
   const accentActive = accent === "#ffffff" ? "#0a0a0a" : accent;
 
   const totals = foodLog.reduce(
@@ -364,7 +367,7 @@ export default function FoodScreen() {
                   <Text style={{ fontSize: 9, fontFamily: "Manrope-Bold", color: "#888888" }}>/{m.goal}g</Text>
                 </View>
                 <View style={{ height: 3, backgroundColor: "#e0e0e0", borderRadius: 2, overflow: "hidden" }}>
-                  <View style={{ width: `${Math.min(m.goal > 0 ? (m.val / m.goal) * 100 : 0, 100)}%` as any, height: "100%", backgroundColor: "#cccccc", borderRadius: 2 }} />
+                  <View style={{ width: `${Math.min(m.goal > 0 ? (m.val / m.goal) * 100 : 0, 100)}%` as any, height: "100%", backgroundColor: m.color, borderRadius: 2 }} />
                 </View>
               </View>
             ))}
@@ -406,22 +409,31 @@ export default function FoodScreen() {
                 <Plus size={18} color={muted} strokeWidth={2} />
               </Pressable>
               {entries.map(entry => (
-                <View key={entry.id} style={{ borderTopWidth: 1, borderTopColor: border, paddingHorizontal: 18, paddingVertical: 12, flexDirection: "row", alignItems: "center" }}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 13, fontFamily: "Manrope-SemiBold", color: text }}>
+                <Pressable
+                  key={entry.id}
+                  onPress={() => setDetailEntry(entry)}
+                  style={({ pressed }) => ({
+                    borderTopWidth: 1, borderTopColor: border,
+                    paddingHorizontal: 18, paddingVertical: 12,
+                    flexDirection: "row", alignItems: "center",
+                    opacity: pressed ? 0.7 : 1,
+                  })}
+                >
+                  <View style={{ flex: 1, marginRight: 8 }}>
+                    <Text numberOfLines={1} style={{ fontSize: 13, fontFamily: "Manrope-SemiBold", color: text }}>
                       {entry.foodName ?? entry.foodItem?.name ?? `Food #${entry.foodItemId}`}
                     </Text>
-                    <View style={{ flexDirection: "row", gap: 10, marginTop: 3 }}>
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 3 }}>
                       <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: muted }}>{entry.caloriesActual} kcal</Text>
-                      <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>
-                        P {Math.round(entry.proteinActual)}g · C {Math.round(entry.carbsActual)}g · F {Math.round(entry.fatActual)}g
-                      </Text>
+                      <Text style={{ fontSize: 11, fontFamily: "Manrope", color: LIME }}>P {Math.round(entry.proteinActual)}g</Text>
+                      <Text style={{ fontSize: 11, fontFamily: "Manrope", color: BLUE }}>C {Math.round(entry.carbsActual)}g</Text>
+                      <Text style={{ fontSize: 11, fontFamily: "Manrope", color: PURPLE }}>F {Math.round(entry.fatActual)}g</Text>
                     </View>
                   </View>
                   <Pressable onPress={() => deleteEntry.mutate(entry.id)} hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, padding: 4 })}>
                     <X size={15} color={muted} />
                   </Pressable>
-                </View>
+                </Pressable>
               ))}
             </View>
           );
@@ -531,6 +543,93 @@ export default function FoodScreen() {
           </>
         )}
       </ScrollView>
+
+      {/* ── Food Detail Modal ── */}
+      <Modal
+        visible={!!detailEntry}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setDetailEntry(null)}
+      >
+        {detailEntry && (() => {
+          const e = detailEntry;
+          const name = e.foodName ?? e.foodItem?.name ?? `Food #${e.foodItemId}`;
+          const totalCal = e.caloriesActual;
+          const p = Math.round(e.proteinActual);
+          const c = Math.round(e.carbsActual);
+          const f = Math.round(e.fatActual);
+          const calFromP = p * 4, calFromC = c * 4, calFromF = f * 9;
+          const macroTotal = calFromP + calFromC + calFromF || 1;
+          return (
+            <View style={{ flex: 1, backgroundColor: bg }}>
+              {/* Header */}
+              <View style={{ padding: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderBottomWidth: 1, borderBottomColor: border }}>
+                <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 18, color: text, flex: 1, marginRight: 12 }} numberOfLines={2}>
+                  {name}
+                </Text>
+                <Pressable onPress={() => setDetailEntry(null)} hitSlop={8}><X size={22} color={text} /></Pressable>
+              </View>
+
+              <ScrollView contentContainerStyle={{ padding: 20 }}>
+                {/* Serving info */}
+                <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted, marginBottom: 20 }}>
+                  {e.servings === 1 ? "1 serving" : `${e.servings} servings`}
+                </Text>
+
+                {/* Calories hero */}
+                <View style={{ backgroundColor: card, borderRadius: 20, borderWidth: 1, borderColor: border, padding: 20, alignItems: "center", marginBottom: 14 }}>
+                  <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: muted, letterSpacing: 0.8, marginBottom: 6 }}>CALORIES</Text>
+                  <Text style={{ ...(DOT as any), fontSize: 52, color: text, lineHeight: 56 }}>{Math.round(totalCal)}</Text>
+                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: muted, marginTop: 4 }}>kcal</Text>
+                </View>
+
+                {/* Macro breakdown */}
+                {([
+                  { label: "Protein", val: p, unit: "g", color: LIME,   calPct: calFromP / macroTotal },
+                  { label: "Carbs",   val: c, unit: "g", color: BLUE,   calPct: calFromC / macroTotal },
+                  { label: "Fat",     val: f, unit: "g", color: PURPLE, calPct: calFromF / macroTotal },
+                ] as const).map(m => (
+                  <View key={m.label} style={{ backgroundColor: card, borderRadius: 16, borderWidth: 1, borderColor: border, padding: 16, marginBottom: 10 }}>
+                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                      <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: text }}>{m.label}</Text>
+                      <View style={{ flexDirection: "row", alignItems: "baseline", gap: 3 }}>
+                        <Text style={{ ...(DOT as any), fontSize: 24, color: m.color, lineHeight: 28 }}>{m.val}</Text>
+                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: muted }}>{m.unit}</Text>
+                      </View>
+                    </View>
+                    {/* Percentage bar */}
+                    <View style={{ height: 6, backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 3, overflow: "hidden" }}>
+                      <View style={{ width: `${(m.calPct * 100).toFixed(1)}%` as any, height: "100%", backgroundColor: m.color, borderRadius: 3 }} />
+                    </View>
+                    <Text style={{ fontFamily: "Manrope", fontSize: 11, color: muted, marginTop: 6 }}>
+                      {Math.round(m.calPct * 100)}% of calories · {m.val * (m.label === "Fat" ? 9 : 4)} kcal
+                    </Text>
+                  </View>
+                ))}
+
+                {/* Delete button */}
+                <Pressable
+                  onPress={() => {
+                    Alert.alert("Remove item?", `Remove ${name} from today's log?`, [
+                      { text: "Cancel", style: "cancel" },
+                      { text: "Remove", style: "destructive", onPress: () => {
+                        deleteEntry.mutate(e.id);
+                        setDetailEntry(null);
+                      }},
+                    ]);
+                  }}
+                  style={({ pressed }) => ({
+                    marginTop: 10, paddingVertical: 14, borderRadius: 16, alignItems: "center",
+                    backgroundColor: "rgba(239,68,68,0.1)", opacity: pressed ? 0.7 : 1,
+                  })}
+                >
+                  <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: "#ef4444" }}>Remove from Log</Text>
+                </Pressable>
+              </ScrollView>
+            </View>
+          );
+        })()}
+      </Modal>
 
       {/* ── Add Food Modal ── */}
       <Modal visible={showAdd} animationType="slide" presentationStyle="pageSheet">

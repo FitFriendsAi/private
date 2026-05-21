@@ -91,7 +91,7 @@ function formatDate(dateStr: string): string {
 // ── Main ──────────────────────────────────────────────────────────
 export default function WorkoutsScreen() {
   const { palette }          = useTheme();
-  const { card, border, text, muted, accent, accentText, bg } = palette;
+  const { card, cardBorder: border, text, muted, accent, accentText, bg } = palette;
   const router               = useRouter();
   const qc                   = useQueryClient();
 
@@ -261,11 +261,17 @@ export default function WorkoutsScreen() {
               const exCount = t.exercises?.length ?? t.exerciseCount ?? 0;
               const busy    = starting === t.id;
               return (
-                <View key={t.id} style={{
-                  backgroundColor: card, borderRadius: 18, padding: 14,
-                  borderWidth: 1, borderColor: border, marginBottom: 10,
-                  flexDirection: "row", alignItems: "center", gap: 14,
-                }}>
+                <Pressable
+                  key={t.id}
+                  onPress={() => !busy && startRoutine(t)}
+                  disabled={busy}
+                  style={({ pressed }) => ({
+                    backgroundColor: card, borderRadius: 18, padding: 14,
+                    borderWidth: 1, borderColor: border, marginBottom: 10,
+                    flexDirection: "row", alignItems: "center", gap: 14,
+                    opacity: pressed || busy ? 0.75 : 1,
+                  })}
+                >
                   {/* Arc circle */}
                   <View style={{ width: 52, height: 52, alignItems: "center", justifyContent: "center" }}>
                     <RoutineRing pct={pct} />
@@ -280,17 +286,13 @@ export default function WorkoutsScreen() {
                       </Text>
                     )}
                   </View>
-                  {/* Start */}
-                  <Pressable
-                    onPress={() => startRoutine(t)}
-                    disabled={busy}
-                    style={({ pressed }) => ({
-                      backgroundColor: "#ffffff", borderRadius: 20,
-                      paddingHorizontal: 16, paddingVertical: 9,
-                      flexDirection: "row", alignItems: "center", gap: 6,
-                      opacity: pressed || busy ? 0.7 : 1, minWidth: 72, justifyContent: "center",
-                    })}
-                  >
+                  {/* Start badge */}
+                  <View style={{
+                    backgroundColor: LIME, borderRadius: 20,
+                    paddingHorizontal: 16, paddingVertical: 9,
+                    flexDirection: "row", alignItems: "center", gap: 6,
+                    minWidth: 72, justifyContent: "center",
+                  }}>
                     {busy
                       ? <ActivityIndicator size="small" color="#0a0a0a" />
                       : <>
@@ -298,8 +300,8 @@ export default function WorkoutsScreen() {
                           <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: "#0a0a0a" }}>Start</Text>
                         </>
                     }
-                  </Pressable>
-                </View>
+                  </View>
+                </Pressable>
               );
             })
           )}

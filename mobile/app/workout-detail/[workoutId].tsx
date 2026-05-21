@@ -150,7 +150,7 @@ export default function WorkoutDetailScreen() {
   const { workoutId } = useLocalSearchParams<{ workoutId: string }>();
   const router        = useRouter();
   const { palette }   = useTheme();
-  const { card, border, text, muted, bg } = palette;
+  const { card, cardBorder: border, text, muted, bg } = palette;
   const qc            = useQueryClient();
 
   // ── Queries ──

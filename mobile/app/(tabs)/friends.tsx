@@ -134,7 +134,7 @@ type Tab = typeof TABS[number];
 export default function FriendsScreen() {
   const { palette } = useTheme();
   const { user }    = useAuth();
-  const { card, border, text, muted, bg } = palette;
+  const { card, cardBorder: border, text, muted, bg } = palette;
   const [tab, setTab] = useState<Tab>("Feed");
 
   const myInitial = (user?.name?.[0] ?? "Y").toUpperCase();

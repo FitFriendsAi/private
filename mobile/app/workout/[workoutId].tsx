@@ -51,7 +51,7 @@ export default function WorkoutSessionScreen() {
   const templateId = params.templateId;
   const router = useRouter();
   const { palette } = useTheme();
-  const { card, border, text, muted, accent, accentText, bg } = palette;
+  const { card, cardBorder: border, text, muted, accent, accentText, bg } = palette;
   const qc = useQueryClient();
 
   const [exercises,    setExercises]    = useState<ActiveEx[]>([]);

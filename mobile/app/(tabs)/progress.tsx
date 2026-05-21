@@ -336,7 +336,7 @@ function SectionLabel({ icon: Icon, label, right }: { icon: any; label: string; 
 // ── Main ─────────────────────────────────────────────────────────
 export default function ProgressScreen() {
   const { palette } = useTheme();
-  const { card, border, text, muted, bg } = palette;
+  const { card, cardBorder: border, text, muted, bg } = palette;
 
   const [period, setPeriod]                 = useState<Period>("1M");
   const [selectedEx, setSelectedEx]         = useState<any>(null);

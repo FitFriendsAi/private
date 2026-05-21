@@ -265,7 +265,7 @@ export default function GoalsScreen() {
             onPress={openModal}
             style={({ pressed }) => ({
               flexDirection: "row", alignItems: "center", gap: 6,
-              backgroundColor: "#ffffff", borderRadius: 22,
+              backgroundColor: LIME, borderRadius: 22,
               paddingHorizontal: 16, paddingVertical: 10,
               opacity: pressed ? 0.8 : 1, marginTop: 4,
             })}
