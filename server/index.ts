@@ -33,7 +33,13 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: "10mb" })); // larger limit for base64 images
 
 const PgSession = connectPgSimple(session);
-const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+const pool = new pg.Pool({
+  connectionString: process.env.DATABASE_URL,
+  // Keep connections alive so Neon's serverless DB doesn't drop them after inactivity
+  keepAlive: true,
+  idleTimeoutMillis: 60_000,   // release idle clients after 60 s
+  connectionTimeoutMillis: 5_000,
+});
 
 app.use(
   session({
@@ -61,6 +67,16 @@ if (process.env.NODE_ENV === "production") {
   app.use(express.static(path.join(__dirname, "public")));
   app.get("*", (_req, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
 }
+
+// ── Global error handler ─────────────────────────────────────────────────────
+// Catches anything that falls through (e.g. session-store DB errors, middleware
+// crashes) and returns a clean JSON 500 instead of crashing the process.
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  const status = typeof err?.status === "number" ? err.status : 500;
+  const message = err?.message ?? "Internal server error";
+  console.error("Unhandled error:", err);
+  if (!res.headersSent) res.status(status).json({ message });
+});
 
 app.listen(PORT, async () => {
   console.log(`FitCore server running on port ${PORT}`);
