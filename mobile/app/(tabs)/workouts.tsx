@@ -10,7 +10,7 @@ import Svg, { Circle } from "react-native-svg";
 import { apiRequest } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
 import { todayStr } from "@/lib/utils";
-import { Zap, Plus, X, Clock, Upload } from "lucide-react-native";
+import { Zap, Plus, X, Clock, Upload, ChevronRight } from "lucide-react-native";
 
 const LIME = "#c8e84c";
 const DOT: object = { fontFamily: "Doto" };
@@ -286,21 +286,11 @@ export default function WorkoutsScreen() {
                       </Text>
                     )}
                   </View>
-                  {/* Start badge */}
-                  <View style={{
-                    backgroundColor: LIME, borderRadius: 20,
-                    paddingHorizontal: 16, paddingVertical: 9,
-                    flexDirection: "row", alignItems: "center", gap: 6,
-                    minWidth: 72, justifyContent: "center",
-                  }}>
-                    {busy
-                      ? <ActivityIndicator size="small" color="#0a0a0a" />
-                      : <>
-                          <Text style={{ fontSize: 10, color: "#0a0a0a" }}>▶</Text>
-                          <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: "#0a0a0a" }}>Start</Text>
-                        </>
-                    }
-                  </View>
+                  {/* Right indicator */}
+                  {busy
+                    ? <ActivityIndicator size="small" color={LIME} />
+                    : <ChevronRight size={18} color={muted} />
+                  }
                 </Pressable>
               );
             })

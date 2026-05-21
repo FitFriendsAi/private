@@ -49,7 +49,7 @@ export class ApiError extends Error {
 }
 
 export async function apiRequest<T = unknown>(
-  method: "GET" | "POST" | "PATCH" | "DELETE",
+  method: "GET" | "POST" | "PATCH" | "DELETE" | "PUT",
   path: string,
   body?: unknown
 ): Promise<T> {

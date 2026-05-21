@@ -79,6 +79,10 @@ export const storage = {
   },
 
   // ── Food Items ─────────────────────────────────────────────────────────────
+  async getFoodItemById(id: number): Promise<FoodItem | undefined> {
+    const [item] = await db.select().from(foodItems).where(eq(foodItems.id, id));
+    return item;
+  },
   async getFoodItemByBarcode(barcode: string): Promise<FoodItem | undefined> {
     const [item] = await db.select().from(foodItems).where(eq(foodItems.barcode, barcode));
     return item;

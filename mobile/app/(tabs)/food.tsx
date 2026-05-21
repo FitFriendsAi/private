@@ -36,6 +36,11 @@ interface FoodItem {
   carbsG: number;
   fatG: number;
   servingSizeG: number;
+  servingUnit?: string;
+  fiberG?: number;
+  sodiumMg?: number;
+  sugarG?: number;
+  source?: string;
 }
 
 interface FoodLogEntry {
@@ -137,7 +142,25 @@ export default function FoodScreen() {
   const [mealIngredientServings, setMealIngredientServings] = useState("1");
 
   // ── Food detail modal ──
-  const [detailEntry, setDetailEntry] = useState<FoodLogEntry | null>(null);
+  const [detailEntry, setDetailEntry]     = useState<FoodLogEntry | null>(null);
+  const [detailItem,  setDetailItem]      = useState<FoodItem | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  async function openDetail(entry: FoodLogEntry) {
+    setDetailEntry(entry);
+    setDetailItem(null);
+    if (entry.foodItemId) {
+      setDetailLoading(true);
+      try {
+        const item = await apiRequest<FoodItem>("GET", `/api/food/items/${entry.foodItemId}`);
+        setDetailItem(item);
+      } catch {
+        // fall back to whatever is in the entry
+      } finally {
+        setDetailLoading(false);
+      }
+    }
+  }
 
   // ── Queries ──
   const { data: foodLog = [] } = useQuery<FoodLogEntry[]>({
@@ -397,7 +420,7 @@ export default function FoodScreen() {
           const entries  = foodLog.filter(e => e.mealType === meal);
           const mealCals = entries.reduce((s, e) => s + e.caloriesActual, 0);
           return (
-            <View key={meal} style={{ backgroundColor: card, borderRadius: 20, borderWidth: 1, borderColor: border, marginBottom: 10, overflow: "hidden" }}>
+            <View key={meal} style={{ backgroundColor: card, borderRadius: 20, borderWidth: 1, borderColor: border, marginBottom: 10 }}>
               <Pressable
                 onPress={() => openAddForMeal(meal)}
                 style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 18, paddingVertical: 18, opacity: pressed ? 0.7 : 1 })}
@@ -411,7 +434,7 @@ export default function FoodScreen() {
               {entries.map(entry => (
                 <Pressable
                   key={entry.id}
-                  onPress={() => setDetailEntry(entry)}
+                  onPress={() => openDetail(entry)}
                   style={({ pressed }) => ({
                     borderTopWidth: 1, borderTopColor: border,
                     paddingHorizontal: 18, paddingVertical: 12,
@@ -549,65 +572,102 @@ export default function FoodScreen() {
         visible={!!detailEntry}
         animationType="slide"
         presentationStyle="pageSheet"
-        onRequestClose={() => setDetailEntry(null)}
+        onRequestClose={() => { setDetailEntry(null); setDetailItem(null); }}
       >
         {detailEntry && (() => {
-          const e = detailEntry;
-          const name = e.foodName ?? e.foodItem?.name ?? `Food #${e.foodItemId}`;
-          const totalCal = e.caloriesActual;
+          const e    = detailEntry;
+          const item = detailItem ?? e.foodItem ?? null;
+          const name = item?.name ?? e.foodName ?? `Food #${e.foodItemId}`;
+          const brand = item?.brand;
+
+          // Actuals (what was actually logged for this serving count)
+          const totalCal = Math.round(e.caloriesActual);
           const p = Math.round(e.proteinActual);
           const c = Math.round(e.carbsActual);
           const f = Math.round(e.fatActual);
-          const calFromP = p * 4, calFromC = c * 4, calFromF = f * 9;
+
+          // Per-serving from item (if available)
+          const servSizeG  = item?.servingSizeG;
+          const servUnit   = item?.servingUnit ?? "g";
+          const fiberG     = item?.fiberG  != null ? Math.round(item.fiberG  * e.servings * 10) / 10 : null;
+          const sugarG     = item?.sugarG  != null ? Math.round(item.sugarG  * e.servings * 10) / 10 : null;
+          const sodiumMg   = item?.sodiumMg != null ? Math.round(item.sodiumMg * e.servings) : null;
+
+          const calFromP   = p * 4, calFromC = c * 4, calFromF = f * 9;
           const macroTotal = calFromP + calFromC + calFromF || 1;
+
           return (
             <View style={{ flex: 1, backgroundColor: bg }}>
               {/* Header */}
-              <View style={{ padding: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderBottomWidth: 1, borderBottomColor: border }}>
-                <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 18, color: text, flex: 1, marginRight: 12 }} numberOfLines={2}>
-                  {name}
-                </Text>
-                <Pressable onPress={() => setDetailEntry(null)} hitSlop={8}><X size={22} color={text} /></Pressable>
+              <View style={{ padding: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", borderBottomWidth: 1, borderBottomColor: border }}>
+                <View style={{ flex: 1, marginRight: 12 }}>
+                  <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 18, color: text }} numberOfLines={2}>{name}</Text>
+                  {brand ? <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted, marginTop: 2 }}>{brand}</Text> : null}
+                </View>
+                <Pressable onPress={() => { setDetailEntry(null); setDetailItem(null); }} hitSlop={8}>
+                  <X size={22} color={text} />
+                </Pressable>
               </View>
 
-              <ScrollView contentContainerStyle={{ padding: 20 }}>
-                {/* Serving info */}
-                <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted, marginBottom: 20 }}>
-                  {e.servings === 1 ? "1 serving" : `${e.servings} servings`}
-                </Text>
+              <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 48 }}>
+
+                {/* Serving + loading */}
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: muted }}>
+                    {e.servings === 1 ? "1 serving" : `${e.servings} servings`}
+                    {servSizeG ? `  ·  ${Math.round(servSizeG * e.servings)}${servUnit}` : ""}
+                  </Text>
+                  {detailLoading && <ActivityIndicator size="small" color={accent} />}
+                </View>
 
                 {/* Calories hero */}
-                <View style={{ backgroundColor: card, borderRadius: 20, borderWidth: 1, borderColor: border, padding: 20, alignItems: "center", marginBottom: 14 }}>
-                  <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: muted, letterSpacing: 0.8, marginBottom: 6 }}>CALORIES</Text>
-                  <Text style={{ ...(DOT as any), fontSize: 52, color: text, lineHeight: 56 }}>{Math.round(totalCal)}</Text>
+                <View style={{ backgroundColor: card, borderRadius: 20, borderWidth: 1, borderColor: border, padding: 20, alignItems: "center", marginBottom: 12 }}>
+                  <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: muted, letterSpacing: 0.8, marginBottom: 4 }}>CALORIES</Text>
+                  <Text style={{ ...(DOT as any), fontSize: 52, color: text, lineHeight: 56 }}>{totalCal}</Text>
                   <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: muted, marginTop: 4 }}>kcal</Text>
                 </View>
 
-                {/* Macro breakdown */}
+                {/* Macro cards */}
                 {([
-                  { label: "Protein", val: p, unit: "g", color: LIME,   calPct: calFromP / macroTotal },
-                  { label: "Carbs",   val: c, unit: "g", color: BLUE,   calPct: calFromC / macroTotal },
-                  { label: "Fat",     val: f, unit: "g", color: PURPLE, calPct: calFromF / macroTotal },
+                  { label: "Protein", val: p,  color: LIME,   calPct: calFromP / macroTotal, kcal: calFromP },
+                  { label: "Carbs",   val: c,  color: BLUE,   calPct: calFromC / macroTotal, kcal: calFromC },
+                  { label: "Fat",     val: f,  color: PURPLE, calPct: calFromF / macroTotal, kcal: calFromF },
                 ] as const).map(m => (
-                  <View key={m.label} style={{ backgroundColor: card, borderRadius: 16, borderWidth: 1, borderColor: border, padding: 16, marginBottom: 10 }}>
-                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <View key={m.label} style={{ backgroundColor: card, borderRadius: 16, borderWidth: 1, borderColor: border, padding: 16, marginBottom: 8 }}>
+                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                       <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: text }}>{m.label}</Text>
                       <View style={{ flexDirection: "row", alignItems: "baseline", gap: 3 }}>
-                        <Text style={{ ...(DOT as any), fontSize: 24, color: m.color, lineHeight: 28 }}>{m.val}</Text>
-                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: muted }}>{m.unit}</Text>
+                        <Text style={{ ...(DOT as any), fontSize: 22, color: m.color, lineHeight: 26 }}>{m.val}</Text>
+                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: muted }}>g</Text>
                       </View>
                     </View>
-                    {/* Percentage bar */}
-                    <View style={{ height: 6, backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 3, overflow: "hidden" }}>
-                      <View style={{ width: `${(m.calPct * 100).toFixed(1)}%` as any, height: "100%", backgroundColor: m.color, borderRadius: 3 }} />
+                    <View style={{ height: 5, backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 3, overflow: "hidden" }}>
+                      <View style={{ width: `${Math.round(m.calPct * 100)}%` as any, height: "100%", backgroundColor: m.color, borderRadius: 3 }} />
                     </View>
-                    <Text style={{ fontFamily: "Manrope", fontSize: 11, color: muted, marginTop: 6 }}>
-                      {Math.round(m.calPct * 100)}% of calories · {m.val * (m.label === "Fat" ? 9 : 4)} kcal
+                    <Text style={{ fontFamily: "Manrope", fontSize: 11, color: muted, marginTop: 5 }}>
+                      {Math.round(m.calPct * 100)}% of calories  ·  {m.kcal} kcal
                     </Text>
                   </View>
                 ))}
 
-                {/* Delete button */}
+                {/* Additional nutrients (shown when available) */}
+                {(fiberG != null || sugarG != null || sodiumMg != null) && (
+                  <View style={{ backgroundColor: card, borderRadius: 16, borderWidth: 1, borderColor: border, padding: 16, marginBottom: 8 }}>
+                    <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: text, marginBottom: 12 }}>Additional Nutrients</Text>
+                    {[
+                      fiberG  != null && { label: "Dietary Fiber", val: `${fiberG}g`,   color: "#4ade80" },
+                      sugarG  != null && { label: "Total Sugars",  val: `${sugarG}g`,   color: "#fb923c" },
+                      sodiumMg != null && { label: "Sodium",       val: `${sodiumMg}mg`, color: "#94a3b8" },
+                    ].filter(Boolean).map((row: any) => (
+                      <View key={row.label} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 7, borderTopWidth: 1, borderTopColor: border }}>
+                        <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted }}>{row.label}</Text>
+                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: row.color }}>{row.val}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                {/* Remove button */}
                 <Pressable
                   onPress={() => {
                     Alert.alert("Remove item?", `Remove ${name} from today's log?`, [
@@ -615,11 +675,12 @@ export default function FoodScreen() {
                       { text: "Remove", style: "destructive", onPress: () => {
                         deleteEntry.mutate(e.id);
                         setDetailEntry(null);
+                        setDetailItem(null);
                       }},
                     ]);
                   }}
                   style={({ pressed }) => ({
-                    marginTop: 10, paddingVertical: 14, borderRadius: 16, alignItems: "center",
+                    marginTop: 8, paddingVertical: 14, borderRadius: 16, alignItems: "center",
                     backgroundColor: "rgba(239,68,68,0.1)", opacity: pressed ? 0.7 : 1,
                   })}
                 >

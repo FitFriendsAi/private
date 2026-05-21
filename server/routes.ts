@@ -319,6 +319,13 @@ export function registerRoutes(app: Express) {
     res.json(result);
   });
 
+  app.get("/api/food/items/:id", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const item = await storage.getFoodItemById(Number(req.params.id));
+    if (!item) return res.sendStatus(404);
+    res.json(item);
+  });
+
   app.post("/api/food/items", async (req, res) => {
     if (!requireAuth(req, res)) return;
     try {

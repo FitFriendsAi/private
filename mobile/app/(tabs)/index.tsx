@@ -463,73 +463,67 @@ export default function DashboardScreen() {
         {/* ── Water + Steps ───────────────────────────────────────── */}
         <View style={{ flexDirection: "row", gap: 10, marginBottom: 10 }}>
 
-          {/* Water — solid blue card; top half = add, bottom half = remove */}
-          <View style={{ flex: 1, backgroundColor: BLUE, borderRadius: 24, overflow: "hidden", minHeight: 180 }}>
-
-            {/* ── Top half: tap to ADD a cup ── */}
-            <Pressable
-              onPress={() => addWater.mutate(undefined as any)}
-              disabled={addWater.isPending}
-              style={({ pressed }) => ({
-                paddingHorizontal: 16, paddingTop: 14, paddingBottom: 10,
-                opacity: pressed ? 0.75 : 1,
-              })}
-            >
-              {/* Icon box row — mirrors creatine card */}
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                <View style={{
-                  width: 32, height: 32, borderRadius: 10,
-                  backgroundColor: "rgba(0,0,0,0.18)",
-                  alignItems: "center", justifyContent: "center",
-                }}>
-                  <Droplets size={16} color="rgba(0,0,0,0.65)" />
+          {/* Water card */}
+          <View style={{ flex: 1, backgroundColor: BLUE, borderRadius: 24, padding: 14 }}>
+            {/* Header row */}
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: "rgba(0,0,0,0.15)", alignItems: "center", justifyContent: "center" }}>
+                  <Droplets size={14} color="rgba(0,0,0,0.6)" />
                 </View>
-                <Pressable onPress={openWaterEditor} hitSlop={8}>
-                  <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: "rgba(0,0,0,0.45)" }}>
-                    {targetCups} cup goal
-                  </Text>
-                </Pressable>
+                <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: "#0a0a0a", letterSpacing: 0.6 }}>WATER</Text>
               </View>
-              {/* Bold label — same size/weight as "Creatine" */}
-              <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: "#0a0a0a" }}>
-                WATER
-              </Text>
-              {/* Cup count */}
-              <View style={{ flexDirection: "row", alignItems: "baseline", gap: 4, marginTop: 2, marginBottom: 8 }}>
-                <Text style={{ ...(DOT as any), fontSize: 30, color: "#0a0a0a", lineHeight: 34 }}>{waterCups}</Text>
-                <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: "rgba(0,0,0,0.5)" }}>/ {targetCups}</Text>
-              </View>
-              {/* Centred + icon */}
-              <View style={{ alignItems: "center" }}>
-                <Plus size={20} color="rgba(0,0,0,0.45)" />
-              </View>
-            </Pressable>
+              <Pressable onPress={openWaterEditor} hitSlop={8}>
+                <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: "rgba(0,0,0,0.4)" }}>{targetCups} cup goal</Text>
+              </Pressable>
+            </View>
 
-            {/* ── Segmented bar divider ── */}
-            <View style={{ flexDirection: "row", gap: 2, paddingHorizontal: 14 }}>
-              {Array.from({ length: targetCups }).map((_, i) => (
+            {/* Cup count */}
+            <View style={{ flexDirection: "row", alignItems: "baseline", gap: 3, marginBottom: 8 }}>
+              <Text style={{ ...(DOT as any), fontSize: 28, color: "#0a0a0a", lineHeight: 32 }}>{waterCups}</Text>
+              <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: "rgba(0,0,0,0.45)" }}>/ {targetCups}</Text>
+            </View>
+
+            {/* Segmented bar — cap at 12 segments so it never overflows */}
+            <View style={{ flexDirection: "row", gap: 2, marginBottom: 14 }}>
+              {Array.from({ length: Math.min(targetCups, 12) }).map((_, i) => (
                 <View key={i} style={{
-                  flex: 1, height: 4, borderRadius: 2,
-                  backgroundColor: i < waterCups ? "#ffffff" : "rgba(255,255,255,0.25)",
+                  flex: 1, height: 3, borderRadius: 2,
+                  backgroundColor: i < Math.min(waterCups, 12) ? "#ffffff" : "rgba(255,255,255,0.3)",
                 }} />
               ))}
             </View>
 
-            {/* ── Bottom half: tap to REMOVE a cup ── */}
-            <Pressable
-              onPress={() => {
-                const last = [...water].reverse().find((e: any) => e.id > 0);
-                if (last) removeWater.mutate(last.id);
-              }}
-              disabled={waterCups === 0 || removeWater.isPending}
-              style={({ pressed }) => ({
-                paddingHorizontal: 16, paddingTop: 10, paddingBottom: 14,
-                alignItems: "center", justifyContent: "center",
-                opacity: (pressed || waterCups === 0) ? 0.4 : 1,
-              })}
-            >
-              <Minus size={20} color="rgba(0,0,0,0.45)" />
-            </Pressable>
+            {/* +/- buttons */}
+            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+              <Pressable
+                onPress={() => {
+                  const last = [...water].reverse().find((e: any) => e.id > 0);
+                  if (last) removeWater.mutate(last.id);
+                }}
+                disabled={waterCups === 0 || removeWater.isPending}
+                style={({ pressed }) => ({
+                  width: 38, height: 38, borderRadius: 19,
+                  backgroundColor: "rgba(0,0,0,0.12)",
+                  alignItems: "center", justifyContent: "center",
+                  opacity: (pressed || waterCups === 0) ? 0.3 : 1,
+                })}
+              >
+                <Minus size={16} color="rgba(0,0,0,0.55)" />
+              </Pressable>
+              <Pressable
+                onPress={() => addWater.mutate(undefined as any)}
+                disabled={addWater.isPending}
+                style={({ pressed }) => ({
+                  width: 38, height: 38, borderRadius: 19,
+                  backgroundColor: "rgba(0,0,0,0.12)",
+                  alignItems: "center", justifyContent: "center",
+                  opacity: pressed ? 0.75 : 1,
+                })}
+              >
+                <Plus size={16} color="rgba(0,0,0,0.55)" />
+              </Pressable>
+            </View>
           </View>
 
           {/* Steps */}
@@ -690,70 +684,65 @@ export default function DashboardScreen() {
         {/* ── Creatine + Active Goal ───────────────────────────────── */}
         <View style={{ flexDirection: "row", gap: 10, marginBottom: 10 }}>
 
-          {/* Creatine — top half = add, bottom half = remove */}
-          <View style={{
-            flex: 1, borderRadius: 24, overflow: "hidden",
-            backgroundColor: LIME, minHeight: 180,
-          }}>
-            {/* ── Top half: tap to ADD creatine ── */}
-            <Pressable
-              onPress={() => addCreatine.mutate(undefined)}
-              disabled={addCreatine.isPending}
-              style={({ pressed }) => ({
-                paddingHorizontal: 16, paddingTop: 14, paddingBottom: 10,
-                opacity: pressed ? 0.75 : 1,
-              })}
-            >
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                <View style={{
-                  width: 32, height: 32, borderRadius: 10,
-                  backgroundColor: "rgba(0,0,0,0.12)",
-                  alignItems: "center", justifyContent: "center",
-                }}>
-                  <Pill size={16} color="#0a0a0a" />
+          {/* Creatine card */}
+          <View style={{ flex: 1, backgroundColor: LIME, borderRadius: 24, padding: 14 }}>
+            {/* Header row */}
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: "rgba(0,0,0,0.1)", alignItems: "center", justifyContent: "center" }}>
+                  <Pill size={14} color="#0a0a0a" />
                 </View>
-                {creatineGrams > 0 && (
-                  <Text style={{ ...(DOT as any), fontSize: 18, color: "#0a0a0a" }}>
-                    {creatineGrams % 1 === 0 ? creatineGrams : creatineGrams.toFixed(1)}g
-                  </Text>
-                )}
+                <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: "#0a0a0a", letterSpacing: 0.6 }}>CREATINE</Text>
               </View>
-              <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: "#0a0a0a" }}>
-                Creatine
-              </Text>
-              <Text style={{ fontSize: 11, marginTop: 1, fontFamily: "Manrope", color: "rgba(0,0,0,0.55)" }}>
-                {creatineGrams === 0 ? "tap to add 2.5g" : creatineDone ? "dose reached ✓" : "tap for more"}
-              </Text>
-              <View style={{ alignItems: "center", marginTop: 8 }}>
-                <Plus size={18} color="rgba(0,0,0,0.4)" />
-              </View>
-            </Pressable>
-
-            {/* ── Progress bar divider ── */}
-            <View style={{ flexDirection: "row", gap: 4, paddingHorizontal: 14 }}>
-              {Array.from({ length: 4 }).map((_, i) => {
-                const filled = creatineGrams >= (i + 1) * 2.5;
-                return (
-                  <View key={i} style={{
-                    flex: 1, height: 4, borderRadius: 2,
-                    backgroundColor: filled ? "rgba(0,0,0,0.3)" : "rgba(0,0,0,0.12)",
-                  }} />
-                );
-              })}
+              {creatineGrams > 0 && (
+                <Text style={{ ...(DOT as any), fontSize: 16, color: "#0a0a0a" }}>
+                  {creatineGrams % 1 === 0 ? creatineGrams : creatineGrams.toFixed(1)}g
+                </Text>
+              )}
             </View>
 
-            {/* ── Bottom half: tap to REMOVE last creatine ── */}
-            <Pressable
-              onPress={() => removeCreatine.mutate(undefined)}
-              disabled={creatineGrams === 0 || removeCreatine.isPending}
-              style={({ pressed }) => ({
-                paddingHorizontal: 16, paddingTop: 10, paddingBottom: 14,
-                alignItems: "center", justifyContent: "center",
-                opacity: (pressed || creatineGrams === 0) ? 0.35 : 1,
-              })}
-            >
-              <Minus size={18} color="rgba(0,0,0,0.4)" />
-            </Pressable>
+            {/* Status */}
+            <Text style={{ fontSize: 12, fontFamily: "Manrope", color: "rgba(0,0,0,0.55)", marginBottom: 8 }}>
+              {creatineGrams === 0 ? "Tap + to add 2.5g" : creatineDone ? "Dose reached ✓" : "Tap + for more"}
+            </Text>
+
+            {/* Progress bar */}
+            <View style={{ flexDirection: "row", gap: 3, marginBottom: 14 }}>
+              {Array.from({ length: 4 }).map((_, i) => (
+                <View key={i} style={{
+                  flex: 1, height: 3, borderRadius: 2,
+                  backgroundColor: creatineGrams >= (i + 1) * 2.5 ? "rgba(0,0,0,0.35)" : "rgba(0,0,0,0.12)",
+                }} />
+              ))}
+            </View>
+
+            {/* +/- buttons */}
+            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+              <Pressable
+                onPress={() => removeCreatine.mutate(undefined)}
+                disabled={creatineGrams === 0 || removeCreatine.isPending}
+                style={({ pressed }) => ({
+                  width: 38, height: 38, borderRadius: 19,
+                  backgroundColor: "rgba(0,0,0,0.1)",
+                  alignItems: "center", justifyContent: "center",
+                  opacity: (pressed || creatineGrams === 0) ? 0.3 : 1,
+                })}
+              >
+                <Minus size={16} color="rgba(0,0,0,0.55)" />
+              </Pressable>
+              <Pressable
+                onPress={() => addCreatine.mutate(undefined)}
+                disabled={addCreatine.isPending}
+                style={({ pressed }) => ({
+                  width: 38, height: 38, borderRadius: 19,
+                  backgroundColor: "rgba(0,0,0,0.1)",
+                  alignItems: "center", justifyContent: "center",
+                  opacity: pressed ? 0.75 : 1,
+                })}
+              >
+                <Plus size={16} color="rgba(0,0,0,0.55)" />
+              </Pressable>
+            </View>
           </View>
 
           {/* Active goal (or empty state) */}
