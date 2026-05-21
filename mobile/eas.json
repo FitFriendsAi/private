@@ -7,18 +7,24 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "ios": {
-        "simulator": false
+      "ios": { "simulator": false },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://fitfriends.replit.app"
       }
     },
     "preview": {
-      "distribution": "internal",
-      "ios": {
-        "simulator": false
+      "distribution": "store",
+      "ios": { "simulator": false },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://fitfriends.replit.app"
       }
     },
     "production": {
-      "autoIncrement": true
+      "distribution": "store",
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://fitfriends.replit.app"
+      }
     }
   },
   "submit": {
