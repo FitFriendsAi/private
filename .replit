@@ -5,7 +5,7 @@ entrypoint = "server/index.ts"
 channel = "stable-24_05"
 
 [deployment]
-run = ["sh", "-c", "npm install && npm run build && npm start"]
+run = ["sh", "-c", "npm install --include=dev && npm run build && npm start"]
 deploymentTarget = "cloudrun"
 
 [[ports]]
