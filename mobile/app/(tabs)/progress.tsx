@@ -830,7 +830,7 @@ export default function ProgressScreen() {
                     {avgCal.toLocaleString()}
                   </Text>
                   <Text style={{ fontSize: 9, fontFamily: "Manrope-Bold", color: avgCalPct > 1 ? "#ef4444" : LIME, letterSpacing: 0.5 }}>
-                    {avgCalPct > 1 ? "Over" : "Under"}
+                    {avgCalPct > 1 ? "Over" : "avg"}
                   </Text>
                 </View>
               </View>
