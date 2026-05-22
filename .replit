@@ -5,6 +5,7 @@ entrypoint = "server/index.ts"
 channel = "stable-24_05"
 
 [deployment]
+run = ["node", "dist/index.js"]
 deploymentTarget = "cloudrun"
 
 [[ports]]

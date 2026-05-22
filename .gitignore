@@ -2,8 +2,9 @@
 node_modules/
 mobile/node_modules/
 
-# Build output
+# Build output — keep compiled server bundle so Replit deployment needs no npm
 dist/
+!dist/index.js
 mobile/.expo/
 mobile/dist/
 
