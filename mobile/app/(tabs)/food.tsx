@@ -8,7 +8,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
 import { todayStr } from "@/lib/utils";
-import { Plus, Search, X, ChevronRight, UtensilsCrossed, Trash2 } from "lucide-react-native";
+import { Plus, Search, X, ChevronRight, UtensilsCrossed, Trash2, ScanLine, Camera, PenLine, ChevronDown } from "lucide-react-native";
 import Svg, { Circle } from "react-native-svg";
 
 const today = todayStr();
@@ -224,6 +224,7 @@ export default function FoodScreen() {
     setServings("1");
     setAddingToMealId(null);
     setSearchFilter("all");
+    resetAddModal();
   }
 
   function openAddForMeal(meal: MealType) {
@@ -233,6 +234,7 @@ export default function FoodScreen() {
     setSearchQuery("");
     setSearchResults([]);
     setServings("1");
+    resetAddModal();
     setShowAdd(true);
   }
 
@@ -243,6 +245,23 @@ export default function FoodScreen() {
     setSearchResults([]);
     setMealIngredientServings("1");
     setShowAdd(true);
+  }
+
+  // ── Add food modal view: "home" | "search" | "manual" ───────────────────
+  const [addView, setAddView] = useState<"home" | "search" | "manual">("home");
+  const [showMealPicker, setShowMealPicker] = useState(false);
+
+  // Manual entry state
+  const [manualName, setManualName]       = useState("");
+  const [manualCals, setManualCals]       = useState("");
+  const [manualProtein, setManualProtein] = useState("");
+  const [manualCarbs, setManualCarbs]     = useState("");
+  const [manualFat, setManualFat]         = useState("");
+
+  function resetAddModal() {
+    setAddView("home");
+    setShowMealPicker(false);
+    setManualName(""); setManualCals(""); setManualProtein(""); setManualCarbs(""); setManualFat("");
   }
 
   // ── Search filter: "all" | "restaurant" ──────────────────────────────────
@@ -321,6 +340,20 @@ export default function FoodScreen() {
         carbsActual:    Math.round(foodItem.carbsG   * sv * 10) / 10,
         fatActual:      Math.round(foodItem.fatG     * sv * 10) / 10,
       })),
+    });
+  }
+
+  function addManualToLog() {
+    if (!manualName.trim()) return Alert.alert("Enter a food name");
+    const cals = parseFloat(manualCals) || 0;
+    const sv = parseFloat(servings) || 1;
+    addEntry.mutate({
+      date: today, mealType: activeMeal,
+      foodName: manualName.trim(), servings: sv,
+      caloriesActual: cals,
+      proteinActual: parseFloat(manualProtein) || 0,
+      carbsActual:   parseFloat(manualCarbs)   || 0,
+      fatActual:     parseFloat(manualFat)     || 0,
     });
   }
 
@@ -695,24 +728,117 @@ export default function FoodScreen() {
       {/* ── Add Food Modal ── */}
       <Modal visible={showAdd} animationType="slide" presentationStyle="pageSheet">
         <View style={{ flex: 1, backgroundColor: bg }}>
-          <View style={{ padding: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderBottomWidth: 1, borderBottomColor: border }}>
-            <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 18, color: text }}>
-              {addingToMealId ? "Add Ingredient" : `Add to ${MEAL_LABELS[activeMeal]}`}
+
+          {/* Header */}
+          <View style={{ padding: 20, paddingBottom: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderBottomWidth: 1, borderBottomColor: border }}>
+            <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 20, color: text }}>
+              {addingToMealId ? "Add Ingredient" : "Add Food"}
             </Text>
-            <Pressable onPress={closeAddModal}><X size={22} color={text} /></Pressable>
+            <Pressable onPress={closeAddModal} hitSlop={8}>
+              <X size={22} color={text} />
+            </Pressable>
           </View>
 
-          <ScrollView contentContainerStyle={{ padding: 16 }} keyboardShouldPersistTaps="handled">
-            {!selectedItem ? (
+          <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 48 }} keyboardShouldPersistTaps="handled">
+
+            {/* ── HOME view: meal picker + action buttons ── */}
+            {addView === "home" && !selectedItem && (
               <>
+                {/* Meal selector */}
+                {!addingToMealId && (
+                  <View style={{ marginBottom: 20 }}>
+                    <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 11, color: muted, letterSpacing: 0.8, marginBottom: 8 }}>MEAL</Text>
+                    <Pressable
+                      onPress={() => setShowMealPicker(p => !p)}
+                      style={{ backgroundColor: card, borderRadius: 14, borderWidth: 1, borderColor: border, paddingHorizontal: 16, paddingVertical: 14, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
+                    >
+                      <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 16, color: text }}>{MEAL_LABELS[activeMeal]}</Text>
+                      <ChevronDown size={18} color={muted} />
+                    </Pressable>
+                    {showMealPicker && (
+                      <View style={{ backgroundColor: card, borderRadius: 14, borderWidth: 1, borderColor: border, marginTop: 4, overflow: "hidden" }}>
+                        {MEALS.map((m, i) => (
+                          <Pressable
+                            key={m}
+                            onPress={() => { setActiveMeal(m); setShowMealPicker(false); }}
+                            style={({ pressed }) => ({
+                              paddingHorizontal: 16, paddingVertical: 13,
+                              borderTopWidth: i > 0 ? 1 : 0, borderTopColor: border,
+                              backgroundColor: activeMeal === m ? `${accentActive}18` : "transparent",
+                              opacity: pressed ? 0.7 : 1,
+                            })}
+                          >
+                            <Text style={{ fontFamily: activeMeal === m ? "Manrope-Bold" : "Manrope", fontSize: 15, color: activeMeal === m ? accentActive : text }}>
+                              {MEAL_LABELS[m]}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                )}
+
+                {/* Barcode + Scan Label buttons */}
+                <View style={{ flexDirection: "row", gap: 12, marginBottom: 24 }}>
+                  <Pressable
+                    onPress={() => Alert.alert("Barcode Scanner", "Point your camera at a barcode to look up nutrition info.\n\n(Camera access coming soon)")}
+                    style={({ pressed }) => ({
+                      flex: 1, backgroundColor: card, borderRadius: 16, borderWidth: 1, borderColor: border,
+                      paddingVertical: 20, alignItems: "center", gap: 8, opacity: pressed ? 0.7 : 1,
+                    })}
+                  >
+                    <ScanLine size={26} color={text} />
+                    <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: text }}>Barcode</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => Alert.alert("Scan Nutrition Label", "Take a photo of a nutrition label to auto-fill values.\n\n(Camera access coming soon)")}
+                    style={({ pressed }) => ({
+                      flex: 1, backgroundColor: card, borderRadius: 16, borderWidth: 1, borderColor: border,
+                      paddingVertical: 20, alignItems: "center", gap: 8, opacity: pressed ? 0.7 : 1,
+                    })}
+                  >
+                    <Camera size={26} color={text} />
+                    <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: text }}>Scan Label</Text>
+                  </Pressable>
+                </View>
+
+                {/* OR SEARCH divider */}
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 16 }}>
+                  <View style={{ flex: 1, height: 1, backgroundColor: border }} />
+                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 11, color: muted, letterSpacing: 1 }}>OR SEARCH</Text>
+                  <View style={{ flex: 1, height: 1, backgroundColor: border }} />
+                </View>
+
+                {/* Search input (tappable, goes to search view) */}
+                <Pressable
+                  onPress={() => setAddView("search")}
+                  style={{ flexDirection: "row", alignItems: "center", backgroundColor: card, borderRadius: 14, borderWidth: 1, borderColor: border, paddingHorizontal: 14, paddingVertical: 14, gap: 10, marginBottom: 16 }}
+                >
+                  <Search size={18} color={muted} />
+                  <Text style={{ flex: 1, fontFamily: "Manrope", fontSize: 15, color: muted }}>Search food…</Text>
+                </Pressable>
+
+                {/* Manual entry */}
+                <Pressable
+                  onPress={() => setAddView("manual")}
+                  style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 14, opacity: pressed ? 0.6 : 1 })}
+                >
+                  <PenLine size={16} color={muted} />
+                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 14, color: muted }}>Manual entry</Text>
+                </Pressable>
+              </>
+            )}
+
+            {/* ── SEARCH view ── */}
+            {addView === "search" && !selectedItem && (
+              <>
+                <Pressable onPress={() => { setAddView("home"); setSearchQuery(""); setSearchResults([]); }} style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 14 }}>
+                  <ChevronDown size={16} color={muted} style={{ transform: [{ rotate: "90deg" }] }} />
+                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: muted }}>Back</Text>
+                </Pressable>
+
                 {/* Search bar */}
-                <View style={{
-                  flexDirection: "row", alignItems: "center",
-                  backgroundColor: card, borderRadius: 14,
-                  borderWidth: 1, borderColor: border,
-                  paddingHorizontal: 12, paddingVertical: 10, gap: 8,
-                  marginBottom: 10,
-                }}>
+                <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: card, borderRadius: 14, borderWidth: 1, borderColor: border, paddingHorizontal: 12, paddingVertical: 10, gap: 8, marginBottom: 10 }}>
                   {searching
                     ? <ActivityIndicator size="small" color={muted} style={{ width: 18 }} />
                     : <Search size={18} color={muted} />
@@ -733,49 +859,26 @@ export default function FoodScreen() {
                   )}
                 </View>
 
-                {/* Filter toggle: All / Restaurants */}
+                {/* Filter toggle */}
                 <View style={{ flexDirection: "row", gap: 8, marginBottom: 14 }}>
                   {(["all", "restaurant"] as const).map(f => (
-                    <Pressable
-                      key={f}
-                      onPress={() => setSearchFilter(f)}
-                      style={{
-                        paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20,
-                        backgroundColor: searchFilter === f ? accentActive : card,
-                        borderWidth: 1, borderColor: searchFilter === f ? accentActive : border,
-                      }}
-                    >
-                      <Text style={{
-                        fontFamily: "Manrope-SemiBold", fontSize: 12,
-                        color: searchFilter === f ? (isWhite ? "#fff" : palette.accentText) : muted,
-                      }}>
+                    <Pressable key={f} onPress={() => setSearchFilter(f)}
+                      style={{ paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, backgroundColor: searchFilter === f ? accentActive : card, borderWidth: 1, borderColor: searchFilter === f ? accentActive : border }}>
+                      <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: searchFilter === f ? (isWhite ? "#fff" : palette.accentText) : muted }}>
                         {f === "all" ? "All Foods" : "Restaurants"}
                       </Text>
                     </Pressable>
                   ))}
                 </View>
 
-                {/* Popular restaurant quick-picks (shown when no query typed) */}
+                {/* Popular restaurants */}
                 {searchQuery.length < 2 && (
                   <View style={{ marginBottom: 18 }}>
-                    <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 11, color: muted, letterSpacing: 0.8, marginBottom: 10 }}>
-                      POPULAR RESTAURANTS
-                    </Text>
+                    <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 11, color: muted, letterSpacing: 0.8, marginBottom: 10 }}>POPULAR RESTAURANTS</Text>
                     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                      {[
-                        "McDonald's", "Chipotle", "Starbucks", "Chick-fil-A",
-                        "Subway", "Taco Bell", "Panera", "Wendy's",
-                        "Domino's", "Olive Garden", "Shake Shack", "Five Guys",
-                      ].map(r => (
-                        <Pressable
-                          key={r}
-                          onPress={() => { setSearchFilter("restaurant"); setSearchQuery(r); }}
-                          style={({ pressed }) => ({
-                            paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20,
-                            backgroundColor: card, borderWidth: 1, borderColor: border,
-                            opacity: pressed ? 0.7 : 1,
-                          })}
-                        >
+                      {["McDonald's","Chipotle","Starbucks","Chick-fil-A","Subway","Taco Bell","Panera","Wendy's","Domino's","Olive Garden","Shake Shack","Five Guys"].map(r => (
+                        <Pressable key={r} onPress={() => { setSearchFilter("restaurant"); setSearchQuery(r); }}
+                          style={({ pressed }) => ({ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, backgroundColor: card, borderWidth: 1, borderColor: border, opacity: pressed ? 0.7 : 1 })}>
                           <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: text }}>{r}</Text>
                         </Pressable>
                       ))}
@@ -784,30 +887,60 @@ export default function FoodScreen() {
                 )}
 
                 {searchQuery.length >= 2 && searchResults.length === 0 && !searching && (
-                  <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted, textAlign: "center", marginTop: 10 }}>
-                    No results found
-                  </Text>
+                  <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted, textAlign: "center", marginTop: 10 }}>No results found</Text>
                 )}
 
                 {searchResults.map(item => (
-                  <Pressable
-                    key={(item.id ?? 0) + "_" + item.name}
-                    onPress={() => setSelectedItem(item)}
-                    style={({ pressed }) => ({ backgroundColor: card, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: border, marginBottom: 8, opacity: pressed ? 0.7 : 1 })}
-                  >
-                    {item.brand && (
-                      <Text style={{ fontFamily: "Manrope-Bold", fontSize: 10, color: "#aaaaaa", letterSpacing: 0.6, marginBottom: 2 }}>
-                        {item.brand.toUpperCase()}
-                      </Text>
-                    )}
+                  <Pressable key={(item.id ?? 0) + "_" + item.name} onPress={() => setSelectedItem(item)}
+                    style={({ pressed }) => ({ backgroundColor: card, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: border, marginBottom: 8, opacity: pressed ? 0.7 : 1 })}>
+                    {item.brand && <Text style={{ fontFamily: "Manrope-Bold", fontSize: 10, color: "#aaaaaa", letterSpacing: 0.6, marginBottom: 2 }}>{item.brand.toUpperCase()}</Text>}
                     <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 14, color: text }}>{item.name}</Text>
-                    <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted, marginTop: 2 }}>
-                      {item.calories} kcal · P {item.proteinG}g · C {item.carbsG}g · F {item.fatG}g
-                    </Text>
+                    <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted, marginTop: 2 }}>{item.calories} kcal · P {item.proteinG}g · C {item.carbsG}g · F {item.fatG}g</Text>
                   </Pressable>
                 ))}
               </>
-            ) : (
+            )}
+
+            {/* ── MANUAL ENTRY view ── */}
+            {addView === "manual" && !selectedItem && (
+              <>
+                <Pressable onPress={() => setAddView("home")} style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 18 }}>
+                  <ChevronDown size={16} color={muted} style={{ transform: [{ rotate: "90deg" }] }} />
+                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: muted }}>Back</Text>
+                </Pressable>
+
+                {[
+                  { label: "FOOD NAME", value: manualName, set: setManualName, placeholder: "e.g. Chicken breast", keyboard: "default" as const },
+                  { label: "CALORIES", value: manualCals, set: setManualCals, placeholder: "0", keyboard: "decimal-pad" as const },
+                  { label: "PROTEIN (g)", value: manualProtein, set: setManualProtein, placeholder: "0", keyboard: "decimal-pad" as const },
+                  { label: "CARBS (g)", value: manualCarbs, set: setManualCarbs, placeholder: "0", keyboard: "decimal-pad" as const },
+                  { label: "FAT (g)", value: manualFat, set: setManualFat, placeholder: "0", keyboard: "decimal-pad" as const },
+                ].map(f => (
+                  <View key={f.label} style={{ marginBottom: 14 }}>
+                    <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 11, color: muted, letterSpacing: 0.8, marginBottom: 6 }}>{f.label}</Text>
+                    <TextInput
+                      value={f.value} onChangeText={f.set}
+                      placeholder={f.placeholder} placeholderTextColor={muted}
+                      keyboardType={f.keyboard}
+                      style={{ backgroundColor: card, borderRadius: 12, padding: 13, borderWidth: 1, borderColor: border, fontFamily: "Manrope-SemiBold", fontSize: 15, color: text }}
+                    />
+                  </View>
+                ))}
+
+                <Pressable
+                  onPress={addManualToLog}
+                  disabled={addEntry.isPending || !manualName.trim()}
+                  style={({ pressed }) => ({ backgroundColor: accentActive, borderRadius: 16, paddingVertical: 16, alignItems: "center", marginTop: 8, opacity: (pressed || addEntry.isPending || !manualName.trim()) ? 0.6 : 1 })}
+                >
+                  <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 15, color: isWhite ? "#fff" : palette.accentText }}>
+                    {addEntry.isPending ? "Adding…" : `Add to ${MEAL_LABELS[activeMeal]}`}
+                  </Text>
+                </Pressable>
+              </>
+            )}
+
+            {/* ── Serving selector (after item picked from search) ── */}
+            {selectedItem && (
               <>
                 <View style={{ backgroundColor: card, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: border, marginBottom: 20 }}>
                   <Text style={{ fontFamily: "Manrope-Bold", fontSize: 16, color: text }}>{selectedItem.name}</Text>
@@ -841,6 +974,7 @@ export default function FoodScreen() {
                 </View>
               </>
             )}
+
           </ScrollView>
         </View>
       </Modal>
