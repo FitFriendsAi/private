@@ -688,24 +688,35 @@ export default function ProgressScreen() {
         <View style={{ backgroundColor: card, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: border, marginBottom: 10 }}>
           <Text style={{ fontSize: 16, fontFamily: "Manrope-Bold", color: text, marginBottom: 14 }}>Macronutrients</Text>
 
-          {/* Stacked bar chart */}
-          <View onLayout={e => setMacroChartW(Math.floor(e.nativeEvent.layout.width))}>
-            <StackedBars data={macroBarData} w={macroChartW} h={80} />
-          </View>
-
-          {/* Legend row */}
-          <View style={{ flexDirection: "row", gap: 16, marginTop: 12 }}>
-            {[
-              { label: "Fat",     pct: fatGoal     > 0 ? Math.round(todayTotals.fat     / fatGoal     * 100) : 0, color: PURPLE },
-              { label: "Carbs",   pct: carbsGoal   > 0 ? Math.round(todayTotals.carbs   / carbsGoal   * 100) : 0, color: BLUE   },
-              { label: "Protein", pct: proteinGoal > 0 ? Math.round(todayTotals.protein / proteinGoal * 100) : 0, color: LIME   },
-            ].map(m => (
-              <View key={m.label} style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-                <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: m.color }} />
-                <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>{m.label}</Text>
-                <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: text }}>{m.pct}%</Text>
+          <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
+            {/* Left: donut + legend */}
+            <View style={{ width: 100, alignItems: "flex-start" }}>
+              <View style={{ width: 90, height: 90, alignItems: "center", justifyContent: "center", marginBottom: 10 }}>
+                <Donut pct={Math.max(
+                  proteinGoal > 0 ? todayTotals.protein / proteinGoal : 0,
+                  carbsGoal   > 0 ? todayTotals.carbs   / carbsGoal   : 0,
+                  fatGoal     > 0 ? todayTotals.fat     / fatGoal     : 0,
+                )} size={90} strokeWidth={8} trackColor="rgba(255,255,255,0.08)" fillColor={LIME} />
               </View>
-            ))}
+              {[
+                { label: "Fat",     pct: fatGoal     > 0 ? Math.round(todayTotals.fat     / fatGoal     * 100) : 0, color: PURPLE },
+                { label: "Carbs",   pct: carbsGoal   > 0 ? Math.round(todayTotals.carbs   / carbsGoal   * 100) : 0, color: BLUE   },
+                { label: "Protein", pct: proteinGoal > 0 ? Math.round(todayTotals.protein / proteinGoal * 100) : 0, color: LIME   },
+              ].map(m => (
+                <View key={m.label} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", width: "100%", marginBottom: 4 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                    <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: m.color }} />
+                    <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>{m.label}</Text>
+                  </View>
+                  <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: text }}>{m.pct}%</Text>
+                </View>
+              ))}
+            </View>
+
+            {/* Right: stacked bar chart */}
+            <View style={{ flex: 1 }} onLayout={e => setMacroChartW(Math.floor(e.nativeEvent.layout.width))}>
+              <StackedBars data={macroBarData} w={macroChartW} h={80} />
+            </View>
           </View>
 
           {/* AVG row */}
