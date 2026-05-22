@@ -571,6 +571,12 @@ export default function ProgressScreen() {
   const calPct    = calGoal > 0 ? todayTotals.cal / calGoal : 0;
   const remaining = Math.max(0, calGoal - todayTotals.cal);
 
+  // Period-average calories (for the calories donut on the Progress page)
+  const avgCal    = summary.length > 0
+    ? Math.round(summary.reduce((s: number, d: any) => s + (d.calories ?? 0), 0) / summary.length)
+    : 0;
+  const avgCalPct = calGoal > 0 ? avgCal / calGoal : 0;
+
   // Period-average macro adherence (from summary)
   const { avgPrtPct, avgCrbPct, avgFatPct, avgFatG, avgCrbG, avgPrtG } = useMemo(() => {
     if (summary.length === 0) return { avgPrtPct: 0, avgCrbPct: 0, avgFatPct: 0, avgFatG: 0, avgCrbG: 0, avgPrtG: 0 };
@@ -698,17 +704,17 @@ export default function ProgressScreen() {
           <Text style={{ fontSize: 16, fontFamily: "Manrope-Bold", color: text, marginBottom: 14 }}>Calories</Text>
 
           <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
-            {/* Left: donut */}
+            {/* Left: donut — avg calories for the selected period */}
             <View style={{ alignItems: "center", width: 80 }}>
               <View style={{ width: 80, height: 80, alignItems: "center", justifyContent: "center" }}>
-                <Donut pct={calPct} size={80} strokeWidth={7}
-                  trackColor="rgba(255,255,255,0.08)" fillColor={calPct > 1 ? "#ef4444" : LIME} />
+                <Donut pct={avgCalPct} size={80} strokeWidth={7}
+                  trackColor="rgba(255,255,255,0.08)" fillColor={avgCalPct > 1 ? "#ef4444" : LIME} />
                 <View style={{ position: "absolute", alignItems: "center" }}>
                   <Text style={{ ...(DOT as any), fontSize: 18, color: text, lineHeight: 20 }}>
-                    {Math.round(todayTotals.cal)}
+                    {avgCal.toLocaleString()}
                   </Text>
-                  <Text style={{ fontSize: 9, fontFamily: "Manrope-Bold", color: calPct > 1 ? "#ef4444" : LIME, letterSpacing: 0.5 }}>
-                    {calPct > 1 ? "Over" : "Under"}
+                  <Text style={{ fontSize: 9, fontFamily: "Manrope-Bold", color: avgCalPct > 1 ? "#ef4444" : LIME, letterSpacing: 0.5 }}>
+                    {avgCalPct > 1 ? "Over" : "Under"}
                   </Text>
                 </View>
               </View>
@@ -732,8 +738,8 @@ export default function ProgressScreen() {
           {/* Bottom row */}
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: border }}>
             <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: text }}>
-              <Text style={{ ...(DOT as any), fontSize: 14 }}>{remaining.toLocaleString()}</Text>
-              {" "}kcal remaining today
+              <Text style={{ ...(DOT as any), fontSize: 14 }}>{avgCal.toLocaleString()}</Text>
+              {" "}avg kcal / day
             </Text>
             <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>
               target {calGoal.toLocaleString()}
