@@ -172,21 +172,6 @@ function sexLabel(v: string) {
 // Accent colour display order for the swatches
 const SWATCH_ORDER = ["white", "pink", "blue", "purple", "peach", "dark"];
 
-// ── HealthKit stub for non-iOS ────────────────────────────────────────────
-const AppleHealthKit: any = Platform.OS === "ios"
-  ? (() => { try { return require("react-native-health").default; } catch { return null; } })()
-  : null;
-
-const HK_PERMISSIONS = AppleHealthKit ? {
-  permissions: {
-    read: [
-      AppleHealthKit?.Constants?.Permissions?.HeartRate,
-      AppleHealthKit?.Constants?.Permissions?.Weight,
-      AppleHealthKit?.Constants?.Permissions?.Steps,
-    ].filter(Boolean),
-    write: [AppleHealthKit?.Constants?.Permissions?.Weight].filter(Boolean),
-  },
-} : { permissions: { read: [], write: [] } };
 
 // ── Main ──────────────────────────────────────────────────────────────────
 export default function SettingsScreen() {
@@ -246,6 +231,40 @@ export default function SettingsScreen() {
     onError: () => Alert.alert("Error", "Could not save profile."),
   });
 
+  // ── Apple Health ──
+  const health = useHealth();
+  const [hkSyncing, setHkSyncing] = useState(false);
+
+  const connectHealth = useCallback(() => {
+    if (!health.available) {
+      Alert.alert("Not available", "Apple Health is only available on iOS devices.");
+      return;
+    }
+    health.authorize();
+  }, [health]);
+
+  const syncWeightFromHealth = useCallback(async () => {
+    if (!health.available) { connectHealth(); return; }
+    setHkSyncing(true);
+    health.syncWeightFromHealth(
+      async (date, weightKg) => {
+        await apiRequest("POST", "/api/measurements", {
+          date,
+          weightGrams: Math.round(weightKg * 1000),
+        });
+      },
+      (count) => {
+        qc.invalidateQueries({ queryKey: ["/api/measurements"] });
+        setHkSyncing(false);
+        Alert.alert("Synced", count > 0 ? `Imported ${count} weight reading${count !== 1 ? "s" : ""} from Apple Health.` : "No new weight data found.");
+      },
+      (msg) => {
+        setHkSyncing(false);
+        Alert.alert("Sync failed", msg);
+      },
+    );
+  }, [health, connectHealth, qc]);
+
   // ── Log weight ──
   const [weightInput, setWeightInput] = useState("");
   const logWeight = useMutation({
@@ -254,57 +273,14 @@ export default function SettingsScreen() {
       weightGrams: lbsToGrams(parseFloat(weightInput)),
     }),
     onSuccess: () => {
+      const kg = lbsToGrams(parseFloat(weightInput)) / 1000;
+      health.writeWeight(kg);
       setWeightInput("");
       qc.invalidateQueries({ queryKey: ["/api/measurements"] });
       Alert.alert("Logged", "Weight saved!");
     },
     onError: () => Alert.alert("Error", "Could not log weight."),
   });
-
-  // ── Apple Health (compact) ──
-  const [hkConnected, setHkConnected] = useState(false);
-  const [hkSyncing, setHkSyncing] = useState(false);
-
-  const connectHealthKit = useCallback(() => {
-    if (!AppleHealthKit) {
-      Alert.alert("Not available", "Apple Health is only available on iOS devices.");
-      return;
-    }
-    AppleHealthKit.initHealthKit(HK_PERMISSIONS, (err: any) => {
-      if (err) { Alert.alert("Error", String(err)); return; }
-      setHkConnected(true);
-    });
-  }, []);
-
-  const syncHealthKit = useCallback(async () => {
-    if (!AppleHealthKit || !hkConnected) { connectHealthKit(); return; }
-    setHkSyncing(true);
-    try {
-      const end = new Date();
-      const start = new Date(); start.setDate(start.getDate() - 30);
-      const opts = { startDate: start.toISOString(), endDate: end.toISOString(), unit: "pound", limit: 500, ascending: true };
-      await new Promise<void>((resolve) => {
-        AppleHealthKit.getWeightSamples(opts, async (err: any, results: any[]) => {
-          if (err || !results?.length) { resolve(); return; }
-          for (const r of results) {
-            try {
-              await apiRequest("POST", "/api/measurements", {
-                date: new Date(r.startDate).toISOString().slice(0, 10),
-                weightGrams: Math.round(r.value * 453.592),
-              });
-            } catch {}
-          }
-          qc.invalidateQueries({ queryKey: ["/api/measurements"] });
-          resolve();
-        });
-      });
-      Alert.alert("Synced", "Weight data imported from Apple Health.");
-    } catch (e: any) {
-      Alert.alert("Sync failed", e?.message ?? "Unknown error");
-    } finally {
-      setHkSyncing(false);
-    }
-  }, [hkConnected, connectHealthKit, qc]);
 
   // ── Picker modal state ──
   const [openPicker, setOpenPicker] = useState<
@@ -603,44 +579,91 @@ export default function SettingsScreen() {
             </Text>
           </View>
 
-          {/* ── Apple Health (compact) ── */}
-          <View style={{ backgroundColor: card, borderRadius: 20, borderWidth: 1, borderColor: border, padding: 14, marginBottom: 8 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+          {/* ── Apple Health ── */}
+          <View style={{ backgroundColor: card, borderRadius: 20, borderWidth: 1, borderColor: border, padding: 16, marginBottom: 8 }}>
+            {/* Header row */}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: health.authorized ? 14 : 0 }}>
               <View style={{
                 width: 36, height: 36, borderRadius: 10,
-                backgroundColor: hkConnected ? "rgba(239,68,68,0.15)" : "rgba(255,255,255,0.06)",
+                backgroundColor: health.authorized ? "rgba(239,68,68,0.15)" : "rgba(255,255,255,0.06)",
                 alignItems: "center", justifyContent: "center",
               }}>
-                <Heart size={17} color={hkConnected ? "#ef4444" : muted} />
+                <Heart size={17} color={health.authorized ? "#ef4444" : muted} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: text }}>Apple Health</Text>
-                <Text style={{ fontFamily: "Manrope", fontSize: 11, color: hkConnected ? "#22c55e" : muted }}>
-                  {hkConnected ? "Connected · steps, weight" : "Sync steps & weight data"}
+                <Text style={{ fontFamily: "Manrope", fontSize: 11, color: health.authorized ? "#22c55e" : muted }}>
+                  {health.authorized ? "Connected" : health.available ? "Tap to connect" : "iOS only"}
                 </Text>
               </View>
-              <Pressable
-                onPress={hkConnected ? syncHealthKit : connectHealthKit}
-                disabled={hkSyncing}
-                style={({ pressed }) => ({
-                  flexDirection: "row", alignItems: "center", gap: 6,
-                  backgroundColor: hkConnected ? "#1a1a1a" : "#ef4444",
-                  borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8,
-                  opacity: pressed || hkSyncing ? 0.7 : 1,
-                })}
-              >
-                {hkSyncing
-                  ? <ActivityIndicator size="small" color="#fff" />
-                  : <RefreshCw size={13} color={hkConnected ? muted : "#fff"} />
-                }
-                <Text style={{
-                  fontFamily: "Manrope-Bold", fontSize: 12,
-                  color: hkConnected ? muted : "#fff",
-                }}>
-                  {hkSyncing ? "Syncing…" : hkConnected ? "Sync" : "Connect"}
-                </Text>
-              </Pressable>
+              {!health.authorized && (
+                <Pressable
+                  onPress={connectHealth}
+                  style={({ pressed }) => ({
+                    flexDirection: "row", alignItems: "center", gap: 6,
+                    backgroundColor: "#ef4444", borderRadius: 12,
+                    paddingHorizontal: 14, paddingVertical: 8, opacity: pressed ? 0.7 : 1,
+                  })}
+                >
+                  <Heart size={13} color="#fff" />
+                  <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: "#fff" }}>Connect</Text>
+                </Pressable>
+              )}
             </View>
+
+            {/* Sync details — only when connected */}
+            {health.authorized && (
+              <>
+                {/* What we read */}
+                <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: muted, letterSpacing: 0.6, marginBottom: 8 }}>READS FROM HEALTH</Text>
+                <View style={{ gap: 6, marginBottom: 14 }}>
+                  {[
+                    { label: "Steps today",      value: health.todaySteps != null ? health.todaySteps.toLocaleString() : "—" },
+                    { label: "Active calories",   value: health.todayActiveCalories != null ? `${health.todayActiveCalories} kcal` : "—" },
+                  ].map(row => (
+                    <View key={row.label} style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                      <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted }}>{row.label}</Text>
+                      <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: text }}>{row.value}</Text>
+                    </View>
+                  ))}
+                </View>
+
+                {/* What we write */}
+                <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: muted, letterSpacing: 0.6, marginBottom: 8 }}>WRITES TO HEALTH</Text>
+                <View style={{ gap: 6, marginBottom: 14 }}>
+                  {[
+                    { label: "Body weight",   note: "when you log weight" },
+                    { label: "Workouts",      note: "when you finish a session" },
+                    { label: "Nutrition",     note: "when you log food" },
+                    { label: "Water intake",  note: "when you log water" },
+                  ].map(row => (
+                    <View key={row.label} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                      <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted }}>{row.label}</Text>
+                      <Text style={{ fontFamily: "Manrope", fontSize: 11, color: muted }}>{row.note}</Text>
+                    </View>
+                  ))}
+                </View>
+
+                {/* Import historical weight */}
+                <Pressable
+                  onPress={syncWeightFromHealth}
+                  disabled={hkSyncing}
+                  style={({ pressed }) => ({
+                    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+                    backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 12,
+                    paddingVertical: 10, opacity: pressed || hkSyncing ? 0.6 : 1,
+                  })}
+                >
+                  {hkSyncing
+                    ? <ActivityIndicator size="small" color={muted} />
+                    : <RefreshCw size={13} color={muted} />
+                  }
+                  <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: muted }}>
+                    {hkSyncing ? "Importing…" : "Import weight history"}
+                  </Text>
+                </Pressable>
+              </>
+            )}
           </View>
 
         </ScrollView>

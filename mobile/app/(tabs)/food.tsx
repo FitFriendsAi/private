@@ -7,6 +7,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
+import { useHealth } from "@/hooks/use-health";
 import { todayStr } from "@/lib/utils";
 import { Plus, Search, X, ChevronRight, UtensilsCrossed, Trash2, ScanLine, Camera, PenLine, ChevronDown } from "lucide-react-native";
 import Svg, { Circle } from "react-native-svg";
@@ -117,6 +118,7 @@ function mealTotals(ingredients: MealIngredient[]) {
 export default function FoodScreen() {
   const { palette, isWhite } = useTheme();
   const qc = useQueryClient();
+  const health = useHealth();
 
   // ── Tab: "log" | "meals" ──
   const [tab, setTab] = useState<"log" | "meals">("log");
@@ -179,8 +181,24 @@ export default function FoodScreen() {
   // ── Mutations ──
   const addEntry = useMutation({
     mutationFn: (data: any) => apiRequest("POST", "/api/food-log", data),
-    onSuccess: () => {
+    onSuccess: (_res, data) => {
       qc.invalidateQueries({ queryKey: ["/api/food-log", today] });
+      // Write nutrition to Apple Health silently
+      if (health.authorized) {
+        const mealLabel = (data.mealType as string);
+        const mealType =
+          mealLabel === "breakfast" ? "Breakfast" :
+          mealLabel === "lunch"     ? "Lunch"     :
+          mealLabel === "dinner"    ? "Dinner"    : "Snack";
+        health.writeFood({
+          mealName:  mealLabel.charAt(0).toUpperCase() + mealLabel.slice(1),
+          mealType,
+          calories:  Math.round(data.caloriesActual ?? 0),
+          proteinG:  Math.round(data.proteinActual  ?? 0),
+          carbsG:    Math.round(data.carbsActual    ?? 0),
+          fatG:      Math.round(data.fatActual      ?? 0),
+        });
+      }
       closeAddModal();
     },
   });

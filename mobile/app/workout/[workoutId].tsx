@@ -22,6 +22,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useQueries, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
+import { useHealth } from "@/hooks/use-health";
 import { gramsToLbs, lbsToGrams } from "@/lib/utils";
 import { ArrowLeft, Check, Plus, X, Search, Timer } from "lucide-react-native";
 
@@ -53,6 +54,7 @@ export default function WorkoutSessionScreen() {
   const { palette } = useTheme();
   const { card, cardBorder: border, text, muted, accent, accentText, bg } = palette;
   const qc = useQueryClient();
+  const health = useHealth();
 
   const [exercises,    setExercises]    = useState<ActiveEx[]>([]);
   const [elapsed,      setElapsed]      = useState(0);
@@ -225,10 +227,17 @@ export default function WorkoutSessionScreen() {
           });
         }
       }
+      const completedAt = new Date().toISOString();
+      const durationMinutes = Math.round(elapsed / 60);
       await apiRequest("PATCH", `/api/workouts/${workoutId}`, {
-        completedAt:     new Date().toISOString(),
-        durationMinutes: Math.round(elapsed / 60),
+        completedAt,
+        durationMinutes,
       });
+      // Write workout to Apple Health silently
+      if (health.authorized && durationMinutes > 0) {
+        const startDate = new Date(Date.now() - elapsed * 1000).toISOString();
+        health.writeWorkout({ startDate, durationMinutes });
+      }
       qc.invalidateQueries({ queryKey: ["/api/workouts"] });
       router.back();
     } catch (e: any) {

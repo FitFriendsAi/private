@@ -209,7 +209,9 @@ export default function DashboardScreen() {
   const addWater = useMutation({
     mutationFn: () =>
       apiRequest("POST", "/api/water", { date: today, amountMl: ozToMl(8) }),
-    onSuccess: () => console.log("✅ water added"),
+    onSuccess: () => {
+      if (health.authorized) health.writeWater(0.2366); // 8 oz ≈ 0.2366 L
+    },
     onError:   (e: any) => console.error("❌ addWater failed:", e?.message ?? e),
     onSettled: () => qc.invalidateQueries({ queryKey: ["/api/water", today] }),
   });
