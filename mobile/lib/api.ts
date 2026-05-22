@@ -8,8 +8,13 @@
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 
+// On web: use a relative URL so API calls go to the same origin
+// (works on localhost:5173 in dev, fitfriends.replit.app in prod, etc.)
+// On native (iOS/Android): use the configured URL or fallback to local dev server
 export const API_BASE =
-  process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:5001";
+  Platform.OS === "web"
+    ? ""
+    : (process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:5001");
 
 const TOKEN_KEY = "fitcore_jwt";
 const isWeb = Platform.OS === "web";
