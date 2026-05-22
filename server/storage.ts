@@ -16,7 +16,12 @@ import {
   type InsertWorkoutTemplate, type InsertTemplateExercise, type InsertWorkout, type InsertWorkoutSet,
 } from "../shared/schema.js";
 
-const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+const pool = new pg.Pool({
+  connectionString: process.env.DATABASE_URL,
+  keepAlive: true,
+  idleTimeoutMillis: 60_000,
+  connectionTimeoutMillis: 5_000,
+});
 const db = drizzle(pool);
 
 export const storage = {
