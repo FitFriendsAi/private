@@ -177,7 +177,7 @@ function StackedBars({
         const rects = [];
         if (fatH  > 0) { y -= fatH;  rects.push(<Rect key="f" x={x} y={y} width={barW} height={fatH}  fill={PURPLE} />); }
         if (crbH  > 0) { y -= crbH;  rects.push(<Rect key="c" x={x} y={y} width={barW} height={crbH}  fill={BLUE}   />); }
-        if (prtH  > 0) { y -= prtH;  rects.push(<Rect key="p" x={x} y={y} width={barW} height={prtH}  rx={2} fill={LIME} />); }
+        if (prtH  > 0) { y -= prtH;  rects.push(<Rect key="p" x={x} y={y} width={barW} height={prtH}  fill={LIME}   />); }
         return <Svg key={i}>{rects}</Svg>;
       })}
       {data.map((d, i) => {
