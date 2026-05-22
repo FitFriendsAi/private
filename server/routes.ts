@@ -245,21 +245,23 @@ export function registerRoutes(app: Express) {
     if (local.length >= 10) return res.json(local);
 
     // 2. External APIs in parallel
-    //    FatSecret is primary for all searches (best database, includes restaurants)
+    //    USDA is primary — full nutrition panel (fiber, sodium, sugar, etc.) with real API key
+    //    FatSecret fills name-matching gaps (macros only on free tier)
     //    Restaurant mode also adds OFF brand browse for extra coverage
-    //    General mode adds USDA + OFF text search as supplements
+    //    General mode adds OFF text search as a supplement
     const isRestaurant = typeFilter === "restaurant";
-    const [fs, usda, off, offBrand] = await Promise.all([
-      searchFatSecret(q, 30),
-      searchUSDA(q, isRestaurant ? 30 : 15, isRestaurant),
+    const [usda, fs, off, offBrand] = await Promise.all([
+      searchUSDA(q, isRestaurant ? 40 : 25, isRestaurant),
+      searchFatSecret(q, 20),
       (!isRestaurant && local.length < 3) ? searchFoodByName(q, 10) : Promise.resolve([]),
       isRestaurant ? searchBrandOFF(q, 20) : Promise.resolve([]),
     ]);
 
-    // 3. Merge + deduplicate by name (FatSecret → USDA → OFF brand → OFF text → local)
+    // 3. Merge + deduplicate by name (USDA → FatSecret → OFF brand → OFF text → local)
+    //    USDA leads so full-nutrition items always take precedence over macro-only FatSecret results
     const seen = new Set(local.map((x: any) => x.name.toLowerCase()));
     const candidates: any[] = [...local];
-    for (const item of [...fs, ...usda, ...offBrand, ...off]) {
+    for (const item of [...usda, ...fs, ...offBrand, ...off]) {
       const key = (item.name || "").toLowerCase();
       if (!seen.has(key)) {
         seen.add(key);
