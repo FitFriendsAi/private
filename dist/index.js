@@ -57696,12 +57696,16 @@ app.use(
 app.use(import_passport.default.initialize());
 app.use(import_passport.default.session());
 registerRoutes(app);
-if (process.env.NODE_ENV === "production") {
+{
   const { default: path } = await import("path");
   const { fileURLToPath } = await import("url");
+  const { existsSync } = await import("fs");
   const __dirname2 = path.dirname(fileURLToPath(import.meta.url));
-  app.use(import_express.default.static(path.join(__dirname2, "public")));
-  app.get("*", (_req, res) => res.sendFile(path.join(__dirname2, "public", "index.html")));
+  const publicPath = path.join(__dirname2, "public");
+  if (existsSync(publicPath)) {
+    app.use(import_express.default.static(publicPath));
+    app.get("*", (_req, res) => res.sendFile(path.join(publicPath, "index.html")));
+  }
 }
 app.use((err, _req, res, _next) => {
   const status = typeof err?.status === "number" ? err.status : 500;

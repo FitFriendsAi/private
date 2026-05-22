@@ -3,10 +3,12 @@ entrypoint = "server/index.ts"
 
 [nix]
 channel = "stable-24_05"
-packages = ["nodejs_20", "nodePackages.npm"]
+packages = ["nodejs-22_x", "nodePackages.npm"]
 
 [deployment]
-deploymentTarget = "cloudrun"
+deploymentTarget = "autoscale"
+build = ["node_modules/.bin/esbuild", "server/index.ts", "--bundle", "--platform=node", "--format=esm", "--outfile=dist/index.js", "--external:pg-native", "--external:dotenv"]
+run = ["node", "dist/index.js"]
 
 [[ports]]
 localPort = 5001
