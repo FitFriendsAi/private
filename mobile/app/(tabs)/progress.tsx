@@ -6,7 +6,7 @@ import { apiRequest } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
 import { gramsToLbs, todayStr } from "@/lib/utils";
 import Svg, { Circle, Polyline, Rect, Line } from "react-native-svg";
-import { Scale, Dumbbell, ChevronDown, X } from "lucide-react-native";
+import { Scale, Dumbbell, ChevronDown, X, BarChart2, LineChart as LineChartIcon } from "lucide-react-native";
 
 const today = todayStr();
 
@@ -291,6 +291,163 @@ function PeriodBars({
   );
 }
 
+// ── Calorie line chart (with y-axis + optional goal line) ─────────
+function PeriodLine({
+  data, maxVal, color, w, h = 110, goalLine,
+}: {
+  data: { label: string; value: number }[];
+  maxVal: number;
+  color: string;
+  w: number;
+  h?: number;
+  goalLine?: number;
+}) {
+  if (w <= 0 || data.length === 0) return null;
+  const yAxisW = 34;
+  const labelH = 14;
+  const chartW = w - yAxisW;
+  const chartH = h - labelH;
+  const hasAny = data.some(d => d.value > 0);
+  const maxV   = Math.max(maxVal, hasAny ? Math.max(...data.map(d => d.value)) : 0, 1);
+  const pad    = 4;
+
+  // Y-axis ticks
+  const step  = Math.ceil(maxV / 4 / 50) * 50 || 50;
+  const ticks = [0, step, step * 2, step * 3, step * 4].filter(t => t <= maxV + step);
+
+  const n = data.length;
+  const showLabel = (i: number) => {
+    if (n <= 7)  return true;
+    if (n <= 15) return i === 0 || i === n - 1 || i % 3 === 0;
+    if (n <= 31) return i === 0 || i === n - 1 || i % 7 === 0;
+    return i === 0 || i === n - 1 || i % Math.ceil(n / 6) === 0;
+  };
+
+  const xOf = (i: number) =>
+    yAxisW + pad + (n === 1 ? chartW / 2 : (i / (n - 1)) * (chartW - pad * 2));
+  const yOf = (v: number) => pad + ((maxV - v) / maxV) * (chartH - pad * 2);
+
+  const pts = data
+    .filter(d => d.value > 0)
+    .map((_, origI) => {
+      const i = data.findIndex((d2, j) => j >= origI && d2.value > 0);
+      return null; // handled below
+    });
+
+  // Build polyline points only from non-zero entries
+  const nonZero = data.map((d, i) => ({ ...d, i })).filter(d => d.value > 0);
+  const polyPts = nonZero.map(d => `${xOf(d.i)},${yOf(d.value)}`).join(" ");
+  const last    = nonZero[nonZero.length - 1];
+  const goalY   = goalLine != null ? yOf(goalLine) : null;
+
+  return (
+    <Svg width={w} height={h}>
+      {/* Gridlines + y-axis labels */}
+      {ticks.map((t, i) => {
+        const y = yOf(t);
+        return (
+          <Svg key={`t${i}`}>
+            <Line x1={yAxisW} y1={y} x2={w} y2={y} stroke="#1e1e1e" strokeWidth={1} />
+            <SvgText x={yAxisW - 4} y={y + 4} fontSize={8} fontWeight="600"
+              fill="#444444" textAnchor="end">{t}</SvgText>
+          </Svg>
+        );
+      })}
+      {/* Baseline */}
+      <Line x1={yAxisW} y1={chartH} x2={w} y2={chartH} stroke="#333333" strokeWidth={1} />
+      {/* Goal line */}
+      {goalY != null && goalY > 0 && goalY < chartH && (
+        <Svg>
+          <Line x1={yAxisW} y1={goalY} x2={w} y2={goalY}
+            stroke={color} strokeWidth={1.5} strokeDasharray="4,3" />
+          <SvgText x={yAxisW - 4} y={goalY + 4} fontSize={8} fontWeight="600"
+            fill={color} textAnchor="end">goal</SvgText>
+        </Svg>
+      )}
+      {/* Line */}
+      {nonZero.length >= 2 && (
+        <Polyline points={polyPts} fill="none" stroke={color}
+          strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+      )}
+      {/* Dot on last point */}
+      {last && <Circle cx={xOf(last.i)} cy={yOf(last.value)} r={4} fill={color} />}
+      {/* X-axis labels */}
+      {data.map((d, i) => {
+        if (!showLabel(i)) return null;
+        return (
+          <SvgText key={`l${i}`} x={xOf(i)} y={h}
+            fontSize={8} fontWeight="600"
+            fill={i === n - 1 && hasAny ? "#ffffff" : "#555555"}
+            textAnchor="middle">{d.label}</SvgText>
+        );
+      })}
+    </Svg>
+  );
+}
+
+// ── Macro line chart (fat/carbs/protein as 3 lines) ───────────────
+function MacroLine({
+  data, w, h = 80,
+}: {
+  data: { label: string; fat: number; carbs: number; protein: number }[];
+  w: number;
+  h?: number;
+}) {
+  if (w <= 0 || data.length === 0) return null;
+  const labelH = 14;
+  const chartH = h - labelH;
+  const pad    = 4;
+  const n      = data.length;
+
+  const allVals = data.flatMap(d => [d.fat, d.carbs, d.protein]).filter(v => v > 0);
+  const maxV    = allVals.length > 0 ? Math.max(...allVals) : 1;
+
+  const showLabel = (i: number) => {
+    if (n <= 7)  return true;
+    if (n <= 15) return i === 0 || i === n - 1 || i % 3 === 0;
+    if (n <= 31) return i === 0 || i === n - 1 || i % 7 === 0;
+    return i === 0 || i === n - 1 || i % Math.ceil(n / 6) === 0;
+  };
+
+  const xOf = (i: number) =>
+    pad + (n === 1 ? (w - pad * 2) / 2 : (i / (n - 1)) * (w - pad * 2));
+  const yOf = (v: number) => pad + ((maxV - v) / maxV) * (chartH - pad * 2);
+
+  const lines = [
+    { key: "fat",     color: PURPLE, vals: data.map(d => d.fat) },
+    { key: "carbs",   color: BLUE,   vals: data.map(d => d.carbs) },
+    { key: "protein", color: LIME,   vals: data.map(d => d.protein) },
+  ];
+
+  return (
+    <Svg width={w} height={h}>
+      <Line x1={0} y1={chartH} x2={w} y2={chartH} stroke="#333333" strokeWidth={1} />
+      {lines.map(line => {
+        const nonZero = line.vals.map((v, i) => ({ v, i })).filter(p => p.v > 0);
+        if (nonZero.length < 2) return null;
+        const pts = nonZero.map(p => `${xOf(p.i)},${yOf(p.v)}`).join(" ");
+        const last = nonZero[nonZero.length - 1];
+        return (
+          <Svg key={line.key}>
+            <Polyline points={pts} fill="none" stroke={line.color}
+              strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+            <Circle cx={xOf(last.i)} cy={yOf(last.v)} r={3.5} fill={line.color} />
+          </Svg>
+        );
+      })}
+      {data.map((d, i) => {
+        if (!showLabel(i)) return null;
+        return (
+          <SvgText key={`l${i}`} x={xOf(i)} y={h}
+            fontSize={8} fontWeight="600"
+            fill={i === n - 1 ? "#ffffff" : "#555555"}
+            textAnchor="middle">{d.label}</SvgText>
+        );
+      })}
+    </Svg>
+  );
+}
+
 // tiny SVG Text (react-native-svg)
 function SvgText({ x, y, fontSize, fontWeight, fill, textAnchor, children }: any) {
   const { Text: T } = require("react-native-svg");
@@ -483,6 +640,8 @@ export default function ProgressScreen() {
   const [showExPicker, setShowExPicker]     = useState(false);
   const [calChartW, setCalChartW]           = useState(0);
   const [macroChartW, setMacroChartW]       = useState(0);
+  const [calChartType,   setCalChartType]   = useState<"bar" | "line">("bar");
+  const [macroChartType, setMacroChartType] = useState<"bar" | "line">("bar");
   const [weightChartW, setWeightChartW]     = useState(0);
   const [strengthChartW, setStrengthChartW] = useState(0);
 
@@ -645,7 +804,20 @@ export default function ProgressScreen() {
 
         {/* Calories card */}
         <View style={{ backgroundColor: card, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: border, marginBottom: 10 }}>
-          <Text style={{ fontSize: 16, fontFamily: "Manrope-Bold", color: text, marginBottom: 14 }}>Calories</Text>
+          {/* Header row with toggle */}
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+            <Text style={{ fontSize: 16, fontFamily: "Manrope-Bold", color: text }}>Calories</Text>
+            <View style={{ flexDirection: "row", backgroundColor: "#1a1a1a", borderRadius: 10, padding: 2 }}>
+              {(["bar", "line"] as const).map(t => (
+                <Pressable key={t} onPress={() => setCalChartType(t)}
+                  style={({ pressed }) => ({ padding: 5, borderRadius: 8, backgroundColor: calChartType === t ? "#333333" : "transparent", opacity: pressed ? 0.7 : 1 })}>
+                  {t === "bar"
+                    ? <BarChart2 size={14} color={calChartType === t ? text : "#555555"} />
+                    : <LineChartIcon size={14} color={calChartType === t ? text : "#555555"} />}
+                </Pressable>
+              ))}
+            </View>
+          </View>
 
           <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
             {/* Left: donut — avg calories for the selected period */}
@@ -664,20 +836,15 @@ export default function ProgressScreen() {
               </View>
             </View>
 
-            {/* Right: bar chart with y-axis + goal line */}
-            <View
-              style={{ flex: 1 }}
-              onLayout={e => setCalChartW(Math.floor(e.nativeEvent.layout.width))}
-            >
-              <PeriodBars
-                data={calBarData}
-                maxVal={calGoal}
-                barColor={LIME}
-                w={calChartW}
-                h={110}
-                showAxis
-                goalLine={calGoal}
-              />
+            {/* Right: bar or line chart */}
+            <View style={{ flex: 1 }} onLayout={e => setCalChartW(Math.floor(e.nativeEvent.layout.width))}>
+              {calChartType === "bar" ? (
+                <PeriodBars data={calBarData} maxVal={calGoal} barColor={LIME}
+                  w={calChartW} h={110} showAxis goalLine={calGoal} />
+              ) : (
+                <PeriodLine data={calBarData} maxVal={calGoal} color={LIME}
+                  w={calChartW} h={110} goalLine={calGoal} />
+              )}
             </View>
           </View>
 
@@ -695,7 +862,20 @@ export default function ProgressScreen() {
 
         {/* Macronutrients card */}
         <View style={{ backgroundColor: card, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: border, marginBottom: 10 }}>
-          <Text style={{ fontSize: 16, fontFamily: "Manrope-Bold", color: text, marginBottom: 14 }}>Macronutrients</Text>
+          {/* Header row with toggle */}
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+            <Text style={{ fontSize: 16, fontFamily: "Manrope-Bold", color: text }}>Macronutrients</Text>
+            <View style={{ flexDirection: "row", backgroundColor: "#1a1a1a", borderRadius: 10, padding: 2 }}>
+              {(["bar", "line"] as const).map(t => (
+                <Pressable key={t} onPress={() => setMacroChartType(t)}
+                  style={({ pressed }) => ({ padding: 5, borderRadius: 8, backgroundColor: macroChartType === t ? "#333333" : "transparent", opacity: pressed ? 0.7 : 1 })}>
+                  {t === "bar"
+                    ? <BarChart2 size={14} color={macroChartType === t ? text : "#555555"} />
+                    : <LineChartIcon size={14} color={macroChartType === t ? text : "#555555"} />}
+                </Pressable>
+              ))}
+            </View>
+          </View>
 
           <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
             {/* Left: multi-colour macro donut + legend */}
@@ -718,9 +898,13 @@ export default function ProgressScreen() {
               ))}
             </View>
 
-            {/* Right: stacked bar chart */}
+            {/* Right: stacked bar or 3-line macro chart */}
             <View style={{ flex: 1 }} onLayout={e => setMacroChartW(Math.floor(e.nativeEvent.layout.width))}>
-              <StackedBars data={macroBarData} w={macroChartW} h={80} />
+              {macroChartType === "bar" ? (
+                <StackedBars data={macroBarData} w={macroChartW} h={80} />
+              ) : (
+                <MacroLine data={macroBarData} w={macroChartW} h={80} />
+              )}
             </View>
           </View>
 
