@@ -7,6 +7,7 @@
     "dev:server": "tsx watch server/index.ts",
     "dev:client": "vite",
     "build": "cd mobile && npm install --legacy-peer-deps && npx expo export --platform web --output-dir ../dist/public && cd .. && esbuild server/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --external:pg-native --external:dotenv --banner:js=\"import { createRequire } from 'module'; const require = createRequire(import.meta.url);\"",
+    "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --external:pg-native --external:dotenv --banner:js=\"import { createRequire } from 'module'; const require = createRequire(import.meta.url);\"",
     "start": "node dist/index.js",
     "check": "tsc --noEmit",
     "db:push": "drizzle-kit push"
