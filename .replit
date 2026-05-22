@@ -3,6 +3,7 @@ entrypoint = "server/index.ts"
 
 [nix]
 channel = "stable-24_05"
+packages = ["nodejs_20", "nodePackages.npm"]
 
 [deployment]
 run = ["sh", "-c", "npm install --include=dev && npm run build && npm start"]
