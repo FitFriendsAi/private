@@ -58,7 +58,7 @@ function emptyScaffold(period: Period): { label: string; value: number }[] {
   return MONTH_ABBR.map(label => ({ label, value: 0 }));
 }
 
-// ── Donut ring ────────────────────────────────────────────────────
+// ── Single-colour donut ring (calories card) ──────────────────────
 function Donut({
   pct, size, strokeWidth, trackColor, fillColor,
 }: {
@@ -80,6 +80,59 @@ function Donut({
           transform={`rotate(-90 ${size / 2} ${size / 2})`}
         />
       )}
+    </Svg>
+  );
+}
+
+// ── Multi-segment macro donut (fat/carbs/protein arcs) ────────────
+function MacroDonut({
+  fat, carbs, protein, size, strokeWidth,
+}: {
+  fat: number; carbs: number; protein: number;
+  size: number; strokeWidth: number;
+}) {
+  const total = fat + carbs + protein;
+  const r     = (size - strokeWidth) / 2;
+  const circ  = 2 * Math.PI * r;
+  const cx    = size / 2;
+  const cy    = size / 2;
+
+  if (total <= 0) {
+    return (
+      <Svg width={size} height={size}>
+        <Circle cx={cx} cy={cy} r={r}
+          stroke="rgba(255,255,255,0.08)" strokeWidth={strokeWidth} fill="none" />
+      </Svg>
+    );
+  }
+
+  // Build segments: fat → carbs → protein, starting from top
+  const segs = [
+    { color: PURPLE, val: fat },
+    { color: BLUE,   val: carbs },
+    { color: LIME,   val: protein },
+  ];
+  let angle = -90;
+  const rendered = segs.map((seg, i) => {
+    if (seg.val <= 0) return null;
+    const arcLen = (seg.val / total) * circ;
+    const startAngle = angle;
+    angle += (seg.val / total) * 360;
+    return (
+      <Circle key={i}
+        cx={cx} cy={cy} r={r}
+        stroke={seg.color} strokeWidth={strokeWidth} fill="none"
+        strokeDasharray={`${arcLen} ${circ - arcLen}`}
+        transform={`rotate(${startAngle} ${cx} ${cy})`}
+      />
+    );
+  });
+
+  return (
+    <Svg width={size} height={size}>
+      <Circle cx={cx} cy={cy} r={r}
+        stroke="rgba(255,255,255,0.08)" strokeWidth={strokeWidth} fill="none" />
+      {rendered}
     </Svg>
   );
 }
@@ -519,14 +572,18 @@ export default function ProgressScreen() {
   const remaining = Math.max(0, calGoal - todayTotals.cal);
 
   // Period-average macro adherence (from summary)
-  const { avgPrtPct, avgCrbPct, avgFatPct } = useMemo(() => {
-    if (summary.length === 0) return { avgPrtPct: 0, avgCrbPct: 0, avgFatPct: 0 };
+  const { avgPrtPct, avgCrbPct, avgFatPct, avgFatG, avgCrbG, avgPrtG } = useMemo(() => {
+    if (summary.length === 0) return { avgPrtPct: 0, avgCrbPct: 0, avgFatPct: 0, avgFatG: 0, avgCrbG: 0, avgPrtG: 0 };
     const n = summary.length;
     const avg = (key: string) => summary.reduce((s: number, d: any) => s + (d[key] ?? 0), 0) / n;
+    const avgFatG = avg("fat");
+    const avgCrbG = avg("carbs");
+    const avgPrtG = avg("protein");
     return {
-      avgPrtPct: proteinGoal > 0 ? Math.round(avg("protein") / proteinGoal * 100) : 0,
-      avgCrbPct: carbsGoal   > 0 ? Math.round(avg("carbs")   / carbsGoal   * 100) : 0,
-      avgFatPct: fatGoal     > 0 ? Math.round(avg("fat")     / fatGoal     * 100) : 0,
+      avgFatG, avgCrbG, avgPrtG,
+      avgPrtPct: proteinGoal > 0 ? Math.round(avgPrtG / proteinGoal * 100) : 0,
+      avgCrbPct: carbsGoal   > 0 ? Math.round(avgCrbG / carbsGoal   * 100) : 0,
+      avgFatPct: fatGoal     > 0 ? Math.round(avgFatG / fatGoal     * 100) : 0,
     };
   }, [summary, proteinGoal, carbsGoal, fatGoal]);
 
@@ -689,19 +746,15 @@ export default function ProgressScreen() {
           <Text style={{ fontSize: 16, fontFamily: "Manrope-Bold", color: text, marginBottom: 14 }}>Macronutrients</Text>
 
           <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
-            {/* Left: donut + legend */}
+            {/* Left: multi-colour macro donut + legend */}
             <View style={{ width: 100, alignItems: "flex-start" }}>
               <View style={{ width: 90, height: 90, alignItems: "center", justifyContent: "center", marginBottom: 10 }}>
-                <Donut pct={Math.max(
-                  proteinGoal > 0 ? todayTotals.protein / proteinGoal : 0,
-                  carbsGoal   > 0 ? todayTotals.carbs   / carbsGoal   : 0,
-                  fatGoal     > 0 ? todayTotals.fat     / fatGoal     : 0,
-                )} size={90} strokeWidth={8} trackColor="rgba(255,255,255,0.08)" fillColor={LIME} />
+                <MacroDonut fat={avgFatG} carbs={avgCrbG} protein={avgPrtG} size={90} strokeWidth={8} />
               </View>
               {[
-                { label: "Fat",     pct: fatGoal     > 0 ? Math.round(todayTotals.fat     / fatGoal     * 100) : 0, color: PURPLE },
-                { label: "Carbs",   pct: carbsGoal   > 0 ? Math.round(todayTotals.carbs   / carbsGoal   * 100) : 0, color: BLUE   },
-                { label: "Protein", pct: proteinGoal > 0 ? Math.round(todayTotals.protein / proteinGoal * 100) : 0, color: LIME   },
+                { label: "Fat",     pct: avgFatPct, color: PURPLE },
+                { label: "Carbs",   pct: avgCrbPct, color: BLUE   },
+                { label: "Protein", pct: avgPrtPct, color: LIME   },
               ].map(m => (
                 <View key={m.label} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", width: "100%", marginBottom: 4 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
