@@ -84,6 +84,130 @@ function Donut({
   );
 }
 
+// ── Stacked macro bar chart ───────────────────────────────────────
+function StackedBars({
+  data, w, h = 80,
+}: {
+  data: { label: string; fat: number; carbs: number; protein: number }[];
+  w: number; h?: number;
+}) {
+  if (w <= 0 || data.length === 0) return null;
+  const n      = data.length;
+  const gap    = n > 20 ? 1 : n > 10 ? 2 : 4;
+  const barW   = Math.max(1, (w - gap * (n - 1)) / n);
+  const labelH = 14;
+  const chartH = h - labelH;
+  const hasAny = data.some(d => d.fat + d.carbs + d.protein > 0);
+  const maxV   = hasAny
+    ? Math.max(...data.map(d => d.fat + d.carbs + d.protein), 1)
+    : 1;
+
+  const showLabel = (i: number) => {
+    if (n <= 7)  return true;
+    if (n <= 15) return i === 0 || i === n - 1 || i % 3 === 0;
+    if (n <= 31) return i === 0 || i === n - 1 || i % 7 === 0;
+    return i === 0 || i === n - 1 || i % Math.ceil(n / 6) === 0;
+  };
+
+  return (
+    <Svg width={w} height={h}>
+      <Line x1={0} y1={chartH} x2={w} y2={chartH} stroke="#333333" strokeWidth={1} />
+      {data.map((d, i) => {
+        const total = d.fat + d.carbs + d.protein;
+        if (total <= 0) return null;
+        const totalH = (total / maxV) * chartH;
+        const x = i * (barW + gap);
+        const op = i === n - 1 ? 1 : 0.35;
+        const fatH  = (d.fat     / total) * totalH;
+        const crbH  = (d.carbs   / total) * totalH;
+        const prtH  = (d.protein / total) * totalH;
+        let y = chartH;
+        const rects = [];
+        if (fatH  > 0) { y -= fatH;  rects.push(<Rect key="f" x={x} y={y} width={barW} height={fatH}  fill={PURPLE} opacity={op} />); }
+        if (crbH  > 0) { y -= crbH;  rects.push(<Rect key="c" x={x} y={y} width={barW} height={crbH}  fill={BLUE}   opacity={op} />); }
+        if (prtH  > 0) { y -= prtH;  rects.push(<Rect key="p" x={x} y={y} width={barW} height={prtH}  rx={2} fill={LIME} opacity={op} />); }
+        return <Svg key={i}>{rects}</Svg>;
+      })}
+      {data.map((d, i) => {
+        if (!showLabel(i)) return null;
+        const x = i * (barW + gap) + barW / 2;
+        return (
+          <SvgText key={`l${i}`} x={x} y={h} fontSize={8} fontWeight="600"
+            fill={i === n - 1 && hasAny ? "#ffffff" : "#555555"} textAnchor="middle">
+            {d.label}
+          </SvgText>
+        );
+      })}
+    </Svg>
+  );
+}
+
+// ── Calorie trend bars with y-axis ────────────────────────────────
+function TrendBars({
+  data, calGoal, w, h = 130,
+}: {
+  data: { label: string; value: number }[];
+  calGoal: number; w: number; h?: number;
+}) {
+  if (w <= 0 || data.length === 0) return null;
+  const yAxisW = 34;
+  const labelH = 14;
+  const chartW = w - yAxisW;
+  const chartH = h - labelH;
+  const n      = data.length;
+  const hasAny = data.some(d => d.value > 0);
+  const dataMax = hasAny ? Math.max(...data.map(d => d.value)) : 0;
+  const maxV   = Math.max(calGoal, dataMax, 1);
+  // 4 y-axis gridlines: round to nearest 50
+  const step   = Math.ceil(maxV / 4 / 50) * 50 || 50;
+  const ticks  = [0, step, step * 2, step * 3, step * 4].filter(t => t <= maxV + step);
+  const gap    = n > 20 ? 1 : n > 10 ? 2 : 3;
+  const barW   = Math.max(1, (chartW - gap * (n - 1)) / n);
+
+  const showLabel = (i: number) => {
+    if (n <= 7)  return true;
+    if (n <= 15) return i === 0 || i === n - 1 || i % 2 === 0;
+    if (n <= 31) return i === 0 || i === n - 1 || i % 7 === 0;
+    return i === 0 || i === n - 1 || i % Math.ceil(n / 5) === 0;
+  };
+
+  return (
+    <Svg width={w} height={h}>
+      {/* Gridlines + y-axis labels */}
+      {ticks.map((t, i) => {
+        const y = chartH - (t / maxV) * chartH;
+        return (
+          <Svg key={i}>
+            <Line x1={yAxisW} y1={y} x2={w} y2={y} stroke="#1e1e1e" strokeWidth={1} />
+            <SvgText x={yAxisW - 4} y={y + 4} fontSize={8} fontWeight="600" fill="#444444" textAnchor="end">{t}</SvgText>
+          </Svg>
+        );
+      })}
+      {/* Bars */}
+      {data.map((d, i) => {
+        if (d.value <= 0) return null;
+        const bh = Math.max(2, (d.value / maxV) * chartH);
+        const x  = yAxisW + i * (barW + gap);
+        return <Rect key={i} x={x} y={chartH - bh} width={barW} height={bh} rx={2}
+          fill="#ffffff" opacity={i === n - 1 ? 1 : 0.45} />;
+      })}
+      {/* X-axis labels */}
+      {data.map((d, i) => {
+        if (!showLabel(i)) return null;
+        const x = yAxisW + i * (barW + gap) + barW / 2;
+        return (
+          <SvgText key={`l${i}`} x={x} y={h} fontSize={8} fontWeight="600"
+            fill={i === n - 1 && hasAny ? "#ffffff" : "#555555"} textAnchor="middle">
+            {d.label}
+          </SvgText>
+        );
+      })}
+      {/* Baseline */}
+      <Line x1={yAxisW} y1={chartH} x2={w} y2={chartH} stroke="#333333" strokeWidth={1} />
+    </Svg>
+  );
+}
+
 // ── Period bar chart (generic — adapts to any number of bars) ────
 function PeriodBars({
   data, maxVal, barColor, w, h = 72,
@@ -343,6 +467,7 @@ export default function ProgressScreen() {
   const [showExPicker, setShowExPicker]     = useState(false);
   const [calChartW, setCalChartW]           = useState(0);
   const [macroChartW, setMacroChartW]       = useState(0);
+  const [trendChartW, setTrendChartW]       = useState(0);
   const [weightChartW, setWeightChartW]     = useState(0);
   const [strengthChartW, setStrengthChartW] = useState(0);
 
@@ -413,11 +538,30 @@ export default function ProgressScreen() {
       : emptyScaffold(period),
   [summary, period]);
 
-  const proteinData = useMemo(() =>
+  // Stacked macro bar data
+  const macroBarData = useMemo(() =>
     summary.length > 0
-      ? summary.map((d: any) => ({ label: d.label, value: d.protein }))
-      : emptyScaffold(period),
+      ? summary.map((d: any) => ({ label: d.label, fat: d.fat ?? 0, carbs: d.carbs ?? 0, protein: d.protein ?? 0 }))
+      : emptyScaffold(period).map(d => ({ label: d.label, fat: 0, carbs: 0, protein: 0 })),
   [summary, period]);
+
+  // Calorie trend with month-day labels for 1M view
+  const calTrendData = useMemo(() => {
+    const MONS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const fmtKey = (key: string) => {
+      if (!key || !key.includes("-")) return key;
+      const p = key.split("-");
+      return p.length === 3
+        ? `${MONS[parseInt(p[1]) - 1]} ${parseInt(p[2])}`
+        : MONS[parseInt(p[1]) - 1];
+    };
+    return summary.length > 0
+      ? summary.map((d: any) => ({
+          label: (period === "1W") ? d.label : fmtKey(d.period ?? ""),
+          value: d.calories,
+        }))
+      : emptyScaffold(period);
+  }, [summary, period]);
 
   // Filtered measurements for weight chart
   const cutoff = new Date();
@@ -427,6 +571,11 @@ export default function ProgressScreen() {
   );
   const weightData = [...filteredMeasurements].reverse().map((m: any) => gramsToLbs(m.weightGrams));
   const latestLbs  = measurements[0] ? gramsToLbs(measurements[0].weightGrams) : null;
+  const weightChange = weightData.length >= 2 ? weightData[weightData.length - 1] - weightData[0] : 0;
+  const weeksElapsed = filteredMeasurements.length >= 2
+    ? Math.max((new Date(filteredMeasurements[0].date).getTime() - new Date(filteredMeasurements[filteredMeasurements.length - 1].date).getTime()) / (7 * 24 * 3600 * 1000), 1)
+    : periodDays(period) / 7;
+  const perWeek = weightData.length >= 2 ? weightChange / weeksElapsed : 0;
 
   // Strength history filtered to selected period
   const strengthCutoff = useMemo(() => {
@@ -525,12 +674,9 @@ export default function ProgressScreen() {
 
           {/* Bottom row */}
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: border }}>
-            <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: text }}>
-              <Text style={{ ...(DOT as any), fontSize: 16 }}>{Math.round(todayTotals.cal)}</Text>
-              {" "}cals
-            </Text>
-            <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>
-              {remaining.toLocaleString()} kcal remaining today
+            <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: text }}>
+              <Text style={{ ...(DOT as any), fontSize: 14 }}>{remaining.toLocaleString()}</Text>
+              {" "}kcal remaining today
             </Text>
             <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>
               target {calGoal.toLocaleString()}
@@ -539,52 +685,32 @@ export default function ProgressScreen() {
         </View>
 
         {/* Macronutrients card */}
-        <View style={{ backgroundColor: card, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: border, marginBottom: 22 }}>
+        <View style={{ backgroundColor: card, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: border, marginBottom: 10 }}>
           <Text style={{ fontSize: 16, fontFamily: "Manrope-Bold", color: text, marginBottom: 14 }}>Macronutrients</Text>
 
-          <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
-            {/* Left: donut + legend */}
-            <View style={{ width: 100, alignItems: "flex-start" }}>
-              <View style={{ width: 90, height: 90, alignItems: "center", justifyContent: "center", marginBottom: 10 }}>
-                <Donut pct={Math.max(todayTotals.protein / proteinGoal, todayTotals.carbs / carbsGoal, todayTotals.fat / fatGoal)}
-                  size={90} strokeWidth={8}
-                  trackColor="rgba(255,255,255,0.08)" fillColor={LIME} />
-              </View>
-              {[
-                { label: "Fat",     pct: fatGoal     > 0 ? Math.round(todayTotals.fat     / fatGoal     * 100) : 0, color: PURPLE },
-                { label: "Carbs",   pct: carbsGoal   > 0 ? Math.round(todayTotals.carbs   / carbsGoal   * 100) : 0, color: BLUE   },
-                { label: "Protein", pct: proteinGoal > 0 ? Math.round(todayTotals.protein / proteinGoal * 100) : 0, color: LIME   },
-              ].map(m => (
-                <View key={m.label} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", width: "100%", marginBottom: 4 }}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-                    <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: m.color }} />
-                    <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>{m.label}</Text>
-                  </View>
-                  <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: text }}>{m.pct}%</Text>
-                </View>
-              ))}
-            </View>
+          {/* Stacked bar chart */}
+          <View onLayout={e => setMacroChartW(Math.floor(e.nativeEvent.layout.width))}>
+            <StackedBars data={macroBarData} w={macroChartW} h={80} />
+          </View>
 
-            {/* Right: bar chart */}
-            <View
-              style={{ flex: 1 }}
-              onLayout={e => setMacroChartW(Math.floor(e.nativeEvent.layout.width))}
-            >
-              <PeriodBars
-                data={proteinData}
-                maxVal={proteinGoal}
-                barColor={LIME}
-                w={macroChartW}
-                h={80}
-              />
-            </View>
+          {/* Legend row */}
+          <View style={{ flexDirection: "row", gap: 16, marginTop: 12 }}>
+            {[
+              { label: "Fat",     pct: fatGoal     > 0 ? Math.round(todayTotals.fat     / fatGoal     * 100) : 0, color: PURPLE },
+              { label: "Carbs",   pct: carbsGoal   > 0 ? Math.round(todayTotals.carbs   / carbsGoal   * 100) : 0, color: BLUE   },
+              { label: "Protein", pct: proteinGoal > 0 ? Math.round(todayTotals.protein / proteinGoal * 100) : 0, color: LIME   },
+            ].map(m => (
+              <View key={m.label} style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: m.color }} />
+                <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>{m.label}</Text>
+                <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: text }}>{m.pct}%</Text>
+              </View>
+            ))}
           </View>
 
           {/* AVG row */}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: border }}>
-            <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: muted }}>
-              {period === "1W" ? "7D AVG" : period === "1M" ? "30D AVG" : period === "3M" ? "3M AVG" : period === "1Y" ? "1Y AVG" : "AVG"}
-            </Text>
+            <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: muted }}>AVG</Text>
             {[
               { pct: avgFatPct,  color: PURPLE },
               { pct: avgCrbPct,  color: BLUE   },
@@ -598,31 +724,53 @@ export default function ProgressScreen() {
           </View>
         </View>
 
+        {/* Calorie Trend card */}
+        {(() => {
+          const avg = calTrendData.length > 0
+            ? Math.round(calTrendData.reduce((s, d) => s + d.value, 0) / calTrendData.filter(d => d.value > 0).length || 0)
+            : 0;
+          return (
+            <View style={{ backgroundColor: card, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: border, marginBottom: 22 }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                <Text style={{ fontSize: 16, fontFamily: "Manrope-Bold", color: text }}>Calorie Trend</Text>
+                {avg > 0 && (
+                  <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: muted }}>
+                    avg {avg.toLocaleString()} kcal/day
+                  </Text>
+                )}
+              </View>
+              <View onLayout={e => setTrendChartW(Math.floor(e.nativeEvent.layout.width))}>
+                <TrendBars data={calTrendData} calGoal={calGoal} w={trendChartW} h={130} />
+              </View>
+            </View>
+          );
+        })()}
+
         {/* ── BODY WEIGHT ── */}
         <SectionLabel icon={Scale} label="BODY WEIGHT" />
         <View style={{ backgroundColor: card, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: border, marginBottom: 22 }}>
           {weightData.length >= 1 ? (
             <>
-              <View style={{ flexDirection: "row", gap: 24, marginBottom: 14 }}>
-                <View>
-                  <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted, letterSpacing: 0.6 }}>CURRENT</Text>
-                  <Text style={{ ...(DOT as any), fontSize: 28, color: text, marginTop: 2 }}>{latestLbs}</Text>
-                  <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>lbs</Text>
-                </View>
-                {weightData.length >= 2 && (() => {
-                  const change = weightData[weightData.length - 1] - weightData[0];
-                  const isLoss = change < 0;
-                  return (
-                    <View>
-                      <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted, letterSpacing: 0.6 }}>CHANGE</Text>
-                      <Text style={{ ...(DOT as any), fontSize: 28, color: isLoss ? LIME : "#ff6b6b", marginTop: 2 }}>
-                        {isLoss ? "" : "+"}{change.toFixed(1)}
-                      </Text>
-                      <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>lbs</Text>
-                    </View>
-                  );
-                })()}
+              {/* 3 equal stat boxes */}
+              <View style={{ flexDirection: "row", gap: 8, marginBottom: 14 }}>
+                {[
+                  { label: "Current",  value: latestLbs ?? 0, unit: "lbs",    color: text },
+                  { label: "Change",   value: weightChange,   unit: "lbs",    color: weightChange < 0 ? LIME : weightChange > 0 ? "#ff6b6b" : text,
+                    prefix: weightChange > 0 ? "+" : weightChange < 0 ? "–" : "–" },
+                  { label: "Per Week", value: Math.abs(perWeek), unit: "lbs/wk", color: perWeek < 0 ? LIME : perWeek > 0 ? "#ff6b6b" : text,
+                    prefix: perWeek > 0 ? "+" : perWeek < 0 ? "–" : "" },
+                ].map(s => (
+                  <View key={s.label} style={{ flex: 1, backgroundColor: bg, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: border }}>
+                    <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted, letterSpacing: 0.5, marginBottom: 4 }}>{s.label}</Text>
+                    <Text style={{ ...(DOT as any), fontSize: 24, color: s.color, lineHeight: 28 }}>
+                      {s.prefix ?? ""}{typeof s.value === "number" ? (Number.isInteger(s.value) ? s.value : Math.abs(s.value).toFixed(1)) : s.value}
+                    </Text>
+                    <Text style={{ fontSize: 10, fontFamily: "Manrope", color: muted, marginTop: 2 }}>{s.unit}</Text>
+                  </View>
+                ))}
               </View>
+
+              {/* Weight trend chart or prompt */}
               {weightData.length >= 2 ? (
                 <>
                   <View onLayout={e => setWeightChartW(Math.floor(e.nativeEvent.layout.width))}>
@@ -638,20 +786,22 @@ export default function ProgressScreen() {
                   </View>
                 </>
               ) : (
-                <Text style={{ fontSize: 12, fontFamily: "Manrope", color: muted, marginTop: 4 }}>
-                  Log another entry to see your trend
-                </Text>
+                <View style={{ alignItems: "center", paddingVertical: 28, gap: 8 }}>
+                  <Scale size={28} color={muted} strokeWidth={1.5} />
+                  <Text style={{ fontSize: 13, fontFamily: "Manrope-SemiBold", color: muted, textAlign: "center" }}>
+                    Log 2+ weight entries to see your trend
+                  </Text>
+                  <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>Settings → Log Weight</Text>
+                </View>
               )}
             </>
           ) : (
             <View style={{ alignItems: "center", paddingVertical: 40, gap: 10 }}>
               <Scale size={32} color={muted} strokeWidth={1.5} />
               <Text style={{ fontSize: 14, fontFamily: "Manrope-SemiBold", color: muted, textAlign: "center" }}>
-                No weight logged yet
+                Log 2+ weight entries to see your trend
               </Text>
-              <Text style={{ fontSize: 12, fontFamily: "Manrope", color: muted }}>
-                Settings → Log Weight
-              </Text>
+              <Text style={{ fontSize: 12, fontFamily: "Manrope", color: muted }}>Settings → Log Weight</Text>
             </View>
           )}
         </View>
@@ -677,7 +827,7 @@ export default function ProgressScreen() {
             <View style={{ alignItems: "center", paddingVertical: 40, gap: 10 }}>
               <Dumbbell size={32} color={muted} strokeWidth={1.5} />
               <Text style={{ fontSize: 14, fontFamily: "Manrope-SemiBold", color: muted, textAlign: "center" }}>
-                Select an exercise to see{"\n"}your strength progress
+                Select an exercise above to view progress
               </Text>
             </View>
           ) : filteredHistory.length === 0 ? (
