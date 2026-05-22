@@ -6,7 +6,6 @@ channel = "stable-24_05"
 packages = ["nodejs_20", "nodePackages.npm"]
 
 [deployment]
-run = ["/nix/store/bl6iwirn83qj9r8wng43kfdqd5mfahj8-nodejs-22.22.0/bin/node", "dist/index.js"]
 deploymentTarget = "cloudrun"
 
 [[ports]]
