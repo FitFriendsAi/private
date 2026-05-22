@@ -41,6 +41,11 @@ const pool = new pg.Pool({
   connectionTimeoutMillis: 5_000,
 });
 
+// Re-connect automatically on idle connection errors (Neon drops connections after ~5 min)
+pool.on("error", (err) => {
+  console.warn("Session pool error (will reconnect):", err.message);
+});
+
 app.use(
   session({
     store: new PgSession({ pool, createTableIfMissing: true }),

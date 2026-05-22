@@ -26,8 +26,11 @@ passport.use(
       const valid = await verifyPassword(password, user.passwordHash);
       if (!valid) return done(null, false, { message: "Invalid email or password" });
       return done(null, user);
-    } catch (err) {
-      return done(err);
+    } catch (err: any) {
+      // DB connection dropped (Neon idle timeout) — return a user-friendly 401
+      // instead of letting it bubble up as a 500
+      console.error("Auth DB error:", err.message);
+      return done(null, false, { message: "Server error — please try again" });
     }
   })
 );

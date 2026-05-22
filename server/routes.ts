@@ -137,7 +137,12 @@ export function registerRoutes(app: Express) {
       const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: "90d" });
       res.json({ token, user: { id: user.id, email: user.email, name: user.name } });
     } catch (err: any) {
-      res.status(400).json({ message: err.message });
+      // Distinguish DB errors from validation errors
+      const isDbError = err.code && /^[0-9A-Z]{5}$/.test(err.code);
+      const status = isDbError ? 503 : 400;
+      const message = isDbError ? "Server error — please try again" : err.message;
+      console.error("login-mobile error:", err.message);
+      res.status(status).json({ message });
     }
   });
 

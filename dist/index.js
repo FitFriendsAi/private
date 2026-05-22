@@ -53147,7 +53147,8 @@ import_passport.default.use(
       if (!valid) return done(null, false, { message: "Invalid email or password" });
       return done(null, user);
     } catch (err) {
-      return done(err);
+      console.error("Auth DB error:", err.message);
+      return done(null, false, { message: "Server error \u2014 please try again" });
     }
   })
 );
@@ -56910,7 +56911,11 @@ function registerRoutes(app2) {
       const token = import_jsonwebtoken.default.sign({ userId: user.id }, JWT_SECRET, { expiresIn: "90d" });
       res.json({ token, user: { id: user.id, email: user.email, name: user.name } });
     } catch (err) {
-      res.status(400).json({ message: err.message });
+      const isDbError = err.code && /^[0-9A-Z]{5}$/.test(err.code);
+      const status = isDbError ? 503 : 400;
+      const message = isDbError ? "Server error \u2014 please try again" : err.message;
+      console.error("login-mobile error:", err.message);
+      res.status(status).json({ message });
     }
   });
   app2.get("/api/auth/me-mobile", async (req, res) => {
@@ -57679,6 +57684,9 @@ var pool2 = new esm_default.Pool({
   idleTimeoutMillis: 6e4,
   // release idle clients after 60 s
   connectionTimeoutMillis: 5e3
+});
+pool2.on("error", (err) => {
+  console.warn("Session pool error (will reconnect):", err.message);
 });
 app.use(
   (0, import_express_session.default)({
