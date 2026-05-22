@@ -170,15 +170,14 @@ function StackedBars({
         if (total <= 0) return null;
         const totalH = (total / maxV) * chartH;
         const x = i * (barW + gap);
-        const op = i === n - 1 ? 1 : 0.7;
         const fatH  = (d.fat     / total) * totalH;
         const crbH  = (d.carbs   / total) * totalH;
         const prtH  = (d.protein / total) * totalH;
         let y = chartH;
         const rects = [];
-        if (fatH  > 0) { y -= fatH;  rects.push(<Rect key="f" x={x} y={y} width={barW} height={fatH}  fill={PURPLE} opacity={op} />); }
-        if (crbH  > 0) { y -= crbH;  rects.push(<Rect key="c" x={x} y={y} width={barW} height={crbH}  fill={BLUE}   opacity={op} />); }
-        if (prtH  > 0) { y -= prtH;  rects.push(<Rect key="p" x={x} y={y} width={barW} height={prtH}  rx={2} fill={LIME} opacity={op} />); }
+        if (fatH  > 0) { y -= fatH;  rects.push(<Rect key="f" x={x} y={y} width={barW} height={fatH}  fill={PURPLE} />); }
+        if (crbH  > 0) { y -= crbH;  rects.push(<Rect key="c" x={x} y={y} width={barW} height={crbH}  fill={BLUE}   />); }
+        if (prtH  > 0) { y -= prtH;  rects.push(<Rect key="p" x={x} y={y} width={barW} height={prtH}  rx={2} fill={LIME} />); }
         return <Svg key={i}>{rects}</Svg>;
       })}
       {data.map((d, i) => {
@@ -195,92 +194,36 @@ function StackedBars({
   );
 }
 
-// ── Calorie trend bars with y-axis ────────────────────────────────
-function TrendBars({
-  data, calGoal, w, h = 130,
-}: {
-  data: { label: string; value: number }[];
-  calGoal: number; w: number; h?: number;
-}) {
-  if (w <= 0 || data.length === 0) return null;
-  const yAxisW = 34;
-  const labelH = 14;
-  const chartW = w - yAxisW;
-  const chartH = h - labelH;
-  const n      = data.length;
-  const hasAny = data.some(d => d.value > 0);
-  const dataMax = hasAny ? Math.max(...data.map(d => d.value)) : 0;
-  const maxV   = Math.max(calGoal, dataMax, 1);
-  // 4 y-axis gridlines: round to nearest 50
-  const step   = Math.ceil(maxV / 4 / 50) * 50 || 50;
-  const ticks  = [0, step, step * 2, step * 3, step * 4].filter(t => t <= maxV + step);
-  const gap    = n > 20 ? 1 : n > 10 ? 2 : 3;
-  const barW   = Math.max(1, (chartW - gap * (n - 1)) / n);
-
-  const showLabel = (i: number) => {
-    if (n <= 7)  return true;
-    if (n <= 15) return i === 0 || i === n - 1 || i % 2 === 0;
-    if (n <= 31) return i === 0 || i === n - 1 || i % 7 === 0;
-    return i === 0 || i === n - 1 || i % Math.ceil(n / 5) === 0;
-  };
-
-  return (
-    <Svg width={w} height={h}>
-      {/* Gridlines + y-axis labels */}
-      {ticks.map((t, i) => {
-        const y = chartH - (t / maxV) * chartH;
-        return (
-          <Svg key={i}>
-            <Line x1={yAxisW} y1={y} x2={w} y2={y} stroke="#1e1e1e" strokeWidth={1} />
-            <SvgText x={yAxisW - 4} y={y + 4} fontSize={8} fontWeight="600" fill="#444444" textAnchor="end">{t}</SvgText>
-          </Svg>
-        );
-      })}
-      {/* Bars */}
-      {data.map((d, i) => {
-        if (d.value <= 0) return null;
-        const bh = Math.max(2, (d.value / maxV) * chartH);
-        const x  = yAxisW + i * (barW + gap);
-        return <Rect key={i} x={x} y={chartH - bh} width={barW} height={bh} rx={2}
-          fill="#ffffff" opacity={i === n - 1 ? 1 : 0.65} />;
-      })}
-      {/* X-axis labels */}
-      {data.map((d, i) => {
-        if (!showLabel(i)) return null;
-        const x = yAxisW + i * (barW + gap) + barW / 2;
-        return (
-          <SvgText key={`l${i}`} x={x} y={h} fontSize={8} fontWeight="600"
-            fill={i === n - 1 && hasAny ? "#ffffff" : "#555555"} textAnchor="middle">
-            {d.label}
-          </SvgText>
-        );
-      })}
-      {/* Baseline */}
-      <Line x1={yAxisW} y1={chartH} x2={w} y2={chartH} stroke="#333333" strokeWidth={1} />
-    </Svg>
-  );
-}
-
-// ── Period bar chart (generic — adapts to any number of bars) ────
+// ── Period bar chart — optional y-axis + goal line ───────────────
 function PeriodBars({
-  data, maxVal, barColor, w, h = 72,
+  data, maxVal, barColor, w, h = 72, showAxis = false, goalLine,
 }: {
   data: { label: string; value: number }[];
   maxVal: number;
   barColor: string;
   w: number;
   h?: number;
+  showAxis?: boolean;
+  goalLine?: number;
 }) {
   if (w <= 0 || data.length === 0) return null;
+  const yAxisW = showAxis ? 34 : 0;
+  const chartW = w - yAxisW;
   const n      = data.length;
   const gap    = n > 20 ? 1 : n > 10 ? 2 : 4;
-  const barW   = Math.max(1, (w - gap * (n - 1)) / n);
+  const barW   = Math.max(1, (chartW - gap * (n - 1)) / n);
   const hasAny = data.some(d => d.value > 0);
-  const maxV   = hasAny ? Math.max(maxVal, ...data.map(d => d.value), 1) : 1;
+  const maxV   = Math.max(maxVal, hasAny ? Math.max(...data.map(d => d.value)) : 0, 1);
   const labelH = 14;
   const chartH = h - labelH;
 
-  // Show labels only for a manageable subset so they don't overlap
+  // Y-axis ticks
+  const ticks: number[] = showAxis ? (() => {
+    const step = Math.ceil(maxV / 4 / 50) * 50 || 50;
+    return [0, step, step * 2, step * 3, step * 4].filter(t => t <= maxV + step);
+  })() : [];
+
+  // Show labels only for a manageable subset
   const showLabel = (i: number) => {
     if (n <= 7)  return true;
     if (n <= 15) return i === 0 || i === n - 1 || i % 3 === 0;
@@ -290,24 +233,22 @@ function PeriodBars({
 
   const bars = hasAny ? data.map((d, i) => {
     if (d.value <= 0) return null;
-    const bh     = Math.max(2, (d.value / maxV) * chartH);
-    const x      = i * (barW + gap);
-    const isLast = i === n - 1;
+    const bh = Math.max(2, (d.value / maxV) * chartH);
+    const x  = yAxisW + i * (barW + gap);
     return (
       <Rect key={`b${i}`}
         x={x} y={chartH - bh} width={barW} height={bh} rx={2}
-        fill={barColor} opacity={isLast ? 1 : 0.35}
+        fill={barColor}
       />
     );
   }) : null;
 
   const labels = data.map((d, i) => {
     if (!showLabel(i)) return null;
-    const x      = i * (barW + gap) + barW / 2;
+    const x      = yAxisW + i * (barW + gap) + barW / 2;
     const isLast = i === n - 1;
     return (
-      <SvgText key={`l${i}`}
-        x={x} y={h}
+      <SvgText key={`l${i}`} x={x} y={h}
         fontSize={8} fontWeight="600"
         fill={isLast && hasAny ? "#ffffff" : "#555555"}
         textAnchor="middle"
@@ -317,13 +258,35 @@ function PeriodBars({
     );
   });
 
+  // Goal line y-position
+  const goalY = goalLine != null ? chartH - (goalLine / maxV) * chartH : null;
+
   return (
     <Svg width={w} height={h}>
-      {/* Baseline — always visible */}
-      <Line x1={0} y1={chartH} x2={w} y2={chartH}
-        stroke="#333333" strokeWidth={1} />
+      {/* Y-axis gridlines + labels */}
+      {ticks.map((t, i) => {
+        const y = chartH - (t / maxV) * chartH;
+        return (
+          <Svg key={`t${i}`}>
+            <Line x1={yAxisW} y1={y} x2={w} y2={y} stroke="#1e1e1e" strokeWidth={1} />
+            <SvgText x={yAxisW - 4} y={y + 4} fontSize={8} fontWeight="600"
+              fill="#444444" textAnchor="end">{t}</SvgText>
+          </Svg>
+        );
+      })}
+      {/* Baseline */}
+      <Line x1={yAxisW} y1={chartH} x2={w} y2={chartH} stroke="#333333" strokeWidth={1} />
       {bars}
       {labels}
+      {/* Goal line */}
+      {goalY != null && goalY > 0 && (
+        <Svg>
+          <Line x1={yAxisW} y1={goalY} x2={w} y2={goalY}
+            stroke={LIME} strokeWidth={1.5} strokeDasharray="4,3" />
+          <SvgText x={yAxisW - 4} y={goalY + 4} fontSize={8} fontWeight="600"
+            fill={LIME} textAnchor="end">goal</SvgText>
+        </Svg>
+      )}
     </Svg>
   );
 }
@@ -520,7 +483,6 @@ export default function ProgressScreen() {
   const [showExPicker, setShowExPicker]     = useState(false);
   const [calChartW, setCalChartW]           = useState(0);
   const [macroChartW, setMacroChartW]       = useState(0);
-  const [trendChartW, setTrendChartW]       = useState(0);
   const [weightChartW, setWeightChartW]     = useState(0);
   const [strengthChartW, setStrengthChartW] = useState(0);
 
@@ -607,24 +569,6 @@ export default function ProgressScreen() {
       ? summary.map((d: any) => ({ label: d.label, fat: d.fat ?? 0, carbs: d.carbs ?? 0, protein: d.protein ?? 0 }))
       : emptyScaffold(period).map(d => ({ label: d.label, fat: 0, carbs: 0, protein: 0 })),
   [summary, period]);
-
-  // Calorie trend with month-day labels for 1M view
-  const calTrendData = useMemo(() => {
-    const MONS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-    const fmtKey = (key: string) => {
-      if (!key || !key.includes("-")) return key;
-      const p = key.split("-");
-      return p.length === 3
-        ? `${MONS[parseInt(p[1]) - 1]} ${parseInt(p[2])}`
-        : MONS[parseInt(p[1]) - 1];
-    };
-    return summary.length > 0
-      ? summary.map((d: any) => ({
-          label: (period === "1W") ? d.label : fmtKey(d.period ?? ""),
-          value: d.calories,
-        }))
-      : emptyScaffold(period);
-  }, [summary, period]);
 
   // Filtered measurements for weight chart
   const cutoff = new Date();
@@ -720,7 +664,7 @@ export default function ProgressScreen() {
               </View>
             </View>
 
-            {/* Right: bar chart */}
+            {/* Right: bar chart with y-axis + goal line */}
             <View
               style={{ flex: 1 }}
               onLayout={e => setCalChartW(Math.floor(e.nativeEvent.layout.width))}
@@ -730,7 +674,9 @@ export default function ProgressScreen() {
                 maxVal={calGoal}
                 barColor={LIME}
                 w={calChartW}
-                h={80}
+                h={110}
+                showAxis
+                goalLine={calGoal}
               />
             </View>
           </View>
@@ -793,28 +739,6 @@ export default function ProgressScreen() {
             <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>of target</Text>
           </View>
         </View>
-
-        {/* Calorie Trend card */}
-        {(() => {
-          const avg = calTrendData.length > 0
-            ? Math.round(calTrendData.reduce((s, d) => s + d.value, 0) / calTrendData.filter(d => d.value > 0).length || 0)
-            : 0;
-          return (
-            <View style={{ backgroundColor: card, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: border, marginBottom: 22 }}>
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                <Text style={{ fontSize: 16, fontFamily: "Manrope-Bold", color: text }}>Calorie Trend</Text>
-                {avg > 0 && (
-                  <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: muted }}>
-                    avg {avg.toLocaleString()} kcal/day
-                  </Text>
-                )}
-              </View>
-              <View onLayout={e => setTrendChartW(Math.floor(e.nativeEvent.layout.width))}>
-                <TrendBars data={calTrendData} calGoal={calGoal} w={trendChartW} h={130} />
-              </View>
-            </View>
-          );
-        })()}
 
         {/* ── BODY WEIGHT ── */}
         <SectionLabel icon={Scale} label="BODY WEIGHT" />
