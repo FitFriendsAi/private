@@ -59,13 +59,17 @@ app.use(passport.session());
 
 registerRoutes(app);
 
-// Serve frontend whenever dist/public exists (works in any environment)
+// Serve frontend whenever dist/public exists (works in dev and production)
+// In dev (tsx): __dirname = server/, so look for ../../dist/public via cwd
+// In prod (node dist/index.js): __dirname = dist/, so public is __dirname/public
 {
   const { default: path } = await import("path");
   const { fileURLToPath } = await import("url");
   const { existsSync } = await import("fs");
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  const publicPath = path.join(__dirname, "public");
+  const publicPath = existsSync(path.join(__dirname, "public"))
+    ? path.join(__dirname, "public")                       // production: dist/public
+    : path.join(process.cwd(), "dist", "public");          // dev: <root>/dist/public
   if (existsSync(publicPath)) {
     app.use(express.static(publicPath));
     app.get("*", (_req, res) => res.sendFile(path.join(publicPath, "index.html")));

@@ -57701,7 +57701,7 @@ registerRoutes(app);
   const { fileURLToPath } = await import("url");
   const { existsSync } = await import("fs");
   const __dirname2 = path.dirname(fileURLToPath(import.meta.url));
-  const publicPath = path.join(__dirname2, "public");
+  const publicPath = existsSync(path.join(__dirname2, "public")) ? path.join(__dirname2, "public") : path.join(process.cwd(), "dist", "public");
   if (existsSync(publicPath)) {
     app.use(import_express.default.static(publicPath));
     app.get("*", (_req, res) => res.sendFile(path.join(publicPath, "index.html")));
