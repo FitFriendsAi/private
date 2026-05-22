@@ -57661,7 +57661,7 @@ var SEED_EXERCISES = [
 
 // server/index.ts
 var app = (0, import_express.default)();
-var PORT = process.env.PORT || 5001;
+var PORT = process.env.PORT || 5173;
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   const isLocalDev = typeof origin === "string" && /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.)/.test(origin);

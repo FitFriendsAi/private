@@ -9,7 +9,7 @@ import { storage } from "./storage.js";
 import { SEED_EXERCISES } from "./services/exercises-seed.js";
 
 const app = express();
-const PORT = process.env.PORT || 5001;
+const PORT = process.env.PORT || 5173;
 
 // ── CORS ─────────────────────────────────────────────────────────────────────
 // Allow local dev clients (Expo, Vite) and any deployed web origin.

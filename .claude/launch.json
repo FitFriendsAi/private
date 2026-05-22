@@ -5,7 +5,7 @@
       "name": "fitcore-dev",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev:server"],
-      "port": 5001
+      "port": 5173
     }
   ]
 }
