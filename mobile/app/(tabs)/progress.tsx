@@ -117,7 +117,7 @@ function StackedBars({
         if (total <= 0) return null;
         const totalH = (total / maxV) * chartH;
         const x = i * (barW + gap);
-        const op = i === n - 1 ? 1 : 0.35;
+        const op = i === n - 1 ? 1 : 0.7;
         const fatH  = (d.fat     / total) * totalH;
         const crbH  = (d.carbs   / total) * totalH;
         const prtH  = (d.protein / total) * totalH;
@@ -189,7 +189,7 @@ function TrendBars({
         const bh = Math.max(2, (d.value / maxV) * chartH);
         const x  = yAxisW + i * (barW + gap);
         return <Rect key={i} x={x} y={chartH - bh} width={barW} height={bh} rx={2}
-          fill="#ffffff" opacity={i === n - 1 ? 1 : 0.45} />;
+          fill="#ffffff" opacity={i === n - 1 ? 1 : 0.65} />;
       })}
       {/* X-axis labels */}
       {data.map((d, i) => {
