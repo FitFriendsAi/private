@@ -683,22 +683,22 @@ export default function FoodScreen() {
                   </View>
                 ))}
 
-                {/* Additional nutrients (shown when available) */}
-                {(fiberG != null || sugarG != null || sodiumMg != null) && (
-                  <View style={{ backgroundColor: card, borderRadius: 16, borderWidth: 1, borderColor: border, padding: 16, marginBottom: 8 }}>
-                    <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: text, marginBottom: 12 }}>Additional Nutrients</Text>
-                    {[
-                      fiberG  != null && { label: "Dietary Fiber", val: `${fiberG}g`,   color: "#4ade80" },
-                      sugarG  != null && { label: "Total Sugars",  val: `${sugarG}g`,   color: "#fb923c" },
-                      sodiumMg != null && { label: "Sodium",       val: `${sodiumMg}mg`, color: "#94a3b8" },
-                    ].filter(Boolean).map((row: any) => (
-                      <View key={row.label} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 7, borderTopWidth: 1, borderTopColor: border }}>
-                        <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted }}>{row.label}</Text>
-                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: row.color }}>{row.val}</Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
+                {/* Additional nutrients */}
+                <View style={{ backgroundColor: card, borderRadius: 16, borderWidth: 1, borderColor: border, padding: 16, marginBottom: 8 }}>
+                  <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: text, marginBottom: 4 }}>Nutrition Details</Text>
+                  {[
+                    { label: "Dietary Fiber", val: fiberG   != null ? `${fiberG}g`    : null, color: "#4ade80" },
+                    { label: "Total Sugars",  val: sugarG   != null ? `${sugarG}g`    : null, color: "#fb923c" },
+                    { label: "Sodium",        val: sodiumMg != null ? `${sodiumMg}mg` : null, color: "#94a3b8" },
+                  ].map((row) => (
+                    <View key={row.label} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 8, borderTopWidth: 1, borderTopColor: border }}>
+                      <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted }}>{row.label}</Text>
+                      <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: row.val != null ? row.color : muted }}>
+                        {row.val ?? "—"}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
 
                 {/* Remove button */}
                 <Pressable
