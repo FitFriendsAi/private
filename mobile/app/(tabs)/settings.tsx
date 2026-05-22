@@ -30,19 +30,14 @@ function ftInToCm(ft: string, inch: string): number | null {
   return Math.round(((isNaN(f) ? 0 : f) * 12 + (isNaN(i) ? 0 : i)) * 2.54);
 }
 
-// ── Card header with icon box ───────────────────────────────────────────────
+// ── Card header — inline icon, no box background ───────────────────────────
 function CardHeader({
-  icon: Icon, label, iconBg, iconColor, text,
-}: { icon: any; label: string; iconBg: string; iconColor: string; text: string }) {
+  icon: Icon, label, iconColor, text,
+}: { icon: any; label: string; iconColor: string; text: string }) {
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 16 }}>
-      <View style={{
-        width: 30, height: 30, borderRadius: 8,
-        backgroundColor: iconBg, alignItems: "center", justifyContent: "center",
-      }}>
-        <Icon size={15} color={iconColor} />
-      </View>
-      <Text style={{ fontFamily: "Manrope-Bold", fontSize: 15, color: text }}>{label}</Text>
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 16 }}>
+      <Icon size={15} color={iconColor} />
+      <Text style={{ fontFamily: "Manrope-Bold", fontSize: 16, color: text }}>{label}</Text>
     </View>
   );
 }
@@ -206,6 +201,12 @@ export default function SettingsScreen() {
     queryFn: () => apiRequest("GET", "/api/profile"),
   });
 
+  const { data: measurements = [] } = useQuery<any[]>({
+    queryKey: ["/api/measurements"],
+    queryFn: () => apiRequest("GET", "/api/measurements"),
+  });
+  const lastMeasurement = measurements[0] ?? null;
+
   const [ftVal,        setFtVal]        = useState("");
   const [inVal,        setInVal]        = useState("");
   const [birthDate,    setBirthDate]    = useState("");
@@ -335,7 +336,7 @@ export default function SettingsScreen() {
 
           {/* ── Account ── */}
           <View style={{ backgroundColor: card, borderRadius: 20, borderWidth: 1, borderColor: border, padding: 16, marginBottom: 14 }}>
-            <CardHeader icon={User} label="Account" iconBg="rgba(255,255,255,0.08)" iconColor={muted} text={text} />
+            <CardHeader icon={User} label="Account" iconColor={muted} text={text} />
             {[
               { label: "Name",  value: user?.name  ?? "—" },
               { label: "Email", value: user?.email ?? "—" },
@@ -371,7 +372,7 @@ export default function SettingsScreen() {
 
           {/* ── Accent Colour ── */}
           <View style={{ backgroundColor: card, borderRadius: 20, borderWidth: 1, borderColor: border, padding: 16, marginBottom: 14 }}>
-            <CardHeader icon={PaletteIcon} label="Accent Colour" iconBg="rgba(255,255,255,0.08)" iconColor={muted} text={text} />
+            <CardHeader icon={PaletteIcon} label="Accent Colour" iconColor={muted} text={text} />
             <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted, marginBottom: 14 }}>
               Personalise the app accent colour. Changes apply instantly.
             </Text>
@@ -409,7 +410,23 @@ export default function SettingsScreen() {
 
           {/* ── Log Today's Weight ── */}
           <View style={{ backgroundColor: card, borderRadius: 20, borderWidth: 1, borderColor: border, padding: 16, marginBottom: 14 }}>
-            <CardHeader icon={Scale} label="Log Today's Weight" iconBg="rgba(255,255,255,0.08)" iconColor={muted} text={text} />
+            <CardHeader icon={Scale} label="Log Today's Weight" iconColor={muted} text={text} />
+
+            {/* Last recorded subtitle */}
+            {lastMeasurement && (
+              <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted, marginTop: -8, marginBottom: 14 }}>
+                Last recorded:{" "}
+                <Text style={{ fontFamily: "Manrope-Bold", color: text }}>
+                  {gramsToLbs(lastMeasurement.weightGrams)} lbs
+                </Text>
+                {" "}on{" "}
+                <Text style={{ fontFamily: "Manrope-Bold", color: text }}>
+                  {new Date(lastMeasurement.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                </Text>
+              </Text>
+            )}
+
+            {/* Input + button row */}
             <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
               <TextInput
                 value={weightInput}
@@ -431,7 +448,7 @@ export default function SettingsScreen() {
                 }}
                 disabled={logWeight.isPending}
                 style={({ pressed }) => ({
-                  backgroundColor: "#2a2a2a", borderRadius: 12,
+                  backgroundColor: "#3a3a3a", borderRadius: 12,
                   paddingHorizontal: 18, paddingVertical: 13,
                   opacity: pressed || logWeight.isPending ? 0.7 : 1,
                 })}
@@ -442,75 +459,88 @@ export default function SettingsScreen() {
                 }
               </Pressable>
             </View>
+
+            {/* Last entry row */}
+            {lastMeasurement && (
+              <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: border }}>
+                <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted }}>
+                  {new Date(lastMeasurement.date + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                </Text>
+                <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: text }}>
+                  {gramsToLbs(lastMeasurement.weightGrams)} lbs
+                </Text>
+              </View>
+            )}
           </View>
 
           {/* ── Body Profile ── */}
           <View style={{ backgroundColor: card, borderRadius: 20, borderWidth: 1, borderColor: border, padding: 16, marginBottom: 14 }}>
-            <CardHeader icon={Activity} label="Body Profile" iconBg="rgba(200,232,76,0.12)" iconColor="#c8e84c" text={text} />
+            <CardHeader icon={Activity} label="Body Profile" iconColor="#c8e84c" text={text} />
 
-            {/* Height row */}
-            <View style={{ marginBottom: 14 }}>
-              <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: muted, marginBottom: 6 }}>Height</Text>
-              <View style={{ flexDirection: "row", gap: 10 }}>
-                <View style={{ flex: 1, flexDirection: "row", alignItems: "center", backgroundColor: "#111111", borderRadius: 12, borderWidth: 1, borderColor: border, paddingHorizontal: 12 }}>
-                  <TextInput
-                    value={ftVal}
-                    onChangeText={setFtVal}
-                    placeholder="0"
-                    placeholderTextColor={muted}
-                    keyboardType="number-pad"
-                    maxLength={1}
-                    style={{ flex: 1, padding: 12, textAlign: "center", fontFamily: "Manrope-SemiBold", fontSize: 15, color: text }}
-                  />
-                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: muted }}>ft</Text>
-                </View>
-                <View style={{ flex: 1, flexDirection: "row", alignItems: "center", backgroundColor: "#111111", borderRadius: 12, borderWidth: 1, borderColor: border, paddingHorizontal: 12 }}>
-                  <TextInput
-                    value={inVal}
-                    onChangeText={setInVal}
-                    placeholder="0"
-                    placeholderTextColor={muted}
-                    keyboardType="number-pad"
-                    maxLength={2}
-                    style={{ flex: 1, padding: 12, textAlign: "center", fontFamily: "Manrope-SemiBold", fontSize: 15, color: text }}
-                  />
-                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: muted }}>in</Text>
+            {/* Row 1: Height (left) + Date of Birth (right) */}
+            <View style={{ flexDirection: "row", gap: 12, marginBottom: 14 }}>
+              {/* Height */}
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: muted, marginBottom: 6 }}>Height</Text>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <View style={{ flex: 1, flexDirection: "row", alignItems: "center", backgroundColor: "#111111", borderRadius: 12, borderWidth: 1, borderColor: border, paddingHorizontal: 10 }}>
+                    <TextInput
+                      value={ftVal}
+                      onChangeText={setFtVal}
+                      placeholder="ft"
+                      placeholderTextColor={muted}
+                      keyboardType="number-pad"
+                      maxLength={1}
+                      style={{ flex: 1, padding: 11, textAlign: "center", fontFamily: "Manrope-SemiBold", fontSize: 14, color: text }}
+                    />
+                  </View>
+                  <View style={{ flex: 1, flexDirection: "row", alignItems: "center", backgroundColor: "#111111", borderRadius: 12, borderWidth: 1, borderColor: border, paddingHorizontal: 10 }}>
+                    <TextInput
+                      value={inVal}
+                      onChangeText={setInVal}
+                      placeholder="in"
+                      placeholderTextColor={muted}
+                      keyboardType="number-pad"
+                      maxLength={2}
+                      style={{ flex: 1, padding: 11, textAlign: "center", fontFamily: "Manrope-SemiBold", fontSize: 14, color: text }}
+                    />
+                  </View>
                 </View>
               </View>
-            </View>
 
-            {/* Date of Birth row */}
-            <View style={{ marginBottom: 14 }}>
-              <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: muted, marginBottom: 6 }}>Date of Birth</Text>
-              {Platform.OS === "web" ? (
-                <View style={{ backgroundColor: "#111111", borderRadius: 12, borderWidth: 1, borderColor: border, overflow: "hidden" }}>
-                  {/* @ts-ignore */}
-                  <input
-                    type="date"
+              {/* Date of Birth */}
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: muted, marginBottom: 6 }}>Date of Birth</Text>
+                {Platform.OS === "web" ? (
+                  <View style={{ backgroundColor: "#111111", borderRadius: 12, borderWidth: 1, borderColor: border, overflow: "hidden" }}>
+                    {/* @ts-ignore */}
+                    <input
+                      type="date"
+                      value={birthDate}
+                      onChange={(e: any) => setBirthDate(e.target.value)}
+                      style={{
+                        background: "transparent", border: "none", outline: "none",
+                        color: birthDate ? "#f4f4f4" : "#888888",
+                        fontFamily: "Manrope-SemiBold", fontSize: 13,
+                        padding: "11px 12px", width: "100%", boxSizing: "border-box",
+                        colorScheme: "dark",
+                      }}
+                    />
+                  </View>
+                ) : (
+                  <TextInput
                     value={birthDate}
-                    onChange={(e: any) => setBirthDate(e.target.value)}
+                    onChangeText={setBirthDate}
+                    placeholder="YYYY-MM-DD"
+                    placeholderTextColor={muted}
                     style={{
-                      background: "transparent", border: "none", outline: "none",
-                      color: birthDate ? "#f4f4f4" : "#888888",
-                      fontFamily: "Manrope-SemiBold", fontSize: 13,
-                      padding: "12px", width: "100%", boxSizing: "border-box",
-                      colorScheme: "dark",
+                      backgroundColor: "#111111", borderRadius: 12, padding: 11,
+                      borderWidth: 1, borderColor: border,
+                      fontFamily: "Manrope-SemiBold", fontSize: 13, color: text,
                     }}
                   />
-                </View>
-              ) : (
-                <TextInput
-                  value={birthDate}
-                  onChangeText={setBirthDate}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor={muted}
-                  style={{
-                    backgroundColor: "#111111", borderRadius: 12, padding: 12,
-                    borderWidth: 1, borderColor: border,
-                    fontFamily: "Manrope-SemiBold", fontSize: 13, color: text,
-                  }}
-                />
-              )}
+                )}
+              </View>
             </View>
 
             {/* Sex + Activity Level row */}
@@ -568,6 +598,9 @@ export default function SettingsScreen() {
                 : <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: "#0a0a0a" }}>Save Profile</Text>
               }
             </Pressable>
+            <Text style={{ fontFamily: "Manrope", fontSize: 11, color: muted, textAlign: "center", marginTop: 10 }}>
+              Saving will recalculate your daily calorie and macro targets.
+            </Text>
           </View>
 
           {/* ── Apple Health (compact) ── */}
