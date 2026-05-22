@@ -279,7 +279,7 @@ function PeriodBars({
       {bars}
       {labels}
       {/* Goal line */}
-      {goalY != null && goalY > 0 && (
+      {goalY != null && goalY >= 0 && (
         <Svg>
           <Line x1={yAxisW} y1={goalY} x2={w} y2={goalY}
             stroke={LIME} strokeWidth={1.5} strokeDasharray="4,3" />
