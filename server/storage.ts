@@ -449,6 +449,7 @@ export const storage = {
       sessionVolume: number;    // sum(reps*weight) across all sets (grams)
       totalReps: number;
       sets: number;
+      setsData: { reps: number; weightGrams: number }[];  // individual sets in order
     }[]
   > {
     const rows = await db
@@ -456,11 +457,12 @@ export const storage = {
         date:        workouts.date,
         weightGrams: workoutSets.weightGrams,
         reps:        workoutSets.reps,
+        setNumber:   workoutSets.setNumber,
       })
       .from(workoutSets)
       .innerJoin(workouts, eq(workoutSets.workoutId, workouts.id))
       .where(and(eq(workoutSets.exerciseId, exerciseId), eq(workouts.userId, userId)))
-      .orderBy(workouts.date);
+      .orderBy(workouts.date, workoutSets.setNumber);
 
     function toDateStr(d: unknown): string {
       if (d instanceof Date) return d.toISOString().slice(0, 10);
@@ -471,6 +473,7 @@ export const storage = {
     const byDate = new Map<string, {
       maxW: number; bestE1rm: number; bestSetVol: number;
       sessionVol: number; totalReps: number; sets: number;
+      setsData: { reps: number; weightGrams: number }[];
     }>();
 
     for (const r of rows) {
@@ -480,7 +483,7 @@ export const storage = {
       const e1rm      = rep > 0 ? w * (1 + rep / 30) : w;   // Epley formula
       const setVol    = w * rep;
       const cur = byDate.get(key) ?? {
-        maxW: 0, bestE1rm: 0, bestSetVol: 0, sessionVol: 0, totalReps: 0, sets: 0,
+        maxW: 0, bestE1rm: 0, bestSetVol: 0, sessionVol: 0, totalReps: 0, sets: 0, setsData: [],
       };
       byDate.set(key, {
         maxW:       Math.max(cur.maxW, w),
@@ -489,6 +492,7 @@ export const storage = {
         sessionVol: cur.sessionVol + setVol,
         totalReps:  cur.totalReps + rep,
         sets:       cur.sets + 1,
+        setsData:   [...cur.setsData, { reps: rep, weightGrams: w }],
       });
     }
 
@@ -500,6 +504,7 @@ export const storage = {
       sessionVolume:  v.sessionVol,
       totalReps:      v.totalReps,
       sets:           v.sets,
+      setsData:       v.setsData,
     }));
   },
 

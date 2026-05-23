@@ -740,6 +740,13 @@ export function registerRoutes(app: Express) {
     }
   });
 
+  // ── Exercises with logged data (must be before /:id to avoid route conflict) ──
+  app.get("/api/exercises/logged-ids", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const ids = await storage.getLoggedExerciseIds((req.user as any).id);
+    res.json(ids);
+  });
+
   app.get("/api/exercises/:id", async (req, res) => {
     if (!requireAuth(req, res)) return;
     const exercise = await storage.getExerciseById(Number(req.params.id));
@@ -850,13 +857,6 @@ export function registerRoutes(app: Express) {
     if (!requireAuth(req, res)) return;
     await storage.removeTemplateExercise(Number(req.params.id));
     res.sendStatus(204);
-  });
-
-  // ── Exercises with logged data ───────────────────────────────────────────────
-  app.get("/api/exercises/logged-ids", async (req, res) => {
-    if (!requireAuth(req, res)) return;
-    const ids = await storage.getLoggedExerciseIds((req.user as any).id);
-    res.json(ids);
   });
 
   app.get("/api/exercises/:id/history", async (req, res) => {
