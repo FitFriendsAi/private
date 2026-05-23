@@ -329,7 +329,10 @@ export function registerRoutes(app: Express) {
     // 2. All external APIs in parallel
     //    CalorieNinjas + USDA + OFF → full nutrition panels
     //    FatSecret → best name coverage, macros only on free tier
-    const isRestaurant = typeFilter === "restaurant";
+    //
+    //    Auto-detect restaurant queries: if the query contains a hyphen (e.g. "chick-fil-a")
+    //    or a known indicator word, also run restaurant/brand-specific lookups.
+    const isRestaurant = typeFilter === "restaurant" || /chick-fil-a|mcdonald|burger king|wendy|taco bell|subway|chipotle|panera|starbucks|dunkin|domino|pizza hut|kfc|popeyes|five guys|shake shack|whataburger|in-n-out|sonic|arby|dairy queen/i.test(q);
     const [usda, fs, cn, off, offBrand] = await Promise.all([
       searchUSDA(q, isRestaurant ? 40 : 25, isRestaurant),
       searchFatSecret(q, 20),
@@ -337,6 +340,8 @@ export function registerRoutes(app: Express) {
       (!isRestaurant && local.length < 3) ? searchFoodByName(q, 10) : Promise.resolve([]),
       isRestaurant ? searchBrandOFF(q, 20) : Promise.resolve([]),
     ]);
+
+    console.log(`[food/search] q="${q}" isRestaurant=${isRestaurant} | usda=${usda.length} fs=${fs.length} cn=${cn.length} off=${off.length} offBrand=${offBrand.length} local=${local.length}`);
 
     // 3. Fuse all sources into deduplicated, enriched results.
     //    Order matters: full-nutrition sources first so they become the base

@@ -1,5 +1,12 @@
 // Open Food Facts API wrapper
 
+/** Fetch with an AbortController timeout. Default 7 s — well under the mobile client's 10 s limit. */
+function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 7000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
 export interface NutritionFacts {
   name: string;
   brand?: string;
@@ -17,7 +24,7 @@ export interface NutritionFacts {
 
 export async function lookupBarcode(barcode: string): Promise<NutritionFacts | null> {
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`,
       { headers: { "User-Agent": "FitCore/1.0 (fitness tracker)" } }
     );
@@ -93,7 +100,7 @@ async function getFatSecretToken(): Promise<string | null> {
   if (_fsToken && Date.now() < _fsTokenExpiry) return _fsToken;
   try {
     const creds = Buffer.from(`${FS_CLIENT_ID}:${FS_CLIENT_SECRET}`).toString("base64");
-    const res = await fetch("https://oauth.fatsecret.com/connect/token", {
+    const res = await fetchWithTimeout("https://oauth.fatsecret.com/connect/token", {
       method: "POST",
       headers: {
         "Authorization":  `Basic ${creds}`,
@@ -118,7 +125,7 @@ export async function searchFatSecret(query: string, limit = 25): Promise<Nutrit
     const url = `https://platform.fatsecret.com/rest/server.api` +
       `?method=foods.search&search_expression=${encodeURIComponent(query)}` +
       `&format=json&max_results=${limit}&page_number=0`;
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       headers: { "Authorization": `Bearer ${token}`, "Accept": "application/json" },
     });
     if (!res.ok) return [];
@@ -163,7 +170,7 @@ const CN_KEY = process.env.CALORIENINJA_API_KEY;
 export async function searchCalorieNinjas(query: string, limit = 20): Promise<NutritionFacts[]> {
   if (!CN_KEY) return [];
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://api.calorieninjas.com/v1/nutrition?query=${encodeURIComponent(query)}`,
       { headers: { "X-Api-Key": CN_KEY, "Accept": "application/json" } }
     );
@@ -202,7 +209,7 @@ export async function searchBrandOFF(brandQuery: string, limit = 25): Promise<Nu
       .replace(/[''']/g, "")
       .replace(/\s+/g, "-")
       .replace(/[^a-z0-9-]/g, "");
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://world.openfoodfacts.org/brand/${slug}/1.json?page_size=${limit}&fields=product_name,brands,serving_size,nutriments,code`,
       { headers: { "User-Agent": "FitCore/1.0" } }
     );
@@ -255,7 +262,7 @@ async function fetchUSDA(query: string, limit: number, brandedOnly = false): Pro
     const url = `https://api.nal.usda.gov/fdc/v1/foods/search` +
       `?query=${encodeURIComponent(query)}&pageSize=${limit}&api_key=${USDA_KEY}` +
       `&dataType=${dataType}`;
-    const res = await fetch(url, { headers: { "Accept": "application/json" } });
+    const res = await fetchWithTimeout(url, { headers: { "Accept": "application/json" } });
     if (!res.ok) return [];
     const data = await res.json() as any;
     return (data.foods || []) as any[];
@@ -336,7 +343,7 @@ function toTitleCase(str: string): string {
 export async function searchFoodByName(query: string, limit = 20): Promise<NutritionFacts[]> {
   try {
     const encoded = encodeURIComponent(query);
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encoded}&search_simple=1&action=process&json=1&page_size=${limit}&fields=product_name,brands,serving_size,nutriments,code`,
       { headers: { "User-Agent": "FitCore/1.0" } }
     );
