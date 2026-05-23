@@ -180,15 +180,16 @@ export default function DashboardScreen() {
   const calDays: { date: string; hasWorkout: boolean; isToday: boolean }[] = [];
   for (let i = 34; i >= 0; i--) {
     const d = new Date(); d.setDate(d.getDate() - i);
-    const ds = d.toISOString().slice(0, 10);
+    const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
     calDays.push({ date: ds, hasWorkout: workoutDates.has(ds), isToday: ds === today });
   }
 
-  // Streak
+  // Streak — use local date to match how workouts are stored
   let streak = 0;
   for (let i = 0; i <= 60; i++) {
     const d = new Date(); d.setDate(d.getDate() - i);
-    if (workoutDates.has(d.toISOString().slice(0, 10))) streak++;
+    const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    if (workoutDates.has(ds)) streak++;
     else if (i > 0) break;
   }
 
@@ -337,7 +338,7 @@ export default function DashboardScreen() {
             <View style={{ flexDirection: "row", gap: 4, marginTop: 12 }}>
               {Array.from({ length: 7 }).map((_, i) => {
                 const d = new Date(); d.setDate(d.getDate() - (6 - i));
-                const on = workoutDates.has(d.toISOString().slice(0, 10));
+                const on = workoutDates.has(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`);
                 return (
                   <View key={i} style={{
                     flex: 1, aspectRatio: 1, maxWidth: 10, borderRadius: 10,
