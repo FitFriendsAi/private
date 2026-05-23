@@ -756,6 +756,20 @@ export function registerRoutes(app: Express) {
     }
   });
 
+  app.patch("/api/template-exercises/:id", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const { targetSets, targetReps, targetWeightGrams, orderIndex } = req.body;
+    const data: Record<string, any> = {};
+    if (targetSets    !== undefined) data.targetSets    = Number(targetSets);
+    if (targetReps    !== undefined) data.targetReps    = String(targetReps);
+    if (targetWeightGrams !== undefined)
+      data.targetWeightGrams = targetWeightGrams === null ? null : Number(targetWeightGrams);
+    if (orderIndex    !== undefined) data.orderIndex    = Number(orderIndex);
+    const te = await storage.updateTemplateExercise(Number(req.params.id), data);
+    if (!te) return res.sendStatus(404);
+    res.json(te);
+  });
+
   app.delete("/api/template-exercises/:id", async (req, res) => {
     if (!requireAuth(req, res)) return;
     await storage.removeTemplateExercise(Number(req.params.id));

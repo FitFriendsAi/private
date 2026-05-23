@@ -405,6 +405,12 @@ export const storage = {
     const [te] = await db.insert(templateExercises).values(data).returning();
     return te;
   },
+  async updateTemplateExercise(id: number, data: Partial<{
+    targetSets: number; targetReps: string; targetWeightGrams: number | null; orderIndex: number;
+  }>): Promise<TemplateExercise | undefined> {
+    const [te] = await db.update(templateExercises).set(data).where(eq(templateExercises.id, id)).returning();
+    return te;
+  },
   async removeTemplateExercise(id: number): Promise<void> {
     await db.delete(templateExercises).where(eq(templateExercises.id, id));
   },
