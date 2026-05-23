@@ -590,6 +590,12 @@ export function registerRoutes(app: Express) {
   });
 
   // ── Water ───────────────────────────────────────────────────────────────────
+  app.get("/api/water/history", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const days = Math.min(Math.max(parseInt(req.query.days as string) || 30, 7), 365);
+    res.json(await storage.getWaterHistory((req.user as any).id, days));
+  });
+
   app.get("/api/water", async (req, res) => {
     if (!requireAuth(req, res)) return;
     const date = (req.query.date as string) || new Date().toLocaleDateString("en-CA");

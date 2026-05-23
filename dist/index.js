@@ -53278,6 +53278,13 @@ var storage = {
   async deleteWaterEntry(id, userId) {
     await db.delete(waterLog).where(and(eq(waterLog.id, id), eq(waterLog.userId, userId)));
   },
+  async getWaterHistory(userId, days) {
+    const since = /* @__PURE__ */ new Date();
+    since.setDate(since.getDate() - days + 1);
+    const sinceStr = since.toISOString().slice(0, 10);
+    const rows = await db.select({ date: waterLog.date, totalMl: sql`sum(${waterLog.amountMl})` }).from(waterLog).where(and(eq(waterLog.userId, userId), gte(waterLog.date, sinceStr))).groupBy(waterLog.date).orderBy(waterLog.date);
+    return rows;
+  },
   // ── Supplement Log ─────────────────────────────────────────────────────────
   async getSupplementLog(userId, date2) {
     return db.select().from(supplementLog).where(and(eq(supplementLog.userId, userId), eq(supplementLog.date, date2)));
@@ -57583,7 +57590,7 @@ function registerRoutes(app2) {
   });
   app2.get("/api/food-log", async (req, res) => {
     if (!requireAuth(req, res)) return;
-    const date2 = req.query.date || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    const date2 = req.query.date || (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA");
     res.json(await storage.getFoodLog(req.user.id, date2));
   });
   app2.post("/api/food-log", async (req, res) => {
@@ -57668,9 +57675,14 @@ function registerRoutes(app2) {
       res.status(400).json({ message: err.message });
     }
   });
+  app2.get("/api/water/history", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const days = Math.min(Math.max(parseInt(req.query.days) || 30, 7), 365);
+    res.json(await storage.getWaterHistory(req.user.id, days));
+  });
   app2.get("/api/water", async (req, res) => {
     if (!requireAuth(req, res)) return;
-    const date2 = req.query.date || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    const date2 = req.query.date || (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA");
     res.json(await storage.getWaterLog(req.user.id, date2));
   });
   app2.post("/api/water", async (req, res) => {
@@ -57691,7 +57703,7 @@ function registerRoutes(app2) {
   });
   app2.get("/api/supplements", async (req, res) => {
     if (!requireAuth(req, res)) return;
-    const date2 = req.query.date || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    const date2 = req.query.date || (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA");
     res.json(await storage.getSupplementLog(req.user.id, date2));
   });
   app2.post("/api/supplements", async (req, res) => {
@@ -58032,7 +58044,7 @@ Include 6-10 exercises. Use common gym exercise names. Return ONLY the JSON, no 
   app2.get("/api/heart-rate", async (req, res) => {
     if (!requireAuth(req, res)) return;
     const userId = req.user.id;
-    const date2 = req.query.date || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    const date2 = req.query.date || (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA");
     const summary = await storage.getHeartRateSummary(userId, date2);
     res.json(summary.map((r2) => ({ ts: r2.ts.getTime(), bpm: r2.bpm })));
   });

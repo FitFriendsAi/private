@@ -296,6 +296,18 @@ export const storage = {
   async deleteWaterEntry(id: number, userId: number): Promise<void> {
     await db.delete(waterLog).where(and(eq(waterLog.id, id), eq(waterLog.userId, userId)));
   },
+  async getWaterHistory(userId: number, days: number): Promise<{ date: string; totalMl: number }[]> {
+    const since = new Date();
+    since.setDate(since.getDate() - days + 1);
+    const sinceStr = since.toISOString().slice(0, 10);
+    const rows = await db
+      .select({ date: waterLog.date, totalMl: sql<number>`sum(${waterLog.amountMl})` })
+      .from(waterLog)
+      .where(and(eq(waterLog.userId, userId), gte(waterLog.date, sinceStr)))
+      .groupBy(waterLog.date)
+      .orderBy(waterLog.date);
+    return rows;
+  },
 
   // ── Supplement Log ─────────────────────────────────────────────────────────
   async getSupplementLog(userId: number, date: string): Promise<SupplementLogEntry[]> {

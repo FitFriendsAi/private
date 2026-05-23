@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useRouter } from "expo-router";
-import { ScrollView, View, Text, Pressable, Modal, TextInput, Platform, Alert } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { ScrollView, View, Text, Pressable, Modal, TextInput, Platform, Alert, Animated, Dimensions, StatusBar } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
@@ -223,6 +223,46 @@ export default function DashboardScreen() {
     onError:   (e: any) => console.error("❌ removeWater failed:", e?.message ?? e),
     onSettled: () => qc.invalidateQueries({ queryKey: ["/api/water", today] }),
   });
+
+  // ── Water history expanded view ──────────────────────────────────
+  const [waterOpen,    setWaterOpen]    = useState(false);
+  const [waterPeriod,  setWaterPeriod]  = useState<7 | 30 | 90>(30);
+  const expandAnim   = useRef(new Animated.Value(0)).current;
+  const contentAnim  = useRef(new Animated.Value(0)).current;
+  const insets = useSafeAreaInsets();
+  const { width: SW, height: SH } = Dimensions.get("window");
+
+  const { data: waterHistory = [] } = useQuery<{ date: string; totalMl: number }[]>({
+    queryKey: ["/api/water/history", waterPeriod],
+    queryFn:  () => apiRequest("GET", `/api/water/history?days=${waterPeriod}`),
+    enabled:  waterOpen,
+  });
+
+  const openWaterHistory = useCallback(() => {
+    setWaterOpen(true);
+    expandAnim.setValue(0);
+    contentAnim.setValue(0);
+    Animated.sequence([
+      Animated.spring(expandAnim, { toValue: 1, useNativeDriver: true, tension: 60, friction: 12 }),
+      Animated.timing(contentAnim, { toValue: 1, duration: 180, useNativeDriver: true }),
+    ]).start();
+  }, [expandAnim, contentAnim]);
+
+  const closeWaterHistory = useCallback(() => {
+    Animated.parallel([
+      Animated.timing(contentAnim, { toValue: 0, duration: 120, useNativeDriver: true }),
+      Animated.timing(expandAnim,  { toValue: 0, duration: 250, useNativeDriver: true }),
+    ]).start(() => setWaterOpen(false));
+  }, [expandAnim, contentAnim]);
+
+  // Derived water history stats
+  const historyWithMl   = waterHistory.map(d => ({ ...d, cups: Math.round(mlToOz(d.totalMl) / 8) }));
+  const avgCups         = historyWithMl.length
+    ? Math.round(historyWithMl.reduce((s, d) => s + d.cups, 0) / historyWithMl.length)
+    : 0;
+  const bestCups        = historyWithMl.length ? Math.max(...historyWithMl.map(d => d.cups)) : 0;
+  const goalMetDays     = historyWithMl.filter(d => d.cups >= targetCups).length;
+  const maxBarCups      = Math.max(bestCups, targetCups, 1);
 
   // Modal state for editing the water goal (cups)
   const [waterEditOpen, setWaterEditOpen]   = useState(false);
@@ -466,7 +506,7 @@ export default function DashboardScreen() {
         <View style={{ flexDirection: "row", gap: 10, marginBottom: 10 }}>
 
           {/* Water card */}
-          <View style={{ flex: 1, backgroundColor: BLUE, borderRadius: 24, padding: 14 }}>
+          <Pressable onPress={openWaterHistory} style={{ flex: 1, backgroundColor: BLUE, borderRadius: 24, padding: 14 }}>
             {/* Header row */}
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -526,7 +566,7 @@ export default function DashboardScreen() {
                 <Plus size={16} color="rgba(0,0,0,0.55)" />
               </Pressable>
             </View>
-          </View>
+          </Pressable>
 
           {/* Steps */}
           <View style={{ flex: 1, backgroundColor: card, borderRadius: 24, padding: 16, borderWidth: 1, borderColor: border }}>
@@ -929,6 +969,127 @@ export default function DashboardScreen() {
         )}
 
       </ScrollView>
+
+      {/* ── Water history expanded view ─────────────────────────── */}
+      <Modal visible={waterOpen} transparent animationType="none" onRequestClose={closeWaterHistory} statusBarTranslucent>
+        <Animated.View style={{
+          position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: BLUE,
+          transform: [{ scale: expandAnim.interpolate({ inputRange: [0, 1], outputRange: [0.06, 1] }) }],
+          borderRadius: expandAnim.interpolate({ inputRange: [0, 0.6, 1], outputRange: [999, 40, 0] }),
+        }}>
+          <Animated.View style={{ flex: 1, opacity: contentAnim }}>
+            <SafeAreaView style={{ flex: 1 }}>
+              {/* Header */}
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 24, paddingTop: 8, paddingBottom: 16 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                  <Droplets size={20} color="rgba(0,0,0,0.55)" />
+                  <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 22, color: "#0a0a0a" }}>Water</Text>
+                </View>
+                <Pressable onPress={closeWaterHistory} hitSlop={12}
+                  style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(0,0,0,0.12)", alignItems: "center", justifyContent: "center" }}>
+                  <Text style={{ fontFamily: "Manrope-Bold", fontSize: 18, color: "#0a0a0a", lineHeight: 20 }}>×</Text>
+                </Pressable>
+              </View>
+
+              <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+
+                {/* Today stat */}
+                <View style={{ alignItems: "center", marginBottom: 28 }}>
+                  <Text style={{ ...(DOT as any), fontSize: 72, color: "#0a0a0a", lineHeight: 76 }}>{waterCups}</Text>
+                  <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: "rgba(0,0,0,0.5)" }}>of {targetCups} cups today</Text>
+                  {/* progress bar */}
+                  <View style={{ width: "70%", height: 6, backgroundColor: "rgba(0,0,0,0.15)", borderRadius: 3, marginTop: 12, overflow: "hidden" }}>
+                    <View style={{ width: `${Math.min(waterCups / targetCups, 1) * 100}%` as any, height: "100%", backgroundColor: "#0a0a0a", borderRadius: 3 }} />
+                  </View>
+                </View>
+
+                {/* Summary stats */}
+                <View style={{ flexDirection: "row", gap: 10, marginBottom: 24 }}>
+                  {[
+                    { label: "AVG / DAY",  value: `${avgCups}` , unit: "cups" },
+                    { label: "BEST DAY",   value: `${bestCups}`, unit: "cups" },
+                    { label: "GOAL MET",   value: `${goalMetDays}`, unit: `of ${waterPeriod}d` },
+                  ].map(s => (
+                    <View key={s.label} style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.1)", borderRadius: 16, padding: 12, alignItems: "center" }}>
+                      <Text style={{ ...(DOT as any), fontSize: 24, color: "#0a0a0a", lineHeight: 28 }}>{s.value}</Text>
+                      <Text style={{ fontFamily: "Manrope-Bold", fontSize: 9, color: "rgba(0,0,0,0.45)", letterSpacing: 0.5, marginTop: 2 }}>{s.unit}</Text>
+                      <Text style={{ fontFamily: "Manrope-Bold", fontSize: 8, color: "rgba(0,0,0,0.35)", letterSpacing: 0.5, marginTop: 1 }}>{s.label}</Text>
+                    </View>
+                  ))}
+                </View>
+
+                {/* Period selector */}
+                <View style={{ flexDirection: "row", backgroundColor: "rgba(0,0,0,0.1)", borderRadius: 12, padding: 3, marginBottom: 20 }}>
+                  {([7, 30, 90] as const).map(p => (
+                    <Pressable key={p} onPress={() => setWaterPeriod(p)} style={{
+                      flex: 1, paddingVertical: 7, borderRadius: 10, alignItems: "center",
+                      backgroundColor: waterPeriod === p ? "rgba(0,0,0,0.18)" : "transparent",
+                    }}>
+                      <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: waterPeriod === p ? "#0a0a0a" : "rgba(0,0,0,0.4)" }}>
+                        {p === 7 ? "7 Days" : p === 30 ? "30 Days" : "90 Days"}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                {/* Bar chart */}
+                {historyWithMl.length > 0 ? (
+                  <View style={{ marginBottom: 24 }}>
+                    <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: "rgba(0,0,0,0.4)", letterSpacing: 0.6, marginBottom: 10 }}>DAILY INTAKE</Text>
+                    <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 3, height: 90 }}>
+                      {historyWithMl.map((d, i) => {
+                        const pct = d.cups / maxBarCups;
+                        const metGoal = d.cups >= targetCups;
+                        const isToday = d.date === today;
+                        return (
+                          <View key={i} style={{ flex: 1, alignItems: "center", justifyContent: "flex-end", height: 90 }}>
+                            <View style={{
+                              width: "100%", borderRadius: 3,
+                              height: Math.max(pct * 78, 3),
+                              backgroundColor: isToday ? "#0a0a0a" : metGoal ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0.2)",
+                            }} />
+                          </View>
+                        );
+                      })}
+                    </View>
+                    {/* Goal line label */}
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8 }}>
+                      <View style={{ width: 12, height: 2, backgroundColor: "rgba(0,0,0,0.4)" }} />
+                      <Text style={{ fontFamily: "Manrope", fontSize: 10, color: "rgba(0,0,0,0.4)" }}>Goal: {targetCups} cups</Text>
+                    </View>
+                  </View>
+                ) : (
+                  <View style={{ alignItems: "center", paddingVertical: 32 }}>
+                    <Text style={{ fontFamily: "Manrope", fontSize: 13, color: "rgba(0,0,0,0.4)" }}>No data for this period yet</Text>
+                  </View>
+                )}
+
+                {/* Today's log */}
+                <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: "rgba(0,0,0,0.4)", letterSpacing: 0.6, marginBottom: 10 }}>TODAY'S LOG</Text>
+                {water.length === 0 ? (
+                  <Text style={{ fontFamily: "Manrope", fontSize: 13, color: "rgba(0,0,0,0.4)" }}>Nothing logged yet today.</Text>
+                ) : (
+                  [...water].reverse().map((e: any, i: number) => (
+                    <View key={e.id ?? i} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 10, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: "rgba(0,0,0,0.1)" }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                        <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: "rgba(0,0,0,0.12)", alignItems: "center", justifyContent: "center" }}>
+                          <Droplets size={14} color="rgba(0,0,0,0.5)" />
+                        </View>
+                        <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 14, color: "#0a0a0a" }}>8 oz</Text>
+                      </View>
+                      <Text style={{ fontFamily: "Manrope", fontSize: 12, color: "rgba(0,0,0,0.4)" }}>
+                        {e.loggedAt ? new Date(e.loggedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "—"}
+                      </Text>
+                    </View>
+                  ))
+                )}
+
+              </ScrollView>
+            </SafeAreaView>
+          </Animated.View>
+        </Animated.View>
+      </Modal>
 
       {/* ── Water goal editor modal ─────────────────────────────── */}
       <Modal
