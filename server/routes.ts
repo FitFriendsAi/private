@@ -330,18 +330,49 @@ export function registerRoutes(app: Express) {
     //    CalorieNinjas + USDA + OFF → full nutrition panels
     //    FatSecret → best name coverage, macros only on free tier
     //
-    //    Auto-detect restaurant queries: if the query contains a hyphen (e.g. "chick-fil-a")
-    //    or a known indicator word, also run restaurant/brand-specific lookups.
-    const isRestaurant = typeFilter === "restaurant" || /chick-fil-a|mcdonald|burger king|wendy|taco bell|subway|chipotle|panera|starbucks|dunkin|domino|pizza hut|kfc|popeyes|five guys|shake shack|whataburger|in-n-out|sonic|arby|dairy queen/i.test(q);
+    //    Auto-detect restaurant queries. When a known chain is in the query,
+    //    extract just the brand name for the OFF brand-page lookup (passing the
+    //    full query "chick-fil-a chicken biscuit" as a brand slug returns nothing).
+    const RESTAURANT_BRANDS: [RegExp, string][] = [
+      [/chick-fil-a/i,   "chick-fil-a"],
+      [/mcdonald/i,      "mcdonalds"],
+      [/burger king/i,   "burger-king"],
+      [/wendy/i,         "wendys"],
+      [/taco bell/i,     "taco-bell"],
+      [/subway/i,        "subway"],
+      [/chipotle/i,      "chipotle"],
+      [/panera/i,        "panera"],
+      [/starbucks/i,     "starbucks"],
+      [/dunkin/i,        "dunkin-donuts"],
+      [/domino/i,        "dominos-pizza"],
+      [/pizza hut/i,     "pizza-hut"],
+      [/\bkfc\b/i,       "kfc"],
+      [/popeyes/i,       "popeyes"],
+      [/five guys/i,     "five-guys"],
+      [/shake shack/i,   "shake-shack"],
+      [/whataburger/i,   "whataburger"],
+      [/in-n-out/i,      "in-n-out-burger"],
+      [/\bsonic\b/i,     "sonic"],
+      [/\barby/i,        "arbys"],
+      [/dairy queen/i,   "dairy-queen"],
+      [/chilis/i,        "chilis"],
+      [/applebees/i,     "applebees"],
+      [/olive garden/i,  "olive-garden"],
+      [/red lobster/i,   "red-lobster"],
+    ];
+    const matchedBrand = RESTAURANT_BRANDS.find(([rx]) => rx.test(q));
+    const isRestaurant = typeFilter === "restaurant" || !!matchedBrand;
+    const brandSlug    = matchedBrand?.[1] ?? q; // use clean slug, not full query
+
     const [usda, fs, cn, off, offBrand] = await Promise.all([
       searchUSDA(q, isRestaurant ? 40 : 25, isRestaurant),
       searchFatSecret(q, 20),
       searchCalorieNinjas(q, 15),
       (!isRestaurant && local.length < 3) ? searchFoodByName(q, 10) : Promise.resolve([]),
-      isRestaurant ? searchBrandOFF(q, 20) : Promise.resolve([]),
+      isRestaurant ? searchBrandOFF(brandSlug, 30) : Promise.resolve([]),
     ]);
 
-    console.log(`[food/search] q="${q}" isRestaurant=${isRestaurant} | usda=${usda.length} fs=${fs.length} cn=${cn.length} off=${off.length} offBrand=${offBrand.length} local=${local.length}`);
+    console.log(`[food/search] q="${q}" isRestaurant=${isRestaurant} brandSlug="${brandSlug}" | usda=${usda.length} fs=${fs.length} cn=${cn.length} off=${off.length} offBrand=${offBrand.length} local=${local.length}`);
 
     // 3. Fuse all sources into deduplicated, enriched results.
     //    Order matters: full-nutrition sources first so they become the base
@@ -349,22 +380,41 @@ export function registerRoutes(app: Express) {
     const allExternal = [...usda, ...cn, ...off, ...offBrand, ...fs];
     const fused = fuseItems([...local, ...allExternal]);
 
+    // 3.5 — Relevance filter: drop items with zero word overlap with the query.
+    //    Prevents USDA "chick peas" results flooding a "chick-fil-a chicken biscuit" search.
+    //    Skip the filter if the query is very short (≤2 significant words) to avoid
+    //    over-filtering single-ingredient searches like "rice" or "egg".
+    const queryWords = wordSet(q);
+    const relevant = queryWords.size >= 2
+      ? fused.filter(item => {
+          const itemWords = new Set([
+            ...wordSet(item.name  || ""),
+            ...wordSet(item.brand || item.brandOwner || ""),
+          ]);
+          for (const w of queryWords) if (itemWords.has(w)) return true;
+          return false;
+        })
+      : fused;
+
     // 4. Relevance sort — brand exact > brand contains > name starts > rest
     //    Tiebreak: more complete nutrition floats up slightly
     function relevanceScore(item: any): number {
-      const brand = (item.brand || item.brandOwner || "").toLowerCase();
-      const name  = (item.name  || "").toLowerCase();
+      const brand = normName(item.brand || item.brandOwner || "");
+      const name  = normName(item.name  || "");
+      const qn    = normName(q);
       let base = 5;
-      if (brand === ql)              base = 0;
-      else if (brand.startsWith(ql)) base = 1;
-      else if (brand.includes(ql))   base = 2;
-      else if (name.startsWith(ql))  base = 3;
-      else if (name.includes(ql))    base = 4;
-      return base - nutritionScore(item) * 0.01;
+      if (brand === qn)              base = 0;
+      else if (brand.startsWith(qn)) base = 1;
+      else if (brand.includes(qn))   base = 2;
+      else if (name.startsWith(qn))  base = 3;
+      else if (name.includes(qn))    base = 4;
+      // word-overlap tiebreak — more overlap = lower (better) score within same tier
+      const overlap = nameSimilarity(name + " " + brand, qn);
+      return base - overlap * 0.5 - nutritionScore(item) * 0.01;
     }
-    fused.sort((a, b) => relevanceScore(a) - relevanceScore(b));
+    relevant.sort((a, b) => relevanceScore(a) - relevanceScore(b));
 
-    res.json(fused.slice(0, 30));
+    res.json(relevant.slice(0, 30));
   });
 
   app.get("/api/food/barcode/:code", async (req, res) => {
