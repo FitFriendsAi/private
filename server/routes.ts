@@ -240,45 +240,87 @@ export function registerRoutes(app: Express) {
 
     const ql = q.toLowerCase();
 
+    // ── Helpers ──────────────────────────────────────────────────────────────
+    // Normalize names for cross-source matching (strip punctuation, lowercase)
+    function normName(s: string): string {
+      return (s || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+    }
+    // Count how many extra nutrition fields an item has (0–3)
+    function nutritionScore(item: any): number {
+      return (item.fiberG   != null ? 1 : 0)
+           + (item.sodiumMg != null ? 1 : 0)
+           + (item.sugarG   != null ? 1 : 0);
+    }
+    // Fill missing fields in `base` from `rich` without overwriting existing values
+    function mergeNutrition(base: any, rich: any): any {
+      return {
+        ...base,
+        fiberG:   base.fiberG   ?? rich.fiberG,
+        sodiumMg: base.sodiumMg ?? rich.sodiumMg,
+        sugarG:   base.sugarG   ?? rich.sugarG,
+      };
+    }
+
     // 1. Local DB cache (previous searches / custom items)
     const local = await storage.searchFoodItems(q);
     if (local.length >= 10) return res.json(local);
 
-    // 2. External APIs in parallel
-    //    USDA is primary — full nutrition panel (fiber, sodium, sugar, etc.) with real API key
-    //    FatSecret fills name-matching gaps (macros only on free tier)
-    //    Restaurant mode also adds OFF brand browse for extra coverage
-    //    General mode adds OFF text search as a supplement
+    // 2. All external APIs in parallel — every source runs every time so we
+    //    can cross-enrich. CalorieNinjas + USDA + OFF always return full panels;
+    //    FatSecret has the best name coverage but only macros on the free tier.
     const isRestaurant = typeFilter === "restaurant";
-    const [usda, fs, off, offBrand] = await Promise.all([
+    const [usda, fs, cn, off, offBrand] = await Promise.all([
       searchUSDA(q, isRestaurant ? 40 : 25, isRestaurant),
       searchFatSecret(q, 20),
+      searchCalorieNinjas(q, 15),
       (!isRestaurant && local.length < 3) ? searchFoodByName(q, 10) : Promise.resolve([]),
       isRestaurant ? searchBrandOFF(q, 20) : Promise.resolve([]),
     ]);
 
-    // 3. Merge + deduplicate by name (USDA → FatSecret → OFF brand → OFF text → local)
-    //    USDA leads so full-nutrition items always take precedence over macro-only FatSecret results
-    const seen = new Set(local.map((x: any) => x.name.toLowerCase()));
-    const candidates: any[] = [...local];
-    for (const item of [...usda, ...fs, ...offBrand, ...off]) {
-      const key = (item.name || "").toLowerCase();
-      if (!seen.has(key)) {
-        seen.add(key);
-        candidates.push(item);
+    // 3. Build enrichment map from sources that carry full nutrition panels.
+    //    key: normalized name → richest item seen so far
+    const enrichMap = new Map<string, any>();
+    for (const item of [...usda, ...cn, ...off, ...offBrand]) {
+      if (nutritionScore(item) === 0) continue;
+      const key = normName(item.name);
+      const existing = enrichMap.get(key);
+      if (!existing || nutritionScore(item) > nutritionScore(existing)) {
+        enrichMap.set(key, item);
       }
     }
 
-    // 4. Relevance sort — brand exact match > brand contains > name starts > rest
+    // 4. Merge all sources, deduplicating by name.
+    //    Order: USDA → CalorieNinjas → FatSecret → OFF brand → OFF text
+    //    Full-nutrition sources come first so they win on duplicates.
+    //    For any item still missing nutrition fields, patch from enrichMap.
+    const seen = new Set(local.map((x: any) => normName(x.name)));
+    const candidates: any[] = [...local];
+
+    for (const item of [...usda, ...cn, ...fs, ...offBrand, ...off]) {
+      const key = normName(item.name);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      // Cross-enrich: fill any missing fiber/sodium/sugar from richer sources
+      const rich = enrichMap.get(key);
+      candidates.push(rich && nutritionScore(item) < nutritionScore(rich)
+        ? mergeNutrition(item, rich)
+        : item
+      );
+    }
+
+    // 5. Relevance sort — brand exact > brand contains > name starts > rest
+    //    Secondary tiebreaker: more complete nutrition floats up
     function relevanceScore(item: any): number {
       const brand = (item.brand || item.brandOwner || "").toLowerCase();
       const name  = (item.name || "").toLowerCase();
-      if (brand === ql)           return 0;
-      if (brand.startsWith(ql))   return 1;
-      if (brand.includes(ql))     return 2;
-      if (name.startsWith(ql))    return 3;
-      if (name.includes(ql))      return 4;
-      return 5;
+      let base = 5;
+      if (brand === ql)         base = 0;
+      else if (brand.startsWith(ql)) base = 1;
+      else if (brand.includes(ql))   base = 2;
+      else if (name.startsWith(ql))  base = 3;
+      else if (name.includes(ql))    base = 4;
+      // Subtract a tiny fraction for each extra nutrition field (more = better rank)
+      return base - nutritionScore(item) * 0.01;
     }
     candidates.sort((a, b) => relevanceScore(a) - relevanceScore(b));
 

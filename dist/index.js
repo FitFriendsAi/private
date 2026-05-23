@@ -56879,6 +56879,35 @@ async function searchFatSecret(query, limit = 25) {
   }
 }
 var CN_KEY = process.env.CALORIENINJA_API_KEY;
+async function searchCalorieNinjas(query, limit = 20) {
+  if (!CN_KEY) return [];
+  try {
+    const res = await fetch(
+      `https://api.calorieninjas.com/v1/nutrition?query=${encodeURIComponent(query)}`,
+      { headers: { "X-Api-Key": CN_KEY, "Accept": "application/json" } }
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    const items = (data.items || []).slice(0, limit);
+    return items.filter((item) => item.calories != null).map((item) => ({
+      name: toTitleCaseCN(item.name),
+      servingSizeG: item.serving_size_g || 100,
+      servingUnit: `${item.serving_size_g || 100}g`,
+      calories: Math.round(item.calories || 0),
+      proteinG: Math.round((item.protein_g || 0) * 10) / 10,
+      carbsG: Math.round((item.carbohydrates_total_g || 0) * 10) / 10,
+      fatG: Math.round((item.fat_total_g || 0) * 10) / 10,
+      fiberG: item.fiber_g != null ? Math.round(item.fiber_g * 10) / 10 : void 0,
+      sodiumMg: item.sodium_mg != null ? Math.round(item.sodium_mg) : void 0,
+      sugarG: item.sugar_g != null ? Math.round(item.sugar_g * 10) / 10 : void 0
+    }));
+  } catch {
+    return [];
+  }
+}
+function toTitleCaseCN(str) {
+  return str.toLowerCase().replace(/\b\w/g, (c3) => c3.toUpperCase());
+}
 async function searchBrandOFF(brandQuery, limit = 25) {
   try {
     const slug = brandQuery.toLowerCase().replace(/[''']/g, "").replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
@@ -57370,33 +57399,60 @@ function registerRoutes(app2) {
     const typeFilter = req.query.type || "all";
     if (!q2 || q2.length < 2) return res.json([]);
     const ql = q2.toLowerCase();
+    function normName(s2) {
+      return (s2 || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+    }
+    function nutritionScore(item) {
+      return (item.fiberG != null ? 1 : 0) + (item.sodiumMg != null ? 1 : 0) + (item.sugarG != null ? 1 : 0);
+    }
+    function mergeNutrition(base, rich) {
+      return {
+        ...base,
+        fiberG: base.fiberG ?? rich.fiberG,
+        sodiumMg: base.sodiumMg ?? rich.sodiumMg,
+        sugarG: base.sugarG ?? rich.sugarG
+      };
+    }
     const local = await storage.searchFoodItems(q2);
     if (local.length >= 10) return res.json(local);
     const isRestaurant = typeFilter === "restaurant";
-    const [usda, fs2, off, offBrand] = await Promise.all([
+    const [usda, fs2, cn, off, offBrand] = await Promise.all([
       searchUSDA(q2, isRestaurant ? 40 : 25, isRestaurant),
       searchFatSecret(q2, 20),
+      searchCalorieNinjas(q2, 15),
       !isRestaurant && local.length < 3 ? searchFoodByName(q2, 10) : Promise.resolve([]),
       isRestaurant ? searchBrandOFF(q2, 20) : Promise.resolve([])
     ]);
-    const seen = new Set(local.map((x2) => x2.name.toLowerCase()));
-    const candidates = [...local];
-    for (const item of [...usda, ...fs2, ...offBrand, ...off]) {
-      const key = (item.name || "").toLowerCase();
-      if (!seen.has(key)) {
-        seen.add(key);
-        candidates.push(item);
+    const enrichMap = /* @__PURE__ */ new Map();
+    for (const item of [...usda, ...cn, ...off, ...offBrand]) {
+      if (nutritionScore(item) === 0) continue;
+      const key = normName(item.name);
+      const existing = enrichMap.get(key);
+      if (!existing || nutritionScore(item) > nutritionScore(existing)) {
+        enrichMap.set(key, item);
       }
+    }
+    const seen = new Set(local.map((x2) => normName(x2.name)));
+    const candidates = [...local];
+    for (const item of [...usda, ...cn, ...fs2, ...offBrand, ...off]) {
+      const key = normName(item.name);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const rich = enrichMap.get(key);
+      candidates.push(
+        rich && nutritionScore(item) < nutritionScore(rich) ? mergeNutrition(item, rich) : item
+      );
     }
     function relevanceScore(item) {
       const brand = (item.brand || item.brandOwner || "").toLowerCase();
       const name = (item.name || "").toLowerCase();
-      if (brand === ql) return 0;
-      if (brand.startsWith(ql)) return 1;
-      if (brand.includes(ql)) return 2;
-      if (name.startsWith(ql)) return 3;
-      if (name.includes(ql)) return 4;
-      return 5;
+      let base = 5;
+      if (brand === ql) base = 0;
+      else if (brand.startsWith(ql)) base = 1;
+      else if (brand.includes(ql)) base = 2;
+      else if (name.startsWith(ql)) base = 3;
+      else if (name.includes(ql)) base = 4;
+      return base - nutritionScore(item) * 0.01;
     }
     candidates.sort((a2, b2) => relevanceScore(a2) - relevanceScore(b2));
     res.json(candidates.slice(0, 30));
