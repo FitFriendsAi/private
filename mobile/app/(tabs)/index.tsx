@@ -221,13 +221,10 @@ export default function DashboardScreen() {
   ), [measurements, weightPeriod]);
   const weightBarMax = Math.max(...weightBars.map(b => b.value), 1);
   const weightBarMin = Math.min(...weightBars.filter(b => b.value > 0).map(b => b.value), weightBarMax);
-  // Normalize weight bars relative to the range (small changes visible)
-  const weightRange  = Math.max(weightBarMax - weightBarMin, 5);
-  const weightBarsNorm = useMemo(() => weightBars.map(b => ({
-    ...b,
-    tooltipValue: b.value > 0 ? b.value : undefined,   // raw lbs shown in tooltip
-    value: b.value > 0 ? ((b.value - weightBarMin) / weightRange) * 80 + 10 : 0,
-  })), [weightBars, weightBarMin, weightRange]);
+  // Tight axis bounds: pad 2 lbs above and below the actual range (min 5 lb spread)
+  const weightAxisSpread = Math.max(weightBarMax - weightBarMin, 5);
+  const weightAxisMax    = Math.ceil(weightBarMax  + Math.max(weightAxisSpread * 0.08, 1));
+  const weightAxisMin    = Math.max(0, Math.floor(weightBarMin - Math.max(weightAxisSpread * 0.08, 1)));
 
   const workoutDates = new Set(recentWorkouts.map((w: any) => w.date));
 
@@ -1441,9 +1438,9 @@ export default function DashboardScreen() {
         glowColor={LIME}
         title="Body Weight" icon={<TrendingDown size={18} color="#0a0a0a" />}
         period={weightPeriod} onPeriodChange={setWeightPeriod}
-        chartBars={weightBarsNorm} chartMaxValue={100}
+        chartBars={weightBars} chartMaxValue={weightAxisMax} chartMinValue={weightAxisMin}
         chartLabel="WEIGHT TREND"
-        formatValue={(v) => `${v.toFixed(1)} lbs`}
+        formatValue={(v) => `${parseFloat(v.toFixed(1))} lbs`}
         stats={[
           { label: "CURRENT", value: latestWeight ? String(gramsToLbs(latestWeight.weightGrams)) : "—", unit: "lbs" },
           { label: "THIS WEEK", value: weeklyChange !== null ? `${weeklyChange > 0 ? "+" : ""}${weeklyChange.toFixed(1)}` : "—", unit: "lbs" },

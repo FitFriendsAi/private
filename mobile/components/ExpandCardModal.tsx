@@ -40,6 +40,9 @@ interface Props {
 
   chartBars: ChartBar[];
   chartMaxValue: number;
+  /** When set, bars and y-axis are scaled from chartMinValue→chartMaxValue instead of 0→max.
+   *  Useful for body weight where the full 0-based range would flatten small fluctuations. */
+  chartMinValue?: number;
   goalValue?: number;
   chartLabel?: string;
   glowColor?: string;
@@ -56,7 +59,7 @@ export function ExpandCardModal({
   bgColor, isDark = false,
   title, icon,
   period, onPeriodChange, noPeriodSelector,
-  chartBars, chartMaxValue, goalValue, chartLabel,
+  chartBars, chartMaxValue, chartMinValue, goalValue, chartLabel,
   glowColor = "white",
   formatValue,
   stats, children, logSection,
@@ -119,7 +122,7 @@ export function ExpandCardModal({
     const barW = (chartWidth - gap * (chartBars.length - 1)) / chartBars.length;
     const coords = chartBars.map((b, i) => ({
       x: i * (barW + gap) + barW / 2,
-      y: CHART_H - Math.max((b.value / chartMaxValue) * BAR_MAX_H, b.value > 0 ? 3 : 2),
+      y: CHART_H - calcBarH(b.value),
     }));
     const pts = coords.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
     let len = 0;
@@ -127,9 +130,11 @@ export function ExpandCardModal({
       const dx = coords[i].x - coords[i-1].x, dy = coords[i].y - coords[i-1].y;
       len += Math.sqrt(dx*dx + dy*dy);
     }
-    const gy = goalValue != null ? CHART_H - (goalValue / chartMaxValue) * BAR_MAX_H : 0;
+    const gy = goalValue != null
+      ? CHART_H - ((goalValue - chartMin) / chartRange) * BAR_MAX_H
+      : 0;
     return { pts, pathLength: Math.ceil(len) + 20, goalY: gy };
-  }, [chartBars, chartWidth, chartMaxValue, period, goalValue]);
+  }, [chartBars, chartWidth, chartMaxValue, chartMin, chartRange, period, goalValue]);
 
   // Draw animation
   useEffect(() => {
@@ -145,11 +150,19 @@ export function ExpandCardModal({
   const animDashOffset = (lineAnim as any).interpolate({ inputRange: [0, 1], outputRange: [pathLength, 0] });
   const barGap = period === 30 ? 2 : 3;
 
+  // ── Range helpers (support non-zero min for tighter charts like body weight) ──
+  const chartMin   = chartMinValue ?? 0;
+  const chartRange = Math.max(chartMaxValue - chartMin, 0.001);
+
+  /** Height of a bar in px given its raw value */
+  const calcBarH = (v: number) =>
+    v === 0 ? 2 : Math.max(((v - chartMin) / chartRange) * BAR_MAX_H, 3);
+
   // ── Y-axis ticks ─────────────────────────────────────────────────
   const yTicks = [
-    { label: yFmt(chartMaxValue),     top: 4   },  // ~100%
-    { label: yFmt(chartMaxValue / 2), top: 41  },  // ~50%
-    { label: "0",                     top: 76  },  // 0%
+    { label: yFmt(chartMaxValue),              top: 4  },  // top of chart
+    { label: yFmt(chartMin + chartRange / 2),  top: 41 },  // midpoint
+    { label: yFmt(chartMin),                   top: 76 },  // bottom
   ];
 
   // ── Tooltip helper ───────────────────────────────────────────────
@@ -160,7 +173,7 @@ export function ExpandCardModal({
     const gap  = period === 30 ? 2 : 3;
     const barW = (chartWidth - gap * (chartBars.length - 1)) / chartBars.length;
     const cx   = selectedIdx * (barW + gap) + barW / 2;
-    const barH = Math.max((b.value / chartMaxValue) * BAR_MAX_H, 3);
+    const barH = calcBarH(b.value);
     const tipW = 80;
     const tipX = Math.max(0, Math.min(cx - tipW / 2, chartWidth - tipW));
     const tipTop = Math.max(2, CHART_H - barH - 40);
@@ -258,7 +271,7 @@ export function ExpandCardModal({
                         {/* Bars (Pressable columns) */}
                         <View style={{ flexDirection: "row", alignItems: "flex-end", gap: barGap, height: CHART_H, position: "absolute", left: 0, right: 0, top: 0 }}>
                           {chartBars.map((b, i) => {
-                            const pct     = b.value / chartMaxValue;
+                            const pct     = b.value === 0 ? 0 : (b.value - chartMin) / chartRange;
                             const metGoal = goalValue != null ? b.value >= goalValue : pct >= 0.9;
                             const dimmed  = selectedIdx !== null && selectedIdx !== i;
                             return (
@@ -269,7 +282,7 @@ export function ExpandCardModal({
                               >
                                 <View style={{
                                   width: "100%", borderRadius: 3,
-                                  height: Math.max(pct * BAR_MAX_H, b.value > 0 ? 3 : 2),
+                                  height: calcBarH(b.value),
                                   backgroundColor: b.isToday ? barActive : metGoal ? barMet : barEmpty,
                                   opacity: dimmed ? 0.3 : 1,
                                 }} />
