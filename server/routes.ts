@@ -645,6 +645,13 @@ export function registerRoutes(app: Express) {
     res.sendStatus(204);
   });
 
+  app.get("/api/supplements/history", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const days = Math.min(Math.max(parseInt(req.query.days as string) || 30, 7), 365);
+    const sup  = (req.query.supplement as string) || "creatine";
+    res.json(await storage.getSupplementHistory((req.user as any).id, days, sup));
+  });
+
   // ── Exercises ───────────────────────────────────────────────────────────────
   app.get("/api/exercises", async (req, res) => {
     if (!requireAuth(req, res)) return;

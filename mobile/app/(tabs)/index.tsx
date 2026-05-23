@@ -1,6 +1,6 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { useRouter } from "expo-router";
-import { ScrollView, View, Text, Pressable, Modal, TextInput, Platform, Alert, Animated, Dimensions, StatusBar } from "react-native";
+import { ScrollView, View, Text, Pressable, Modal, TextInput, Platform, Alert, Animated, Dimensions, StatusBar, Easing } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/api";
@@ -13,6 +13,10 @@ import {
   ChevronRight, Dumbbell, Flame, Plus, Minus,
 } from "lucide-react-native";
 import Svg, { Circle, Polyline, Line as SvgLine } from "react-native-svg";
+const AnimatedPolyline = Animated.createAnimatedComponent(Polyline);
+import { ExpandCardModal } from "@/components/ExpandCardModal";
+import { MacroExpandModal } from "@/components/MacroExpandModal";
+import { buildChartBars } from "@/lib/chart-utils";
 
 const HR_RED = "#c0202c";
 
@@ -24,6 +28,9 @@ const PURPLE = "#d3a8ff";
 
 // Doto — Google's LED dot-matrix display font, matches web .dot class exactly.
 const DOT: object = { fontFamily: "Doto" };
+
+const DAY_NAMES  = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const MONTH_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 // ── Mock data (friends) ──────────────────────────────────────────
 const MOCK_FRIENDS = [
@@ -146,6 +153,35 @@ export default function DashboardScreen() {
   const { data: measurements = [] }= useQuery<any[]>({ queryKey: ["/api/measurements"], queryFn: () => apiRequest("GET", "/api/measurements") });
   const { data: recentWorkouts = [] } = useQuery<any[]>({ queryKey: ["/api/workouts"], queryFn: () => apiRequest("GET", "/api/workouts?limit=35") });
 
+  // ── Expand-card state (open + period per card) ──────────────────
+  const [stepsOpen,    setStepsOpen]    = useState(false);
+  const [stepsPeriod,  setStepsPeriod]  = useState<7 | 30 | 90>(7);
+  const [calOpen,      setCalOpen]      = useState(false);
+  const [calPeriod,    setCalPeriod]    = useState<7 | 30 | 90>(30);
+  const [creatOpen,    setCreatOpen]    = useState(false);
+  const [creatPeriod,  setCreatPeriod]  = useState<7 | 30 | 90>(30);
+  const [weightOpen,   setWeightOpen]   = useState(false);
+  const [weightPeriod, setWeightPeriod] = useState<7 | 30 | 90>(30);
+  const [macrosOpen,   setMacrosOpen]   = useState(false);
+  const [macrosPeriod, setMacrosPeriod] = useState<7 | 30 | 90>(30);
+
+  // History queries (enabled only when respective modal is open)
+  const { data: calHistory = [] }   = useQuery<{ date: string; calories: number; protein: number; carbs: number; fat: number }[]>({
+    queryKey: ["/api/food-log/history", calPeriod],
+    queryFn:  () => apiRequest("GET", `/api/food-log/history?days=${calPeriod}`),
+    enabled:  calOpen,
+  });
+  const { data: macroHistory = [] } = useQuery<{ date: string; calories: number; protein: number; carbs: number; fat: number }[]>({
+    queryKey: ["/api/food-log/history", macrosPeriod],
+    queryFn:  () => apiRequest("GET", `/api/food-log/history?days=${macrosPeriod}`),
+    enabled:  macrosOpen,
+  });
+  const { data: creatHistory = [] } = useQuery<{ date: string; totalG: number }[]>({
+    queryKey: ["/api/supplements/history", creatPeriod],
+    queryFn:  () => apiRequest("GET", `/api/supplements/history?days=${creatPeriod}&supplement=creatine`),
+    enabled:  creatOpen,
+  });
+
   // ── Derived values ──
   const totals = foodLog.reduce((acc: any, e: any) => ({
     calories: acc.calories + (e.caloriesActual ?? 0),
@@ -173,6 +209,24 @@ export default function DashboardScreen() {
   const weeklyChange = latestWeight && prevWeight
     ? gramsToLbs(latestWeight.weightGrams) - gramsToLbs(prevWeight.weightGrams)
     : null;
+
+  // Pre-compute chart bars for each expand modal
+  const calBars     = useMemo(() => buildChartBars(calHistory.map(d => ({ date: d.date, value: d.calories })), calPeriod), [calHistory, calPeriod]);
+  const calBarMax   = Math.max(...calBars.map(b => b.value), calTarget, 1);
+  const creatBars   = useMemo(() => buildChartBars(creatHistory.map(d => ({ date: d.date, value: d.totalG })), creatPeriod), [creatHistory, creatPeriod]);
+  const creatBarMax = Math.max(...creatBars.map(b => b.value), 10, 1);
+  const weightBars  = useMemo(() => buildChartBars(
+    [...measurements].reverse().map((m: any) => ({ date: m.date, value: parseFloat(gramsToLbs(m.weightGrams)) })),
+    weightPeriod,
+  ), [measurements, weightPeriod]);
+  const weightBarMax = Math.max(...weightBars.map(b => b.value), 1);
+  const weightBarMin = Math.min(...weightBars.filter(b => b.value > 0).map(b => b.value), weightBarMax);
+  // Normalize weight bars relative to the range (small changes visible)
+  const weightRange  = Math.max(weightBarMax - weightBarMin, 5);
+  const weightBarsNorm = useMemo(() => weightBars.map(b => ({
+    ...b,
+    value: b.value > 0 ? ((b.value - weightBarMin) / weightRange) * 80 + 10 : 0,
+  })), [weightBars, weightBarMin, weightRange]);
 
   const workoutDates = new Set(recentWorkouts.map((w: any) => w.date));
 
@@ -227,8 +281,10 @@ export default function DashboardScreen() {
   // ── Water history expanded view ──────────────────────────────────
   const [waterOpen,    setWaterOpen]    = useState(false);
   const [waterPeriod,  setWaterPeriod]  = useState<7 | 30 | 90>(30);
+  const [chartWidth,   setChartWidth]   = useState(0);
   const expandAnim   = useRef(new Animated.Value(0)).current;
   const contentAnim  = useRef(new Animated.Value(0)).current;
+  const lineAnim     = useRef(new Animated.Value(0)).current;
   const insets = useSafeAreaInsets();
   const { width: SW, height: SH } = Dimensions.get("window");
 
@@ -262,7 +318,102 @@ export default function DashboardScreen() {
     : 0;
   const bestCups        = historyWithMl.length ? Math.max(...historyWithMl.map(d => d.cups)) : 0;
   const goalMetDays     = historyWithMl.filter(d => d.cups >= targetCups).length;
-  const maxBarCups      = Math.max(bestCups, targetCups, 1);
+
+  // Build chart bars (zero-filled days for 7/30, weekly aggregates for 90)
+  const chartBars = useMemo(() => {
+    const cupsByDate: Record<string, number> = {};
+    historyWithMl.forEach(d => { cupsByDate[d.date] = d.cups; });
+
+    if (waterPeriod === 90) {
+      // Group into calendar weeks (Mon–Sun), oldest first
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 89);
+      // align to Monday of start week
+      const weeks: { cups: number; label: string; showLabel: boolean; isToday: boolean }[] = [];
+      let weekTotal = 0, weekDays = 0, weekFirstDate: Date | null = null;
+      let prevMonth = -1;
+      for (let i = 0; i < 90; i++) {
+        const d = new Date(startDate);
+        d.setDate(startDate.getDate() + i);
+        if (!weekFirstDate) weekFirstDate = d;
+        const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+        weekTotal += (cupsByDate[ds] ?? 0);
+        weekDays++;
+        // Flush at end of each 7-day chunk or last day
+        if (weekDays === 7 || i === 89) {
+          const month = (weekFirstDate as Date).getMonth();
+          const showLabel = month !== prevMonth;
+          weeks.push({ cups: weekTotal / weekDays, label: MONTH_ABBR[month], showLabel, isToday: false });
+          prevMonth = month;
+          weekTotal = 0; weekDays = 0; weekFirstDate = null;
+        }
+      }
+      return weeks;
+    } else {
+      // 7 or 30 days — one bar per day, zero-filled
+      const todayDate = new Date();
+      return Array.from({ length: waterPeriod }, (_, idx) => {
+        const dayOffset = waterPeriod - 1 - idx; // idx=0 → oldest
+        const d = new Date(todayDate);
+        d.setDate(todayDate.getDate() - dayOffset);
+        const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+        const cups = cupsByDate[ds] ?? 0;
+        const isToday = dayOffset === 0;
+        let label = "", showLabel = false;
+        if (waterPeriod === 7) {
+          label = DAY_NAMES[d.getDay()];
+          showLabel = true;
+        } else {
+          // 30 days: label every 5th bar (positions 0, 5, 10, 15, 20, 25, 29)
+          label = String(d.getDate());
+          showLabel = idx % 5 === 0 || idx === waterPeriod - 1;
+        }
+        return { cups, label, showLabel, isToday, date: ds };
+      });
+    }
+  }, [historyWithMl, waterPeriod]);
+
+  const chartMaxCups = Math.max(...chartBars.map(b => b.cups), targetCups, 1);
+
+  // Pre-compute SVG polyline points + total path length for animation
+  const { pts, pathLength, goalY } = useMemo(() => {
+    if (chartWidth <= 0 || chartBars.length === 0) return { pts: "", pathLength: 0, goalY: 0 };
+    const barGap  = waterPeriod === 30 ? 2 : 3;
+    const barW    = (chartWidth - barGap * (chartBars.length - 1)) / chartBars.length;
+    const CHART_H = 90, BAR_MAX_H = 78;
+    const coords  = chartBars.map((b, i) => ({
+      x: i * (barW + barGap) + barW / 2,
+      y: CHART_H - Math.max((b.cups / chartMaxCups) * BAR_MAX_H, b.cups > 0 ? 3 : 2),
+    }));
+    const pts = coords.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+    let len = 0;
+    for (let i = 1; i < coords.length; i++) {
+      const dx = coords[i].x - coords[i - 1].x;
+      const dy = coords[i].y - coords[i - 1].y;
+      len += Math.sqrt(dx * dx + dy * dy);
+    }
+    const goalBarH = (targetCups / chartMaxCups) * BAR_MAX_H;
+    return { pts, pathLength: Math.ceil(len) + 20, goalY: CHART_H - goalBarH };
+  }, [chartBars, chartWidth, chartMaxCups, waterPeriod, targetCups]);
+
+  // Animate line draw whenever the chart data or visibility changes
+  useEffect(() => {
+    if (pathLength > 0 && waterOpen) {
+      lineAnim.setValue(0);
+      Animated.timing(lineAnim, {
+        toValue: 1,
+        duration: 1400,
+        useNativeDriver: false,
+        easing: Easing.out(Easing.cubic),
+        delay: 200,   // small pause after modal settles
+      }).start();
+    }
+  }, [pathLength, waterOpen, waterPeriod]);
+
+  const animDashOffset = (lineAnim as any).interpolate({
+    inputRange:  [0, 1],
+    outputRange: [pathLength, 0],
+  });
 
   // Modal state for editing the water goal (cups)
   const [waterEditOpen, setWaterEditOpen]   = useState(false);
@@ -389,23 +540,17 @@ export default function DashboardScreen() {
             </View>
           </View>
 
-          {/* Calories — accent-coloured card (white on white theme, pink on pink theme, etc.) */}
-          <View style={{ flex: 1, backgroundColor: palette.accent, borderRadius: 24, padding: 16, justifyContent: "space-between" }}>
+          {/* Calories — accent-coloured card */}
+          <Pressable onPress={() => setCalOpen(true)} style={({ pressed }) => ({ flex: 1, backgroundColor: palette.accent, borderRadius: 24, padding: 16, justifyContent: "space-between", opacity: pressed ? 0.88 : 1 })}>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
-              <Text style={{ fontSize: 11, fontFamily: "Manrope-ExtraBold", letterSpacing: 0.8, color: "rgba(0,0,0,0.65)" }}>
-                CALORIES
-              </Text>
+              <Text style={{ fontSize: 11, fontFamily: "Manrope-ExtraBold", letterSpacing: 0.8, color: "rgba(0,0,0,0.65)" }}>CALORIES</Text>
               <CircleRing size={44} strokeWidth={5} progress={calPct} color="#0a0a0a" />
             </View>
             <View>
-              <Text style={{ ...(DOT as any), fontSize: 36, color: "#0a0a0a", lineHeight: 40 }}>
-                {Math.round(totals.calories).toLocaleString()}
-              </Text>
-              <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: "rgba(0,0,0,0.55)", marginTop: 4 }}>
-                / {Math.round(calTarget)} kcal
-              </Text>
+              <Text style={{ ...(DOT as any), fontSize: 36, color: "#0a0a0a", lineHeight: 40 }}>{Math.round(totals.calories).toLocaleString()}</Text>
+              <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: "rgba(0,0,0,0.55)", marginTop: 4 }}>/ {Math.round(calTarget)} kcal</Text>
             </View>
-          </View>
+          </Pressable>
         </View>
 
         {/* ── Macro bars ──────────────────────────────────────────── */}
@@ -415,19 +560,16 @@ export default function DashboardScreen() {
             { label: "CARBS",   val: Math.round(totals.carbs),   target: Math.round(targets?.carbsG   ?? 0), color: BLUE   },
             { label: "FAT",     val: Math.round(totals.fat),     target: Math.round(targets?.fatG     ?? 0), color: PURPLE },
           ] as const).map(m => (
-            <View key={m.label} style={{ flex: 1, backgroundColor: card, borderRadius: 20, padding: 12, borderWidth: 1, borderColor: border }}>
+            <Pressable key={m.label} onPress={() => setMacrosOpen(true)} style={({ pressed }) => ({ flex: 1, backgroundColor: card, borderRadius: 20, padding: 12, borderWidth: 1, borderColor: border, opacity: pressed ? 0.8 : 1 })}>
               <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted, letterSpacing: 0.8 }}>{m.label}</Text>
               <View style={{ flexDirection: "row", alignItems: "baseline", gap: 2, marginTop: 4 }}>
                 <Text style={{ ...(DOT as any), fontSize: 20, color: m.color }}>{m.val}</Text>
                 <Text style={{ fontSize: 9, fontFamily: "Manrope-Bold", color: muted }}>/{m.target}g</Text>
               </View>
               <View style={{ height: 4, backgroundColor: sec, borderRadius: 2, marginTop: 8, overflow: "hidden" }}>
-                <View style={{
-                  width: `${Math.min(m.target > 0 ? (m.val / m.target) * 100 : 0, 100)}%`,
-                  height: "100%", backgroundColor: m.color, borderRadius: 2,
-                }} />
+                <View style={{ width: `${Math.min(m.target > 0 ? (m.val / m.target) * 100 : 0, 100)}%`, height: "100%", backgroundColor: m.color, borderRadius: 2 }} />
               </View>
-            </View>
+            </Pressable>
           ))}
         </View>
 
@@ -569,7 +711,7 @@ export default function DashboardScreen() {
           </Pressable>
 
           {/* Steps */}
-          <View style={{ flex: 1, backgroundColor: card, borderRadius: 24, padding: 16, borderWidth: 1, borderColor: border }}>
+          <Pressable onPress={() => setStepsOpen(true)} style={({ pressed }) => ({ flex: 1, backgroundColor: card, borderRadius: 24, padding: 16, borderWidth: 1, borderColor: border, opacity: pressed ? 0.8 : 1 })}>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
               <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", letterSpacing: 0.8, color: muted }}>STEPS</Text>
               <Zap size={14} color={LIME} />
@@ -635,7 +777,7 @@ export default function DashboardScreen() {
                 )}
               </>
             )}
-          </View>
+          </Pressable>
         </View>
 
         {/* ── Workout Calendar — always white ─────────────────────── */}
@@ -688,7 +830,7 @@ export default function DashboardScreen() {
 
         {/* ── Body Weight — always white ───────────────────────────── */}
         {latestWeight && (
-          <View style={{ backgroundColor: "#ffffff", borderRadius: 24, padding: 18, marginBottom: 10 }}>
+          <Pressable onPress={() => setWeightOpen(true)} style={({ pressed }) => ({ backgroundColor: "#ffffff", borderRadius: 24, padding: 18, marginBottom: 10, opacity: pressed ? 0.88 : 1 })}>
             <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: "#aaaaaa", letterSpacing: 0.8, marginBottom: 8 }}>
               BODY WEIGHT
             </Text>
@@ -720,14 +862,14 @@ export default function DashboardScreen() {
               </View>
               <WeightSparkline measurements={measurements} />
             </View>
-          </View>
+          </Pressable>
         )}
 
         {/* ── Creatine + Active Goal ───────────────────────────────── */}
         <View style={{ flexDirection: "row", gap: 10, marginBottom: 10 }}>
 
           {/* Creatine card */}
-          <View style={{ flex: 1, backgroundColor: LIME, borderRadius: 24, padding: 14 }}>
+          <Pressable onPress={() => setCreatOpen(true)} style={({ pressed }) => ({ flex: 1, backgroundColor: LIME, borderRadius: 24, padding: 14, opacity: pressed ? 0.88 : 1 })}>
             {/* Header row */}
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -785,7 +927,7 @@ export default function DashboardScreen() {
                 <Plus size={16} color="rgba(0,0,0,0.55)" />
               </Pressable>
             </View>
-          </View>
+          </Pressable>
 
           {/* Active goal (or empty state) */}
           {activeGoals[0] ? (
@@ -1033,30 +1175,86 @@ export default function DashboardScreen() {
                   ))}
                 </View>
 
-                {/* Bar chart */}
-                {historyWithMl.length > 0 ? (
+                {/* Bar chart + glow line overlay */}
+                {chartBars.length > 0 ? (
                   <View style={{ marginBottom: 24 }}>
-                    <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: "rgba(0,0,0,0.4)", letterSpacing: 0.6, marginBottom: 10 }}>DAILY INTAKE</Text>
-                    <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 3, height: 90 }}>
-                      {historyWithMl.map((d, i) => {
-                        const pct = d.cups / maxBarCups;
-                        const metGoal = d.cups >= targetCups;
-                        const isToday = d.date === today;
-                        return (
-                          <View key={i} style={{ flex: 1, alignItems: "center", justifyContent: "flex-end", height: 90 }}>
-                            <View style={{
-                              width: "100%", borderRadius: 3,
-                              height: Math.max(pct * 78, 3),
-                              backgroundColor: isToday ? "#0a0a0a" : metGoal ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0.2)",
-                            }} />
-                          </View>
-                        );
-                      })}
+                    <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: "rgba(0,0,0,0.4)", letterSpacing: 0.6, marginBottom: 10 }}>
+                      {waterPeriod === 90 ? "WEEKLY AVG (CUPS/DAY)" : "DAILY INTAKE"}
+                    </Text>
+
+                    {/* Chart area: bars + SVG overlay stacked */}
+                    <View
+                      style={{ height: 90 }}
+                      onLayout={e => setChartWidth(e.nativeEvent.layout.width)}
+                    >
+                      {/* Bars */}
+                      <View style={{ flexDirection: "row", alignItems: "flex-end", gap: waterPeriod === 30 ? 2 : 3, height: 90, position: "absolute", left: 0, right: 0, top: 0 }}>
+                        {chartBars.map((b, i) => {
+                          const pct = b.cups / chartMaxCups;
+                          const metGoal = b.cups >= targetCups;
+                          return (
+                            <View key={i} style={{ flex: 1, alignItems: "center", justifyContent: "flex-end", height: 90 }}>
+                              <View style={{
+                                width: "100%", borderRadius: 3,
+                                height: Math.max(pct * 78, b.cups > 0 ? 3 : 2),
+                                backgroundColor: b.isToday ? "#0a0a0a" : metGoal ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0.15)",
+                              }} />
+                            </View>
+                          );
+                        })}
+                      </View>
+
+                      {/* SVG glow line + goal line */}
+                      {pathLength > 0 && (
+                        <Svg width={chartWidth} height={90} style={{ position: "absolute", left: 0, top: 0 }}>
+                          {/* Goal horizontal line — static white dashed */}
+                          <SvgLine x1={0} y1={goalY} x2={chartWidth} y2={goalY}
+                            stroke="rgba(255,255,255,0.25)" strokeWidth={10} />
+                          <SvgLine x1={0} y1={goalY} x2={chartWidth} y2={goalY}
+                            stroke="rgba(255,255,255,0.55)" strokeWidth={1.5} strokeDasharray="5,5" />
+
+                          {/* Animated glow line — 4 layers for neon bloom, drawn left→right */}
+                          <AnimatedPolyline points={pts} fill="none"
+                            stroke="rgba(255,255,255,0.06)" strokeWidth={18}
+                            strokeLinecap="round" strokeLinejoin="round"
+                            strokeDasharray={pathLength} strokeDashoffset={animDashOffset} />
+                          <AnimatedPolyline points={pts} fill="none"
+                            stroke="rgba(255,255,255,0.18)" strokeWidth={9}
+                            strokeLinecap="round" strokeLinejoin="round"
+                            strokeDasharray={pathLength} strokeDashoffset={animDashOffset} />
+                          <AnimatedPolyline points={pts} fill="none"
+                            stroke="rgba(255,255,255,0.45)" strokeWidth={4}
+                            strokeLinecap="round" strokeLinejoin="round"
+                            strokeDasharray={pathLength} strokeDashoffset={animDashOffset} />
+                          <AnimatedPolyline points={pts} fill="none"
+                            stroke="white" strokeWidth={1.5}
+                            strokeLinecap="round" strokeLinejoin="round"
+                            strokeDasharray={pathLength} strokeDashoffset={animDashOffset} />
+                        </Svg>
+                      )}
                     </View>
-                    {/* Goal line label */}
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8 }}>
-                      <View style={{ width: 12, height: 2, backgroundColor: "rgba(0,0,0,0.4)" }} />
-                      <Text style={{ fontFamily: "Manrope", fontSize: 10, color: "rgba(0,0,0,0.4)" }}>Goal: {targetCups} cups</Text>
+
+                    {/* X-axis labels */}
+                    <View style={{ flexDirection: "row", gap: waterPeriod === 30 ? 2 : 3, marginTop: 5 }}>
+                      {chartBars.map((b, i) => (
+                        <View key={i} style={{ flex: 1, alignItems: "center" }}>
+                          {b.showLabel ? (
+                            <Text style={{
+                              fontFamily: "Manrope-Bold",
+                              fontSize: waterPeriod === 7 ? 9 : 8,
+                              color: b.isToday ? "#0a0a0a" : "rgba(0,0,0,0.35)",
+                            } as any} numberOfLines={1}>{b.label}</Text>
+                          ) : null}
+                        </View>
+                      ))}
+                    </View>
+
+                    {/* Legend */}
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 14, marginTop: 8 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                        <View style={{ width: 16, height: 2, backgroundColor: "white", opacity: 0.7 }} />
+                        <Text style={{ fontFamily: "Manrope", fontSize: 10, color: "rgba(0,0,0,0.4)" }}>Goal: {targetCups} cups</Text>
+                      </View>
                     </View>
                   </View>
                 ) : (
@@ -1090,6 +1288,125 @@ export default function DashboardScreen() {
           </Animated.View>
         </Animated.View>
       </Modal>
+
+      {/* ── Calories expand modal ───────────────────────────────── */}
+      <ExpandCardModal
+        visible={calOpen} onClose={() => setCalOpen(false)}
+        bgColor={palette.accent} isDark={false}
+        title="Calories" icon={<Flame size={18} color="rgba(0,0,0,0.6)" />}
+        period={calPeriod} onPeriodChange={setCalPeriod}
+        chartBars={calBars} chartMaxValue={calBarMax}
+        goalValue={Math.round(calTarget)}
+        chartLabel="DAILY CALORIES"
+        stats={[
+          { label: "AVG / DAY", value: String(calBars.length ? Math.round(calBars.reduce((s,b)=>s+b.value,0)/Math.max(calBars.filter(b=>b.value>0).length,1)) : 0), unit: "kcal" },
+          { label: "BEST DAY",  value: String(Math.round(Math.max(...calBars.map(b=>b.value),0))), unit: "kcal" },
+          { label: "ON TARGET", value: String(calBars.filter(b=>b.value>0 && b.value<=calTarget*1.1 && b.value>=calTarget*0.85).length), unit: `of ${calPeriod}d` },
+        ]}
+      >
+        {/* Hero */}
+        <View style={{ alignItems: "center", marginBottom: 28, marginTop: 8 }}>
+          <Text style={{ fontFamily: "Doto", fontSize: 72, color: "#0a0a0a", lineHeight: 76 }}>{Math.round(totals.calories).toLocaleString()}</Text>
+          <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: "rgba(0,0,0,0.5)" }}>of {Math.round(calTarget)} kcal today</Text>
+          <View style={{ width: "70%", height: 6, backgroundColor: "rgba(0,0,0,0.15)", borderRadius: 3, marginTop: 12, overflow: "hidden" }}>
+            <View style={{ width: `${Math.min(calPct, 1) * 100}%` as any, height: "100%", backgroundColor: "#0a0a0a", borderRadius: 3 }} />
+          </View>
+        </View>
+      </ExpandCardModal>
+
+      {/* ── Steps expand modal ──────────────────────────────────── */}
+      <ExpandCardModal
+        visible={stepsOpen} onClose={() => setStepsOpen(false)}
+        bgColor="#0a0a0a" isDark={true}
+        title="Steps" icon={<Zap size={18} color={LIME} />}
+        period={stepsPeriod} onPeriodChange={setStepsPeriod}
+        noPeriodSelector
+        chartBars={health.weekSteps.map((d, i) => {
+          const maxS = Math.max(...health.weekSteps.map(x=>x.steps), 1);
+          const DAY = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+          const dt = new Date(d.date + "T00:00:00");
+          return { value: d.steps, label: DAY[dt.getDay()], showLabel: true, isToday: i === health.weekSteps.length - 1 };
+        })}
+        chartMaxValue={Math.max(...health.weekSteps.map(d=>d.steps), STEP_GOAL, 1)}
+        goalValue={STEP_GOAL}
+        chartLabel="DAILY STEPS"
+        stats={[
+          { label: "TODAY",  value: (health.todaySteps ?? 0).toLocaleString(), unit: "steps" },
+          { label: "7D AVG", value: health.weekSteps.length ? Math.round(health.weekSteps.reduce((s,d)=>s+d.steps,0)/health.weekSteps.length).toLocaleString() : "—", unit: "steps" },
+          { label: "BEST",   value: health.weekSteps.length ? Math.max(...health.weekSteps.map(d=>d.steps)).toLocaleString() : "—", unit: "steps" },
+        ]}
+      >
+        <View style={{ alignItems: "center", marginBottom: 28, marginTop: 8 }}>
+          <Text style={{ fontFamily: "Doto", fontSize: 72, color: LIME, lineHeight: 76 }}>{(health.todaySteps ?? 0).toLocaleString()}</Text>
+          <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: "rgba(255,255,255,0.45)" }}>of {STEP_GOAL.toLocaleString()} goal</Text>
+          <View style={{ width: "70%", height: 6, backgroundColor: "rgba(255,255,255,0.15)", borderRadius: 3, marginTop: 12, overflow: "hidden" }}>
+            <View style={{ width: `${Math.min((health.todaySteps??0)/STEP_GOAL,1)*100}%` as any, height: "100%", backgroundColor: LIME, borderRadius: 3 }} />
+          </View>
+        </View>
+      </ExpandCardModal>
+
+      {/* ── Creatine expand modal ───────────────────────────────── */}
+      <ExpandCardModal
+        visible={creatOpen} onClose={() => setCreatOpen(false)}
+        bgColor={LIME} isDark={false}
+        title="Creatine" icon={<Pill size={18} color="#0a0a0a" />}
+        period={creatPeriod} onPeriodChange={setCreatPeriod}
+        chartBars={creatBars} chartMaxValue={creatBarMax}
+        goalValue={5}
+        chartLabel="DAILY DOSE"
+        stats={[
+          { label: "DAYS TAKEN", value: String(creatBars.filter(b=>b.value>=5).length), unit: `of ${creatPeriod}d` },
+          { label: "AVG DOSE",   value: creatBars.filter(b=>b.value>0).length ? (creatBars.filter(b=>b.value>0).reduce((s,b)=>s+b.value,0)/creatBars.filter(b=>b.value>0).length).toFixed(1) : "—", unit: "g/day" },
+          { label: "TODAY",      value: creatineGrams > 0 ? `${creatineGrams.toFixed(1)}` : "0", unit: "g" },
+        ]}
+      >
+        <View style={{ alignItems: "center", marginBottom: 28, marginTop: 8 }}>
+          <Text style={{ fontFamily: "Doto", fontSize: 72, color: "#0a0a0a", lineHeight: 76 }}>{creatineGrams.toFixed(1)}</Text>
+          <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: "rgba(0,0,0,0.5)" }}>of 5g today</Text>
+          <View style={{ flexDirection: "row", gap: 6, marginTop: 14 }}>
+            {Array.from({ length: 4 }).map((_, i) => (
+              <View key={i} style={{ width: 36, height: 6, borderRadius: 3, backgroundColor: creatineGrams >= (i+1)*2.5 ? "rgba(0,0,0,0.45)" : "rgba(0,0,0,0.15)" }} />
+            ))}
+          </View>
+        </View>
+      </ExpandCardModal>
+
+      {/* ── Body Weight expand modal ────────────────────────────── */}
+      <ExpandCardModal
+        visible={weightOpen} onClose={() => setWeightOpen(false)}
+        bgColor="#ffffff" isDark={false}
+        title="Body Weight" icon={<TrendingDown size={18} color="#0a0a0a" />}
+        period={weightPeriod} onPeriodChange={setWeightPeriod}
+        chartBars={weightBarsNorm} chartMaxValue={100}
+        chartLabel="WEIGHT TREND"
+        stats={[
+          { label: "CURRENT", value: latestWeight ? String(gramsToLbs(latestWeight.weightGrams)) : "—", unit: "lbs" },
+          { label: "THIS WEEK", value: weeklyChange !== null ? `${weeklyChange > 0 ? "+" : ""}${weeklyChange.toFixed(1)}` : "—", unit: "lbs" },
+          { label: "ENTRIES", value: String(measurements.length), unit: `last ${weightPeriod}d` },
+        ]}
+      >
+        <View style={{ alignItems: "center", marginBottom: 28, marginTop: 8 }}>
+          <Text style={{ fontFamily: "Doto", fontSize: 72, color: "#0a0a0a", lineHeight: 76 }}>{latestWeight ? gramsToLbs(latestWeight.weightGrams) : "—"}</Text>
+          <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: "rgba(0,0,0,0.5)" }}>lbs</Text>
+          {weeklyChange !== null && (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: 8 }}>
+              {weeklyChange < 0 ? <TrendingDown size={16} color="#22c55e" /> : weeklyChange > 0 ? <TrendingUp size={16} color="#ef4444" /> : null}
+              <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: weeklyChange < 0 ? "#22c55e" : weeklyChange > 0 ? "#ef4444" : "#888888" }}>
+                {weeklyChange === 0 ? "No change" : `${weeklyChange > 0 ? "+" : ""}${weeklyChange.toFixed(1)} lbs this week`}
+              </Text>
+            </View>
+          )}
+        </View>
+      </ExpandCardModal>
+
+      {/* ── Macros expand modal (shared by Protein / Carbs / Fat) ── */}
+      <MacroExpandModal
+        visible={macrosOpen} onClose={() => setMacrosOpen(false)}
+        period={macrosPeriod} onPeriodChange={setMacrosPeriod}
+        history={macroHistory}
+        todayProtein={Math.round(totals.protein)} todayCarbs={Math.round(totals.carbs)} todayFat={Math.round(totals.fat)}
+        targetProtein={Math.round(targets?.proteinG ?? 0)} targetCarbs={Math.round(targets?.carbsG ?? 0)} targetFat={Math.round(targets?.fatG ?? 0)}
+      />
 
       {/* ── Water goal editor modal ─────────────────────────────── */}
       <Modal

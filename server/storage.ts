@@ -320,6 +320,17 @@ export const storage = {
   async deleteSupplementEntry(id: number, userId: number): Promise<void> {
     await db.delete(supplementLog).where(and(eq(supplementLog.id, id), eq(supplementLog.userId, userId)));
   },
+  async getSupplementHistory(userId: number, days: number, supplement: string): Promise<{ date: string; totalG: number }[]> {
+    const since = new Date();
+    since.setDate(since.getDate() - days + 1);
+    const sinceStr = since.toLocaleDateString("en-CA");
+    return db
+      .select({ date: supplementLog.date, totalG: sql<number>`sum(${supplementLog.amountG})` })
+      .from(supplementLog)
+      .where(and(eq(supplementLog.userId, userId), gte(supplementLog.date, sinceStr), eq(supplementLog.supplement, supplement)))
+      .groupBy(supplementLog.date)
+      .orderBy(supplementLog.date);
+  },
 
   // ── Exercises ──────────────────────────────────────────────────────────────
   async getExercises(userId: number, muscle?: string, search?: string): Promise<Exercise[]> {
