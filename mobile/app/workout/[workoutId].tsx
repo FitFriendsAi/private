@@ -15,7 +15,7 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   View, Text, ScrollView, Pressable, TextInput, Modal,
-  Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
+  ActivityIndicator, KeyboardAvoidingView, Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -64,6 +64,7 @@ export default function WorkoutSessionScreen() {
   const [exSearch,     setExSearch]     = useState("");
   const [saving,       setSaving]       = useState(false);
   const [prevPerf,     setPrevPerf]     = useState<Record<number, PrevPerf>>({});
+  const [confirm,      setConfirm]      = useState<{ title: string; body: string; onOk: () => void } | null>(null);
 
   // ── Workout meta ──
   const { data: workout } = useQuery<any>({
@@ -239,7 +240,7 @@ export default function WorkoutSessionScreen() {
         health.writeWorkout({ startDate, durationMinutes });
       }
       qc.invalidateQueries({ queryKey: ["/api/workouts"] });
-      router.back();
+      router.replace("/(tabs)/workouts");
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "Could not save workout.");
     } finally {
@@ -249,14 +250,11 @@ export default function WorkoutSessionScreen() {
 
   const confirmFinish = () => {
     const doneSets = exercises.reduce((s, ae) => s + ae.sets.filter(x => x.done).length, 0);
-    Alert.alert(
-      "Finish Workout?",
-      `${fmtElapsed(elapsed)} · ${exercises.length} exercise${exercises.length !== 1 ? "s" : ""} · ${doneSets} sets completed`,
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Finish 💪", onPress: finishWorkout },
-      ]
-    );
+    setConfirm({
+      title: "Finish Workout?",
+      body: `${fmtElapsed(elapsed)} · ${exercises.length} exercise${exercises.length !== 1 ? "s" : ""} · ${doneSets} sets completed`,
+      onOk: finishWorkout,
+    });
   };
 
   // ── Render ──
@@ -269,11 +267,11 @@ export default function WorkoutSessionScreen() {
         borderBottomWidth: 1, borderBottomColor: border,
       }}>
         <Pressable
-          onPress={() => Alert.alert(
-            "Leave Workout?",
-            "Unsaved sets will be lost.",
-            [{ text: "Stay" }, { text: "Leave", style: "destructive", onPress: () => router.back() }]
-          )}
+          onPress={() => setConfirm({
+            title: "Leave Workout?",
+            body: "Unsaved sets will be lost.",
+            onOk: () => router.replace("/(tabs)/workouts"),
+          })}
           style={{ marginRight: 12 }}
         >
           <ArrowLeft size={22} color={text} />
@@ -568,6 +566,49 @@ export default function WorkoutSessionScreen() {
           </View>
         </View>
       )}
+
+      {/* ── Confirm Dialog ── */}
+      <Modal visible={!!confirm} transparent animationType="fade">
+        <View style={{
+          flex: 1, backgroundColor: "rgba(0,0,0,0.6)",
+          justifyContent: "center", alignItems: "center", padding: 32,
+        }}>
+          <View style={{
+            backgroundColor: "#1a1a1a", borderRadius: 20,
+            padding: 24, width: "100%", maxWidth: 360,
+            borderWidth: 1, borderColor: "#2a2a2a",
+          }}>
+            <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 18, color: "#ffffff", marginBottom: 8 }}>
+              {confirm?.title}
+            </Text>
+            <Text style={{ fontFamily: "Manrope", fontSize: 14, color: "#999999", marginBottom: 24, lineHeight: 20 }}>
+              {confirm?.body}
+            </Text>
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <Pressable
+                onPress={() => setConfirm(null)}
+                style={({ pressed }) => ({
+                  flex: 1, paddingVertical: 13, borderRadius: 14,
+                  backgroundColor: "#262626", borderWidth: 1, borderColor: "#333333",
+                  alignItems: "center", opacity: pressed ? 0.7 : 1,
+                })}
+              >
+                <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: "#cccccc" }}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => { const fn = confirm?.onOk; setConfirm(null); fn?.(); }}
+                style={({ pressed }) => ({
+                  flex: 1, paddingVertical: 13, borderRadius: 14,
+                  backgroundColor: "#ef4444", alignItems: "center",
+                  opacity: pressed ? 0.7 : 1,
+                })}
+              >
+                <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: "#ffffff" }}>Confirm</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* ── Exercise Picker Modal ── */}
       <Modal visible={showAddEx} animationType="slide" presentationStyle="pageSheet">
