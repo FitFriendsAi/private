@@ -219,10 +219,11 @@ export default function GoalsScreen() {
       return;
     }
 
-    // Convert lbs → grams for weight-based goals
-    const isWeightGoal = selectedType === "weight_loss" || selectedType === "weight_gain";
-    const targetValue  = isWeightGoal ? lbsToGrams(rawVal) : rawVal;
-    const unit         = isWeightGoal ? "lbs" : selectedType === "body_comp" ? "%" : "lbs";
+    // Convert lbs → grams for weight-based and strength goals (stored in grams)
+    const isWeightGoal    = selectedType === "weight_loss" || selectedType === "weight_gain";
+    const isStrengthGoal  = selectedType === "strength";
+    const targetValue     = (isWeightGoal || isStrengthGoal) ? lbsToGrams(rawVal) : rawVal;
+    const unit            = isWeightGoal ? "lbs" : selectedType === "body_comp" ? "%" : "lbs";
 
     const cfg          = goalTypeConfig(selectedType);
     const label        = labelText.trim() || cfg.label;
