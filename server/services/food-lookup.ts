@@ -89,14 +89,17 @@ function parseServingSize(serving: string | undefined): number | null {
 // ── FatSecret ─────────────────────────────────────────────────────────────────
 // Comprehensive food + restaurant database. Free tier at platform.fatsecret.com
 // OAuth 2.0 client credentials — token cached in memory, auto-refreshed.
-const FS_CLIENT_ID     = process.env.FATSECRET_CLIENT_ID;
-const FS_CLIENT_SECRET = process.env.FATSECRET_CLIENT_SECRET;
+const FS_CLIENT_ID     = process.env.FATSECRET_CLIENT_ID?.trim();
+const FS_CLIENT_SECRET = process.env.FATSECRET_CLIENT_SECRET?.trim();
 
 let _fsToken: string | null = null;
 let _fsTokenExpiry = 0;
 
 async function getFatSecretToken(): Promise<string | null> {
-  if (!FS_CLIENT_ID || !FS_CLIENT_SECRET) return null;
+  if (!FS_CLIENT_ID || !FS_CLIENT_SECRET) {
+    console.warn("[FatSecret] credentials missing — set FATSECRET_CLIENT_ID and FATSECRET_CLIENT_SECRET");
+    return null;
+  }
   if (_fsToken && Date.now() < _fsTokenExpiry) return _fsToken;
   try {
     const creds = Buffer.from(`${FS_CLIENT_ID}:${FS_CLIENT_SECRET}`).toString("base64");
@@ -108,12 +111,22 @@ async function getFatSecretToken(): Promise<string | null> {
       },
       body: "grant_type=client_credentials&scope=basic",
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.error(`[FatSecret] token fetch failed: HTTP ${res.status} — ${body}`);
+      return null;
+    }
     const data = await res.json() as any;
+    if (!data.access_token) {
+      console.error("[FatSecret] token response missing access_token:", JSON.stringify(data));
+      return null;
+    }
     _fsToken = data.access_token;
     _fsTokenExpiry = Date.now() + (data.expires_in - 120) * 1000; // refresh 2 min early
+    console.log(`[FatSecret] token acquired, expires in ${data.expires_in}s`);
     return _fsToken;
-  } catch {
+  } catch (err: any) {
+    console.error("[FatSecret] token fetch threw:", err?.message ?? err);
     return null;
   }
 }
@@ -128,7 +141,10 @@ export async function searchFatSecret(query: string, limit = 25): Promise<Nutrit
     const res = await fetchWithTimeout(url, {
       headers: { "Authorization": `Bearer ${token}`, "Accept": "application/json" },
     });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      console.error(`[FatSecret] search failed: HTTP ${res.status}`);
+      return [];
+    }
     const data = await res.json() as any;
     const raw = data.foods?.food;
     if (!raw) return [];
