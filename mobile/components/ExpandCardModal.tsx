@@ -115,6 +115,14 @@ export function ExpandCardModal({
   const scale       = expandAnim.interpolate({ inputRange: [0, 1], outputRange: [0.06, 1] });
   const borderRadius = expandAnim.interpolate({ inputRange: [0, 0.7, 1], outputRange: [999, 40, 0] });
 
+  // ── Range helpers (support non-zero min for tighter charts like body weight) ──
+  const chartMin   = chartMinValue ?? 0;
+  const chartRange = Math.max(chartMaxValue - chartMin, 0.001);
+
+  /** Height of a bar in px given its raw value */
+  const calcBarH = (v: number) =>
+    v === 0 ? 2 : Math.max(((v - chartMin) / chartRange) * BAR_MAX_H, 3);
+
   // ── SVG geometry ─────────────────────────────────────────────────
   const { pts, pathLength, goalY } = useMemo(() => {
     if (chartWidth <= 0 || chartBars.length === 0) return { pts: "", pathLength: 0, goalY: 0 };
@@ -149,14 +157,6 @@ export function ExpandCardModal({
 
   const animDashOffset = (lineAnim as any).interpolate({ inputRange: [0, 1], outputRange: [pathLength, 0] });
   const barGap = period === 30 ? 2 : 3;
-
-  // ── Range helpers (support non-zero min for tighter charts like body weight) ──
-  const chartMin   = chartMinValue ?? 0;
-  const chartRange = Math.max(chartMaxValue - chartMin, 0.001);
-
-  /** Height of a bar in px given its raw value */
-  const calcBarH = (v: number) =>
-    v === 0 ? 2 : Math.max(((v - chartMin) / chartRange) * BAR_MAX_H, 3);
 
   // ── Y-axis ticks ─────────────────────────────────────────────────
   const yTicks = [
