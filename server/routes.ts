@@ -241,33 +241,94 @@ export function registerRoutes(app: Express) {
     const ql = q.toLowerCase();
 
     // ── Helpers ──────────────────────────────────────────────────────────────
-    // Normalize names for cross-source matching (strip punctuation, lowercase)
+
+    /** Strip punctuation, lowercase, collapse spaces */
     function normName(s: string): string {
       return (s || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
     }
-    // Count how many extra nutrition fields an item has (0–3)
+
+    /** Words longer than 2 chars from a normalized name */
+    function wordSet(s: string): Set<string> {
+      return new Set(normName(s).split(" ").filter(w => w.length > 2));
+    }
+
+    /** Jaccard-style word overlap — how similar are two item names? (0–1) */
+    function nameSimilarity(a: string, b: string): number {
+      const wa = wordSet(a);
+      const wb = wordSet(b);
+      if (!wa.size || !wb.size) return 0;
+      let common = 0;
+      for (const w of wa) if (wb.has(w)) common++;
+      return common / Math.max(wa.size, wb.size);
+    }
+
+    /** How many extra nutrition fields does an item have? (0–3) */
     function nutritionScore(item: any): number {
       return (item.fiberG   != null ? 1 : 0)
            + (item.sodiumMg != null ? 1 : 0)
            + (item.sugarG   != null ? 1 : 0);
     }
-    // Fill missing fields in `base` from `rich` without overwriting existing values
-    function mergeNutrition(base: any, rich: any): any {
+
+    /** Patch missing fiber/sodium/sugar from `donor` into `base` */
+    function mergeNutrition(base: any, donor: any): any {
       return {
         ...base,
-        fiberG:   base.fiberG   ?? rich.fiberG,
-        sodiumMg: base.sodiumMg ?? rich.sodiumMg,
-        sugarG:   base.sugarG   ?? rich.sugarG,
+        fiberG:   base.fiberG   ?? donor.fiberG,
+        sodiumMg: base.sodiumMg ?? donor.sodiumMg,
+        sugarG:   base.sugarG   ?? donor.sugarG,
       };
+    }
+
+    /**
+     * Fuse a flat list of items from all sources into deduplicated, enriched results.
+     * Items that are clearly the same food (same brand + ≥80% word overlap in name)
+     * are collapsed into one entry that carries the most complete nutrition data.
+     * O(n²) — fine for n ≤ ~150.
+     */
+    function fuseItems(items: any[]): any[] {
+      const used = new Set<number>();
+      const results: any[] = [];
+
+      for (let i = 0; i < items.length; i++) {
+        if (used.has(i)) continue;
+        used.add(i);
+
+        // Start with this item as the group representative
+        let best = items[i];
+
+        for (let j = i + 1; j < items.length; j++) {
+          if (used.has(j)) continue;
+          const other = items[j];
+
+          // Different brands → definitely different foods
+          const ba = normName(best.brand  || best.brandOwner  || "");
+          const bb = normName(other.brand || other.brandOwner || "");
+          if (ba && bb && ba !== bb) continue;
+
+          // Name must overlap ≥ 80% to be considered the same item
+          if (nameSimilarity(best.name, other.name) < 0.80) continue;
+
+          // Same item — merge: pick the base with better nutrition, patch gaps from the other
+          used.add(j);
+          if (nutritionScore(other) > nutritionScore(best)) {
+            best = mergeNutrition(other, best); // other has more data, use as base
+          } else {
+            best = mergeNutrition(best, other); // best has more (or equal) data, keep as base
+          }
+        }
+
+        results.push(best);
+      }
+      return results;
     }
 
     // 1. Local DB cache (previous searches / custom items)
     const local = await storage.searchFoodItems(q);
     if (local.length >= 10) return res.json(local);
 
-    // 2. All external APIs in parallel — every source runs every time so we
-    //    can cross-enrich. CalorieNinjas + USDA + OFF always return full panels;
-    //    FatSecret has the best name coverage but only macros on the free tier.
+    // 2. All external APIs in parallel
+    //    CalorieNinjas + USDA + OFF → full nutrition panels
+    //    FatSecret → best name coverage, macros only on free tier
     const isRestaurant = typeFilter === "restaurant";
     const [usda, fs, cn, off, offBrand] = await Promise.all([
       searchUSDA(q, isRestaurant ? 40 : 25, isRestaurant),
@@ -277,54 +338,28 @@ export function registerRoutes(app: Express) {
       isRestaurant ? searchBrandOFF(q, 20) : Promise.resolve([]),
     ]);
 
-    // 3. Build enrichment map from sources that carry full nutrition panels.
-    //    key: normalized name → richest item seen so far
-    const enrichMap = new Map<string, any>();
-    for (const item of [...usda, ...cn, ...off, ...offBrand]) {
-      if (nutritionScore(item) === 0) continue;
-      const key = normName(item.name);
-      const existing = enrichMap.get(key);
-      if (!existing || nutritionScore(item) > nutritionScore(existing)) {
-        enrichMap.set(key, item);
-      }
-    }
+    // 3. Fuse all sources into deduplicated, enriched results.
+    //    Order matters: full-nutrition sources first so they become the base
+    //    when the fuzzy grouper picks the "best" representative.
+    const allExternal = [...usda, ...cn, ...off, ...offBrand, ...fs];
+    const fused = fuseItems([...local, ...allExternal]);
 
-    // 4. Merge all sources, deduplicating by name.
-    //    Order: USDA → CalorieNinjas → FatSecret → OFF brand → OFF text
-    //    Full-nutrition sources come first so they win on duplicates.
-    //    For any item still missing nutrition fields, patch from enrichMap.
-    const seen = new Set(local.map((x: any) => normName(x.name)));
-    const candidates: any[] = [...local];
-
-    for (const item of [...usda, ...cn, ...fs, ...offBrand, ...off]) {
-      const key = normName(item.name);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      // Cross-enrich: fill any missing fiber/sodium/sugar from richer sources
-      const rich = enrichMap.get(key);
-      candidates.push(rich && nutritionScore(item) < nutritionScore(rich)
-        ? mergeNutrition(item, rich)
-        : item
-      );
-    }
-
-    // 5. Relevance sort — brand exact > brand contains > name starts > rest
-    //    Secondary tiebreaker: more complete nutrition floats up
+    // 4. Relevance sort — brand exact > brand contains > name starts > rest
+    //    Tiebreak: more complete nutrition floats up slightly
     function relevanceScore(item: any): number {
       const brand = (item.brand || item.brandOwner || "").toLowerCase();
-      const name  = (item.name || "").toLowerCase();
+      const name  = (item.name  || "").toLowerCase();
       let base = 5;
-      if (brand === ql)         base = 0;
+      if (brand === ql)              base = 0;
       else if (brand.startsWith(ql)) base = 1;
       else if (brand.includes(ql))   base = 2;
       else if (name.startsWith(ql))  base = 3;
       else if (name.includes(ql))    base = 4;
-      // Subtract a tiny fraction for each extra nutrition field (more = better rank)
       return base - nutritionScore(item) * 0.01;
     }
-    candidates.sort((a, b) => relevanceScore(a) - relevanceScore(b));
+    fused.sort((a, b) => relevanceScore(a) - relevanceScore(b));
 
-    res.json(candidates.slice(0, 30));
+    res.json(fused.slice(0, 30));
   });
 
   app.get("/api/food/barcode/:code", async (req, res) => {

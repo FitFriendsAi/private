@@ -57402,16 +57402,52 @@ function registerRoutes(app2) {
     function normName(s2) {
       return (s2 || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
     }
+    function wordSet(s2) {
+      return new Set(normName(s2).split(" ").filter((w2) => w2.length > 2));
+    }
+    function nameSimilarity(a2, b2) {
+      const wa = wordSet(a2);
+      const wb = wordSet(b2);
+      if (!wa.size || !wb.size) return 0;
+      let common = 0;
+      for (const w2 of wa) if (wb.has(w2)) common++;
+      return common / Math.max(wa.size, wb.size);
+    }
     function nutritionScore(item) {
       return (item.fiberG != null ? 1 : 0) + (item.sodiumMg != null ? 1 : 0) + (item.sugarG != null ? 1 : 0);
     }
-    function mergeNutrition(base, rich) {
+    function mergeNutrition(base, donor) {
       return {
         ...base,
-        fiberG: base.fiberG ?? rich.fiberG,
-        sodiumMg: base.sodiumMg ?? rich.sodiumMg,
-        sugarG: base.sugarG ?? rich.sugarG
+        fiberG: base.fiberG ?? donor.fiberG,
+        sodiumMg: base.sodiumMg ?? donor.sodiumMg,
+        sugarG: base.sugarG ?? donor.sugarG
       };
+    }
+    function fuseItems(items) {
+      const used = /* @__PURE__ */ new Set();
+      const results = [];
+      for (let i2 = 0; i2 < items.length; i2++) {
+        if (used.has(i2)) continue;
+        used.add(i2);
+        let best = items[i2];
+        for (let j2 = i2 + 1; j2 < items.length; j2++) {
+          if (used.has(j2)) continue;
+          const other = items[j2];
+          const ba = normName(best.brand || best.brandOwner || "");
+          const bb = normName(other.brand || other.brandOwner || "");
+          if (ba && bb && ba !== bb) continue;
+          if (nameSimilarity(best.name, other.name) < 0.8) continue;
+          used.add(j2);
+          if (nutritionScore(other) > nutritionScore(best)) {
+            best = mergeNutrition(other, best);
+          } else {
+            best = mergeNutrition(best, other);
+          }
+        }
+        results.push(best);
+      }
+      return results;
     }
     const local = await storage.searchFoodItems(q2);
     if (local.length >= 10) return res.json(local);
@@ -57423,26 +57459,8 @@ function registerRoutes(app2) {
       !isRestaurant && local.length < 3 ? searchFoodByName(q2, 10) : Promise.resolve([]),
       isRestaurant ? searchBrandOFF(q2, 20) : Promise.resolve([])
     ]);
-    const enrichMap = /* @__PURE__ */ new Map();
-    for (const item of [...usda, ...cn, ...off, ...offBrand]) {
-      if (nutritionScore(item) === 0) continue;
-      const key = normName(item.name);
-      const existing = enrichMap.get(key);
-      if (!existing || nutritionScore(item) > nutritionScore(existing)) {
-        enrichMap.set(key, item);
-      }
-    }
-    const seen = new Set(local.map((x2) => normName(x2.name)));
-    const candidates = [...local];
-    for (const item of [...usda, ...cn, ...fs2, ...offBrand, ...off]) {
-      const key = normName(item.name);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const rich = enrichMap.get(key);
-      candidates.push(
-        rich && nutritionScore(item) < nutritionScore(rich) ? mergeNutrition(item, rich) : item
-      );
-    }
+    const allExternal = [...usda, ...cn, ...off, ...offBrand, ...fs2];
+    const fused = fuseItems([...local, ...allExternal]);
     function relevanceScore(item) {
       const brand = (item.brand || item.brandOwner || "").toLowerCase();
       const name = (item.name || "").toLowerCase();
@@ -57454,8 +57472,8 @@ function registerRoutes(app2) {
       else if (name.includes(ql)) base = 4;
       return base - nutritionScore(item) * 0.01;
     }
-    candidates.sort((a2, b2) => relevanceScore(a2) - relevanceScore(b2));
-    res.json(candidates.slice(0, 30));
+    fused.sort((a2, b2) => relevanceScore(a2) - relevanceScore(b2));
+    res.json(fused.slice(0, 30));
   });
   app2.get("/api/food/barcode/:code", async (req, res) => {
     if (!requireAuth(req, res)) return;
