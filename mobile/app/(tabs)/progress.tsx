@@ -8,8 +8,6 @@ import { gramsToLbs, todayStr } from "@/lib/utils";
 import Svg, { Circle, Polyline, Rect, Line } from "react-native-svg";
 import { Scale, Dumbbell, ChevronDown, X, BarChart2, LineChart as LineChartIcon } from "lucide-react-native";
 
-const today = todayStr();
-
 const LIME   = "#c8e84c";
 const BLUE   = "#9bd1ff";
 const PURPLE = "#d3a8ff";
@@ -632,6 +630,7 @@ function SectionLabel({ icon: Icon, label, right }: { icon: any; label: string; 
 
 // ── Main ─────────────────────────────────────────────────────────
 export default function ProgressScreen() {
+  const today = todayStr(); // recomputed on every render so date resets correctly at midnight
   const { palette } = useTheme();
   const { card, cardBorder: border, text, muted, bg } = palette;
 

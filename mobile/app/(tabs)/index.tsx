@@ -25,8 +25,6 @@ const PURPLE = "#d3a8ff";
 // Doto — Google's LED dot-matrix display font, matches web .dot class exactly.
 const DOT: object = { fontFamily: "Doto" };
 
-const today = todayStr();
-
 // ── Mock data (friends) ──────────────────────────────────────────
 const MOCK_FRIENDS = [
   { initials: "MR", name: "Maya",   color: PINK },
@@ -132,6 +130,7 @@ function relativeDate(dateStr: string): string {
 
 // ── Main component ───────────────────────────────────────────────
 export default function DashboardScreen() {
+  const today = todayStr(); // recomputed on every render so date resets correctly at midnight
   const { user }               = useAuth();
   const { palette }            = useTheme();
   const qc                     = useQueryClient();

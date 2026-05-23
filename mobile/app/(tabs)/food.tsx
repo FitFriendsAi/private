@@ -12,7 +12,6 @@ import { todayStr } from "@/lib/utils";
 import { Plus, Search, X, ChevronRight, UtensilsCrossed, Trash2, ScanLine, Camera, PenLine, ChevronDown } from "lucide-react-native";
 import Svg, { Circle } from "react-native-svg";
 
-const today = todayStr();
 const MEALS = ["breakfast", "lunch", "dinner", "snack"] as const;
 type MealType = typeof MEALS[number];
 
@@ -116,6 +115,7 @@ function mealTotals(ingredients: MealIngredient[]) {
 
 // ── Main component ────────────────────────────────────────────────
 export default function FoodScreen() {
+  const today = todayStr(); // recomputed on every render so date resets correctly at midnight
   const { palette, isWhite } = useTheme();
   const qc = useQueryClient();
   const health = useHealth();

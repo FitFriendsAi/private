@@ -492,7 +492,7 @@ export function registerRoutes(app: Express) {
 
   app.get("/api/food-log", async (req, res) => {
     if (!requireAuth(req, res)) return;
-    const date = (req.query.date as string) || new Date().toISOString().slice(0, 10);
+    const date = (req.query.date as string) || new Date().toLocaleDateString("en-CA");
     res.json(await storage.getFoodLog((req.user as any).id, date));
   });
 
@@ -592,7 +592,7 @@ export function registerRoutes(app: Express) {
   // ── Water ───────────────────────────────────────────────────────────────────
   app.get("/api/water", async (req, res) => {
     if (!requireAuth(req, res)) return;
-    const date = (req.query.date as string) || new Date().toISOString().slice(0, 10);
+    const date = (req.query.date as string) || new Date().toLocaleDateString("en-CA");
     res.json(await storage.getWaterLog((req.user as any).id, date));
   });
 
@@ -617,7 +617,7 @@ export function registerRoutes(app: Express) {
   // ── Supplements ─────────────────────────────────────────────────────────────
   app.get("/api/supplements", async (req, res) => {
     if (!requireAuth(req, res)) return;
-    const date = (req.query.date as string) || new Date().toISOString().slice(0, 10);
+    const date = (req.query.date as string) || new Date().toLocaleDateString("en-CA");
     res.json(await storage.getSupplementLog((req.user as any).id, date));
   });
 
@@ -1025,7 +1025,7 @@ Include 6-10 exercises. Use common gym exercise names. Return ONLY the JSON, no 
   app.get("/api/heart-rate", async (req, res) => {
     if (!requireAuth(req, res)) return;
     const userId = (req.user as any).id;
-    const date = (req.query.date as string) || new Date().toISOString().slice(0, 10);
+    const date = (req.query.date as string) || new Date().toLocaleDateString("en-CA");
     const summary = await storage.getHeartRateSummary(userId, date);
     res.json(summary.map(r => ({ ts: r.ts.getTime(), bpm: r.bpm })));
   });

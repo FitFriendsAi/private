@@ -14,7 +14,6 @@ import { Zap, Plus, X, Clock, Upload, ChevronRight } from "lucide-react-native";
 
 const LIME = "#c8e84c";
 const DOT: object = { fontFamily: "Doto" };
-const today = todayStr();
 
 // ── Arc circle for routine cards ──────────────────────────────────
 function RoutineRing({ pct, size = 52 }: { pct: number; size?: number }) {
@@ -90,6 +89,7 @@ function formatDate(dateStr: string): string {
 
 // ── Main ──────────────────────────────────────────────────────────
 export default function WorkoutsScreen() {
+  const today = todayStr(); // recomputed on every render so date resets correctly at midnight
   const { palette }          = useTheme();
   const { card, cardBorder: border, text, muted, accent, accentText, bg } = palette;
   const router               = useRouter();
