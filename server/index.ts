@@ -64,21 +64,33 @@ app.use(passport.session());
 
 registerRoutes(app);
 
-// Serve frontend whenever dist/public exists (works in dev and production)
-// In dev (tsx): __dirname = server/, so look for ../../dist/public via cwd
-// In prod (node dist/index.js): __dirname = dist/, so public is __dirname/public
+// Serve frontend (SPA catch-all) — always registered so client-side routes work
 {
   const { default: path } = await import("path");
   const { fileURLToPath } = await import("url");
   const { existsSync } = await import("fs");
-  const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  const publicPath = existsSync(path.join(__dirname, "public"))
-    ? path.join(__dirname, "public")                       // production: dist/public
-    : path.join(process.cwd(), "dist", "public");          // dev: <root>/dist/public
-  if (existsSync(publicPath)) {
-    app.use(express.static(publicPath));
-    app.get("*", (_req, res) => res.sendFile(path.join(publicPath, "index.html")));
-  }
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname  = path.dirname(__filename);
+
+  // Candidate paths in priority order
+  const candidates = [
+    path.join(__dirname, "public"),            // prod: dist/public  (node dist/index.js)
+    path.join(process.cwd(), "dist", "public"), // dev: <root>/dist/public
+  ];
+  const publicPath = candidates.find(p => existsSync(path.join(p, "index.html"))) ?? candidates[0];
+
+  console.log(`[static] publicPath=${publicPath} exists=${existsSync(publicPath)}`);
+
+  app.use(express.static(publicPath));
+  // Always register catch-all so /workouts, /food, etc. don't 404
+  app.get("*", (_req, res) => {
+    const indexFile = path.join(publicPath, "index.html");
+    if (existsSync(indexFile)) {
+      res.sendFile(indexFile);
+    } else {
+      res.status(503).send("App not yet built — run `npm run build` first");
+    }
+  });
 }
 
 // ── Global error handler ─────────────────────────────────────────────────────

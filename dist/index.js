@@ -57957,12 +57957,25 @@ registerRoutes(app);
   const { default: path } = await import("path");
   const { fileURLToPath } = await import("url");
   const { existsSync } = await import("fs");
-  const __dirname2 = path.dirname(fileURLToPath(import.meta.url));
-  const publicPath = existsSync(path.join(__dirname2, "public")) ? path.join(__dirname2, "public") : path.join(process.cwd(), "dist", "public");
-  if (existsSync(publicPath)) {
-    app.use(import_express.default.static(publicPath));
-    app.get("*", (_req, res) => res.sendFile(path.join(publicPath, "index.html")));
-  }
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname2 = path.dirname(__filename);
+  const candidates = [
+    path.join(__dirname2, "public"),
+    // prod: dist/public  (node dist/index.js)
+    path.join(process.cwd(), "dist", "public")
+    // dev: <root>/dist/public
+  ];
+  const publicPath = candidates.find((p3) => existsSync(path.join(p3, "index.html"))) ?? candidates[0];
+  console.log(`[static] publicPath=${publicPath} exists=${existsSync(publicPath)}`);
+  app.use(import_express.default.static(publicPath));
+  app.get("*", (_req, res) => {
+    const indexFile = path.join(publicPath, "index.html");
+    if (existsSync(indexFile)) {
+      res.sendFile(indexFile);
+    } else {
+      res.status(503).send("App not yet built \u2014 run `npm run build` first");
+    }
+  });
 }
 app.use((err, _req, res, _next) => {
   const status = typeof err?.status === "number" ? err.status : 500;
