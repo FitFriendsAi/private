@@ -2,7 +2,7 @@ import { Tabs, Redirect } from "expo-router";
 import { View, ActivityIndicator, Platform } from "react-native";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
-import { Home, UtensilsCrossed, Dumbbell, Users, TrendingUp, Settings, Target } from "lucide-react-native";
+import { House, UtensilsCrossed, Dumbbell, Users, TrendingUp, Settings, Target } from "lucide-react-native";
 
 function TabIcon({ Icon, color }: { Icon: any; color: string }) {
   return <Icon size={22} color={color} strokeWidth={2} />;
@@ -47,7 +47,7 @@ export default function TabLayout() {
         name="index"
         options={{
           title: "Home",
-          tabBarIcon: ({ color }) => <TabIcon Icon={Home} color={color} />,
+          tabBarIcon: ({ color }) => <TabIcon Icon={House} color={color} />,
         }}
       />
       <Tabs.Screen
