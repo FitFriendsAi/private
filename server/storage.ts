@@ -441,39 +441,63 @@ export const storage = {
   },
   /** Returns max weight (grams) + total reps per workout session for one exercise. */
   async getExerciseHistory(exerciseId: number, userId: number): Promise<
-    { date: string; maxWeightGrams: number; totalReps: number; sets: number }[]
+    {
+      date: string;
+      maxWeightGrams: number;   // heaviest weight lifted in any set
+      e1rmGrams: number;        // best estimated 1RM (Epley): w*(1+r/30)
+      bestSetVolume: number;    // max(reps*weight) across sets (grams)
+      sessionVolume: number;    // sum(reps*weight) across all sets (grams)
+      totalReps: number;
+      sets: number;
+    }[]
   > {
     const rows = await db
       .select({
-        date:           workouts.date,
-        weightGrams:    workoutSets.weightGrams,
-        reps:           workoutSets.reps,
+        date:        workouts.date,
+        weightGrams: workoutSets.weightGrams,
+        reps:        workoutSets.reps,
       })
       .from(workoutSets)
       .innerJoin(workouts, eq(workoutSets.workoutId, workouts.id))
       .where(and(eq(workoutSets.exerciseId, exerciseId), eq(workouts.userId, userId)))
       .orderBy(workouts.date);
 
-    // Group by date — pg returns date columns as Date objects, normalise to YYYY-MM-DD
     function toDateStr(d: unknown): string {
       if (d instanceof Date) return d.toISOString().slice(0, 10);
       if (typeof d === "string") return d.slice(0, 10);
       return String(d).slice(0, 10);
     }
 
-    const byDate = new Map<string, { maxW: number; totalReps: number; sets: number }>();
+    const byDate = new Map<string, {
+      maxW: number; bestE1rm: number; bestSetVol: number;
+      sessionVol: number; totalReps: number; sets: number;
+    }>();
+
     for (const r of rows) {
       const key = toDateStr(r.date);
-      const cur = byDate.get(key) ?? { maxW: 0, totalReps: 0, sets: 0 };
+      const w   = r.weightGrams ?? 0;
+      const rep = r.reps ?? 0;
+      const e1rm      = rep > 0 ? w * (1 + rep / 30) : w;   // Epley formula
+      const setVol    = w * rep;
+      const cur = byDate.get(key) ?? {
+        maxW: 0, bestE1rm: 0, bestSetVol: 0, sessionVol: 0, totalReps: 0, sets: 0,
+      };
       byDate.set(key, {
-        maxW:      Math.max(cur.maxW, r.weightGrams ?? 0),
-        totalReps: cur.totalReps + (r.reps ?? 0),
-        sets:      cur.sets + 1,
+        maxW:       Math.max(cur.maxW, w),
+        bestE1rm:   Math.max(cur.bestE1rm, e1rm),
+        bestSetVol: Math.max(cur.bestSetVol, setVol),
+        sessionVol: cur.sessionVol + setVol,
+        totalReps:  cur.totalReps + rep,
+        sets:       cur.sets + 1,
       });
     }
+
     return Array.from(byDate.entries()).map(([date, v]) => ({
       date,
       maxWeightGrams: v.maxW,
+      e1rmGrams:      Math.round(v.bestE1rm),
+      bestSetVolume:  v.bestSetVol,
+      sessionVolume:  v.sessionVol,
       totalReps:      v.totalReps,
       sets:           v.sets,
     }));

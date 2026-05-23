@@ -386,11 +386,22 @@ export default function RoutineDetailScreen() {
                 }}
               >
                 {/* ── Card header row ── */}
-                <View style={{
-                  flexDirection: "row", alignItems: "center",
-                  paddingHorizontal: 14, paddingTop: 14,
-                  paddingBottom: editMode ? 8 : 14, gap: 12,
-                }}>
+                <Pressable
+                  onPress={() => {
+                    if (!editMode) {
+                      router.push({
+                        pathname: "/exercise/[exerciseId]",
+                        params: { exerciseId: String(ex.exerciseId) },
+                      });
+                    }
+                  }}
+                  style={({ pressed }) => ({
+                    flexDirection: "row", alignItems: "center",
+                    paddingHorizontal: 14, paddingTop: 14,
+                    paddingBottom: editMode ? 8 : 14, gap: 12,
+                    opacity: (!editMode && pressed) ? 0.7 : 1,
+                  })}
+                >
                   {/* Index badge */}
                   <View style={{
                     width: 34, height: 34, borderRadius: 17,
@@ -454,7 +465,7 @@ export default function RoutineDetailScreen() {
                       </Pressable>
                     </View>
                   )}
-                </View>
+                </Pressable>
 
                 {/* ── VIEW MODE: sets table ── */}
                 {!editMode && (

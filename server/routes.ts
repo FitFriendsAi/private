@@ -740,6 +740,13 @@ export function registerRoutes(app: Express) {
     }
   });
 
+  app.get("/api/exercises/:id", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const exercise = await storage.getExerciseById(Number(req.params.id));
+    if (!exercise) return res.sendStatus(404);
+    res.json(exercise);
+  });
+
   app.get("/api/exercises/:id/previous-sets", async (req, res) => {
     if (!requireAuth(req, res)) return;
     const sets = await storage.getPreviousWorkoutSets((req.user as any).id, Number(req.params.id));

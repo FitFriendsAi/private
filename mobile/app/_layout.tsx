@@ -49,6 +49,10 @@ export default function RootLayout() {
               options={{ headerShown: false, animation: "slide_from_right" }}
             />
             <Stack.Screen
+              name="exercise/[exerciseId]"
+              options={{ headerShown: false, animation: "slide_from_right" }}
+            />
+            <Stack.Screen
               name="workout/[workoutId]"
               options={{ headerShown: false, animation: "slide_from_bottom" }}
             />
