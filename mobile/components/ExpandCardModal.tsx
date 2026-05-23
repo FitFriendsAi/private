@@ -42,6 +42,8 @@ interface Props {
   /** If provided, draws a dashed goal line at this value. */
   goalValue?: number;
   chartLabel?: string;
+  /** Colour of the animated glow line and goal dashes. Defaults to white. */
+  glowColor?: string;
 
   stats: StatCard[];
 
@@ -57,6 +59,7 @@ export function ExpandCardModal({
   title, icon,
   period, onPeriodChange, noPeriodSelector,
   chartBars, chartMaxValue, goalValue, chartLabel,
+  glowColor = "white",
   stats,
   children, logSection,
 }: Props) {
@@ -221,14 +224,14 @@ export function ExpandCardModal({
                         <Svg width={chartWidth} height={90} style={{ position: "absolute", left: 0, top: 0 }}>
                           {goalValue != null && (
                             <>
-                              <SvgLine x1={0} y1={goalY} x2={chartWidth} y2={goalY} stroke="rgba(255,255,255,0.25)" strokeWidth={10} />
-                              <SvgLine x1={0} y1={goalY} x2={chartWidth} y2={goalY} stroke="rgba(255,255,255,0.55)" strokeWidth={1.5} strokeDasharray="5,5" />
+                              <SvgLine x1={0} y1={goalY} x2={chartWidth} y2={goalY} stroke={glowColor} strokeOpacity={0.25} strokeWidth={10} />
+                              <SvgLine x1={0} y1={goalY} x2={chartWidth} y2={goalY} stroke={glowColor} strokeOpacity={0.6} strokeWidth={1.5} strokeDasharray="5,5" />
                             </>
                           )}
-                          <AnimatedPolyline points={pts} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={18} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={pathLength} strokeDashoffset={animDashOffset} />
-                          <AnimatedPolyline points={pts} fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth={9} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={pathLength} strokeDashoffset={animDashOffset} />
-                          <AnimatedPolyline points={pts} fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth={4} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={pathLength} strokeDashoffset={animDashOffset} />
-                          <AnimatedPolyline points={pts} fill="none" stroke="white" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={pathLength} strokeDashoffset={animDashOffset} />
+                          <AnimatedPolyline points={pts} fill="none" stroke={glowColor} strokeOpacity={0.07} strokeWidth={18} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={pathLength} strokeDashoffset={animDashOffset} />
+                          <AnimatedPolyline points={pts} fill="none" stroke={glowColor} strokeOpacity={0.2}  strokeWidth={9}  strokeLinecap="round" strokeLinejoin="round" strokeDasharray={pathLength} strokeDashoffset={animDashOffset} />
+                          <AnimatedPolyline points={pts} fill="none" stroke={glowColor} strokeOpacity={0.5}  strokeWidth={4}  strokeLinecap="round" strokeLinejoin="round" strokeDasharray={pathLength} strokeDashoffset={animDashOffset} />
+                          <AnimatedPolyline points={pts} fill="none" stroke={glowColor} strokeOpacity={1}    strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={pathLength} strokeDashoffset={animDashOffset} />
                         </Svg>
                       )}
                     </View>
@@ -249,7 +252,7 @@ export function ExpandCardModal({
                     {/* Goal legend */}
                     {goalValue != null && (
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8 }}>
-                        <View style={{ width: 16, height: 2, backgroundColor: "white", opacity: 0.7 }} />
+                        <View style={{ width: 16, height: 2, backgroundColor: glowColor, opacity: 0.7 }} />
                         <Text style={{ fontFamily: "Manrope", fontSize: 10, color: textMuted }}>Goal: {goalValue.toLocaleString()}</Text>
                       </View>
                     )}

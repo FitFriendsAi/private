@@ -1293,6 +1293,7 @@ export default function DashboardScreen() {
       <ExpandCardModal
         visible={calOpen} onClose={() => setCalOpen(false)}
         bgColor={palette.accent} isDark={false}
+        glowColor={LIME}
         title="Calories" icon={<Flame size={18} color="rgba(0,0,0,0.6)" />}
         period={calPeriod} onPeriodChange={setCalPeriod}
         chartBars={calBars} chartMaxValue={calBarMax}
@@ -1349,6 +1350,7 @@ export default function DashboardScreen() {
       <ExpandCardModal
         visible={creatOpen} onClose={() => setCreatOpen(false)}
         bgColor={LIME} isDark={false}
+        glowColor="#0a0a0a"
         title="Creatine" icon={<Pill size={18} color="#0a0a0a" />}
         period={creatPeriod} onPeriodChange={setCreatPeriod}
         chartBars={creatBars} chartMaxValue={creatBarMax}
@@ -1375,6 +1377,7 @@ export default function DashboardScreen() {
       <ExpandCardModal
         visible={weightOpen} onClose={() => setWeightOpen(false)}
         bgColor="#ffffff" isDark={false}
+        glowColor={LIME}
         title="Body Weight" icon={<TrendingDown size={18} color="#0a0a0a" />}
         period={weightPeriod} onPeriodChange={setWeightPeriod}
         chartBars={weightBarsNorm} chartMaxValue={100}
