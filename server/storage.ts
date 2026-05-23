@@ -1,6 +1,6 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
-import { eq, and, desc, gte, lte, like, or, isNull, sql } from "drizzle-orm";
+import { eq, and, desc, gte, lte, like, or, isNull, sql, inArray } from "drizzle-orm";
 import {
   users, userProfiles, goals, bodyMeasurements, foodItems, foodLog,
   nutritionTargets, waterLog, supplementLog, exercises, workoutTemplates,
@@ -381,25 +381,41 @@ export const storage = {
   async getTemplateExercises(templateId: number): Promise<TemplateExercise[]> {
     return db.select().from(templateExercises).where(eq(templateExercises.templateId, templateId)).orderBy(templateExercises.orderIndex);
   },
-  /** Returns template exercises joined with exercise details (name, muscle, category). */
+  /** Returns template exercises with exercise details (name, muscle, category).
+   *  Uses two separate queries so exercises are never silently dropped if the
+   *  exercise row is missing (avoids INNER JOIN dropping rows). */
   async getTemplateExercisesWithDetails(templateId: number) {
-    return db
-      .select({
-        id:                templateExercises.id,
-        templateId:        templateExercises.templateId,
-        exerciseId:        templateExercises.exerciseId,
-        orderIndex:        templateExercises.orderIndex,
-        targetSets:        templateExercises.targetSets,
-        targetReps:        templateExercises.targetReps,
-        targetWeightGrams: templateExercises.targetWeightGrams,
-        exerciseName:      exercises.name,
-        primaryMuscle:     exercises.primaryMuscle,
-        category:          exercises.category,
-      })
+    const tes = await db
+      .select()
       .from(templateExercises)
-      .innerJoin(exercises, eq(templateExercises.exerciseId, exercises.id))
       .where(eq(templateExercises.templateId, templateId))
       .orderBy(templateExercises.orderIndex);
+
+    if (tes.length === 0) return [];
+
+    const exIds = [...new Set(tes.map(te => te.exerciseId))];
+    const exRows = await db
+      .select({ id: exercises.id, name: exercises.name, primaryMuscle: exercises.primaryMuscle, category: exercises.category })
+      .from(exercises)
+      .where(inArray(exercises.id, exIds));
+
+    const exMap = new Map(exRows.map(e => [e.id, e]));
+
+    return tes.map(te => {
+      const ex = exMap.get(te.exerciseId);
+      return {
+        id:                te.id,
+        templateId:        te.templateId,
+        exerciseId:        te.exerciseId,
+        orderIndex:        te.orderIndex,
+        targetSets:        te.targetSets,
+        targetReps:        te.targetReps,
+        targetWeightGrams: te.targetWeightGrams,
+        exerciseName:      ex?.name      ?? `Exercise #${te.exerciseId}`,
+        primaryMuscle:     ex?.primaryMuscle ?? "",
+        category:          ex?.category  ?? "",
+      };
+    });
   },
   async addTemplateExercise(data: InsertTemplateExercise): Promise<TemplateExercise> {
     const [te] = await db.insert(templateExercises).values(data).returning();

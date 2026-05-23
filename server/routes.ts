@@ -799,8 +799,14 @@ export function registerRoutes(app: Express) {
     const templates  = await storage.getTemplates(userId);
     const template   = templates.find(t => t.id === templateId);
     if (!template) return res.sendStatus(404);
+    const rawEx      = await storage.getTemplateExercises(templateId);
     const exercises  = await storage.getTemplateExercisesWithDetails(templateId);
-    res.json({ ...template, exercises });
+    console.log(`[template/${templateId}] raw=${rawEx.length} joined=${exercises.length} ids=${rawEx.map(e => e.exerciseId).join(",")}`);
+    // Fallback: if JOIN drops rows (exercise IDs not in exercises table), surface raw rows
+    const result = exercises.length > 0 ? exercises : rawEx.map(te => ({
+      ...te, exerciseName: `Exercise ${te.exerciseId}`, primaryMuscle: "", category: "",
+    }));
+    res.json({ ...template, exercises: result });
   });
 
   app.post("/api/templates", async (req, res) => {
