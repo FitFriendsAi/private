@@ -709,6 +709,17 @@ export function registerRoutes(app: Express) {
     res.json(result);
   });
 
+  app.get("/api/templates/:id", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId     = (req.user as any).id;
+    const templateId = Number(req.params.id);
+    const templates  = await storage.getTemplates(userId);
+    const template   = templates.find(t => t.id === templateId);
+    if (!template) return res.sendStatus(404);
+    const exercises  = await storage.getTemplateExercisesWithDetails(templateId);
+    res.json({ ...template, exercises });
+  });
+
   app.post("/api/templates", async (req, res) => {
     if (!requireAuth(req, res)) return;
     try {

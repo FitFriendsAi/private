@@ -1,7 +1,6 @@
 import { useState, useMemo } from "react";
 import {
-  View, Text, ScrollView, Pressable, Modal, TextInput,
-  Alert, ActivityIndicator,
+  View, Text, ScrollView, Pressable, Modal, TextInput, Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -9,7 +8,6 @@ import { useRouter } from "expo-router";
 import Svg, { Circle } from "react-native-svg";
 import { apiRequest } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
-import { todayStr } from "@/lib/utils";
 import { Zap, Plus, X, Clock, Upload, ChevronRight } from "lucide-react-native";
 
 const LIME = "#c8e84c";
@@ -89,7 +87,6 @@ function formatDate(dateStr: string): string {
 
 // ── Main ──────────────────────────────────────────────────────────
 export default function WorkoutsScreen() {
-  const today = todayStr(); // recomputed on every render so date resets correctly at midnight
   const { palette }          = useTheme();
   const { card, cardBorder: border, text, muted, accent, accentText, bg } = palette;
   const router               = useRouter();
@@ -97,7 +94,6 @@ export default function WorkoutsScreen() {
 
   const [showNewRoutine, setShowNewRoutine] = useState(false);
   const [routineName,    setRoutineName]    = useState("");
-  const [starting,       setStarting]       = useState<number | null>(null);
 
   const { data: templates = [] } = useQuery<any[]>({
     queryKey: ["/api/templates"],
@@ -135,25 +131,12 @@ export default function WorkoutsScreen() {
     onError: () => Alert.alert("Error", "Could not create routine."),
   });
 
-  // ── Start a routine ──
-  const startRoutine = async (template: any) => {
-    setStarting(template.id);
-    try {
-      const workout = await apiRequest<any>("POST", "/api/workouts", {
-        date: today,
-        name: template.name,
-        templateId: template.id,
-      });
-      qc.invalidateQueries({ queryKey: ["/api/workouts"] });
-      router.push({
-        pathname: "/workout/[workoutId]",
-        params: { workoutId: String(workout.id), templateId: String(template.id) },
-      });
-    } catch {
-      Alert.alert("Error", "Could not start workout.");
-    } finally {
-      setStarting(null);
-    }
+  // ── Open routine detail (exercise list + Start button) ──
+  const openRoutine = (template: any) => {
+    router.push({
+      pathname: "/routine/[templateId]",
+      params: { templateId: String(template.id) },
+    });
   };
 
   return (
@@ -259,17 +242,15 @@ export default function WorkoutsScreen() {
             templates.map((t: any, i: number) => {
               const pct     = templates.length > 1 ? (i + 1) / templates.length : 1;
               const exCount = t.exercises?.length ?? t.exerciseCount ?? 0;
-              const busy    = starting === t.id;
               return (
                 <Pressable
                   key={t.id}
-                  onPress={() => !busy && startRoutine(t)}
-                  disabled={busy}
+                  onPress={() => openRoutine(t)}
                   style={({ pressed }) => ({
                     backgroundColor: card, borderRadius: 18, padding: 14,
                     borderWidth: 1, borderColor: border, marginBottom: 10,
                     flexDirection: "row", alignItems: "center", gap: 14,
-                    opacity: pressed || busy ? 0.75 : 1,
+                    opacity: pressed ? 0.75 : 1,
                   })}
                 >
                   {/* Arc circle */}
@@ -286,11 +267,7 @@ export default function WorkoutsScreen() {
                       </Text>
                     )}
                   </View>
-                  {/* Right indicator */}
-                  {busy
-                    ? <ActivityIndicator size="small" color={LIME} />
-                    : <ChevronRight size={18} color={muted} />
-                  }
+                  <ChevronRight size={18} color={muted} />
                 </Pressable>
               );
             })

@@ -381,6 +381,26 @@ export const storage = {
   async getTemplateExercises(templateId: number): Promise<TemplateExercise[]> {
     return db.select().from(templateExercises).where(eq(templateExercises.templateId, templateId)).orderBy(templateExercises.orderIndex);
   },
+  /** Returns template exercises joined with exercise details (name, muscle, category). */
+  async getTemplateExercisesWithDetails(templateId: number) {
+    return db
+      .select({
+        id:                templateExercises.id,
+        templateId:        templateExercises.templateId,
+        exerciseId:        templateExercises.exerciseId,
+        orderIndex:        templateExercises.orderIndex,
+        targetSets:        templateExercises.targetSets,
+        targetReps:        templateExercises.targetReps,
+        targetWeightGrams: templateExercises.targetWeightGrams,
+        exerciseName:      exercises.name,
+        primaryMuscle:     exercises.primaryMuscle,
+        category:          exercises.category,
+      })
+      .from(templateExercises)
+      .innerJoin(exercises, eq(templateExercises.exerciseId, exercises.id))
+      .where(eq(templateExercises.templateId, templateId))
+      .orderBy(templateExercises.orderIndex);
+  },
   async addTemplateExercise(data: InsertTemplateExercise): Promise<TemplateExercise> {
     const [te] = await db.insert(templateExercises).values(data).returning();
     return te;
