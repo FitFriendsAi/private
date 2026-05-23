@@ -389,10 +389,9 @@ export default function RoutineDetailScreen() {
                 <Pressable
                   onPress={() => {
                     if (!editMode) {
-                      router.push({
-                        pathname: "/exercise/[exerciseId]",
-                        params: { exerciseId: String(ex.exerciseId) },
-                      });
+                      router.push(
+                        `/exercise/${ex.exerciseId}` as any
+                      );
                     }
                   }}
                   style={({ pressed }) => ({
