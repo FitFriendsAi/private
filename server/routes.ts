@@ -396,21 +396,35 @@ export function registerRoutes(app: Express) {
         })
       : fused;
 
-    // 4. Relevance sort — brand exact > brand contains > name starts > rest
-    //    Tiebreak: more complete nutrition floats up slightly
+    // 4. Relevance sort — scored by fraction of query words matched.
+    //
+    //    Tier 0 (score 0–1):  ALL query words found in item's brand+name
+    //                         e.g. "chickfila" + "chicken" + "biscuit" all present
+    //    Tier 1 (score 1–2):  ≥ 67% of query words matched
+    //    Tier 2 (score 2–3):  ≥ 50% matched
+    //    Tier 3 (score 3–4):  < 50% matched (passed filter but weak match)
+    //
+    //    Within each tier, Jaccard similarity is used as a tiebreaker so the
+    //    item whose name/brand most closely mirrors the full query ranks first.
     function relevanceScore(item: any): number {
-      const brand = normName(item.brand || item.brandOwner || "");
-      const name  = normName(item.name  || "");
-      const qn    = normName(q);
-      let base = 5;
-      if (brand === qn)              base = 0;
-      else if (brand.startsWith(qn)) base = 1;
-      else if (brand.includes(qn))   base = 2;
-      else if (name.startsWith(qn))  base = 3;
-      else if (name.includes(qn))    base = 4;
-      // word-overlap tiebreak — more overlap = lower (better) score within same tier
-      const overlap = nameSimilarity(name + " " + brand, qn);
-      return base - overlap * 0.5 - nutritionScore(item) * 0.01;
+      const brandNorm = normName(item.brand || item.brandOwner || "");
+      const nameNorm  = normName(item.name  || "");
+      const qNorm     = normName(q);
+      const qWords    = wordSet(qNorm);
+      const itemWords = new Set([...wordSet(brandNorm), ...wordSet(nameNorm)]);
+
+      // Count how many query words are present in this item
+      let matches = 0;
+      for (const w of qWords) if (itemWords.has(w)) matches++;
+      const ratio = qWords.size > 0 ? matches / qWords.size : 0;
+
+      // Similarity tiebreaker within each tier (higher sim → lower score → ranks first)
+      const sim = nameSimilarity(brandNorm + " " + nameNorm, qNorm);
+
+      if (ratio >= 1.0)  return 0 + (1 - sim) * 0.9;   // all words matched
+      if (ratio >= 0.67) return 1 + (1 - sim) * 0.9;   // most words matched
+      if (ratio >= 0.5)  return 2 + (1 - sim) * 0.9;   // half matched
+      return 3 + (1 - ratio) - nutritionScore(item) * 0.01; // few matched
     }
     relevant.sort((a, b) => relevanceScore(a) - relevanceScore(b));
 
