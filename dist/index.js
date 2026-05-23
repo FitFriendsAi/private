@@ -38,371 +38,6 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/dotenv/lib/main.js
-var require_main = __commonJS({
-  "node_modules/dotenv/lib/main.js"(exports, module) {
-    var fs2 = __require("fs");
-    var path = __require("path");
-    var os = __require("os");
-    var crypto = __require("crypto");
-    var TIPS = [
-      "\u25C8 encrypted .env [www.dotenvx.com]",
-      "\u25C8 secrets for agents [www.dotenvx.com]",
-      "\u2301 auth for agents [www.vestauth.com]",
-      "\u2318 custom filepath { path: '/custom/path/.env' }",
-      "\u2318 enable debugging { debug: true }",
-      "\u2318 override existing { override: true }",
-      "\u2318 suppress logs { quiet: true }",
-      "\u2318 multiple files { path: ['.env.local', '.env'] }"
-    ];
-    function _getRandomTip() {
-      return TIPS[Math.floor(Math.random() * TIPS.length)];
-    }
-    function parseBoolean(value) {
-      if (typeof value === "string") {
-        return !["false", "0", "no", "off", ""].includes(value.toLowerCase());
-      }
-      return Boolean(value);
-    }
-    function supportsAnsi() {
-      return process.stdout.isTTY;
-    }
-    function dim(text2) {
-      return supportsAnsi() ? `\x1B[2m${text2}\x1B[0m` : text2;
-    }
-    var LINE = /(?:^|^)\s*(?:export\s+)?([\w.-]+)(?:\s*=\s*?|:\s+?)(\s*'(?:\\'|[^'])*'|\s*"(?:\\"|[^"])*"|\s*`(?:\\`|[^`])*`|[^#\r\n]+)?\s*(?:#.*)?(?:$|$)/mg;
-    function parse(src) {
-      const obj = {};
-      let lines = src.toString();
-      lines = lines.replace(/\r\n?/mg, "\n");
-      let match;
-      while ((match = LINE.exec(lines)) != null) {
-        const key = match[1];
-        let value = match[2] || "";
-        value = value.trim();
-        const maybeQuote = value[0];
-        value = value.replace(/^(['"`])([\s\S]*)\1$/mg, "$2");
-        if (maybeQuote === '"') {
-          value = value.replace(/\\n/g, "\n");
-          value = value.replace(/\\r/g, "\r");
-        }
-        obj[key] = value;
-      }
-      return obj;
-    }
-    function _parseVault(options) {
-      options = options || {};
-      const vaultPath = _vaultPath(options);
-      options.path = vaultPath;
-      const result = DotenvModule.configDotenv(options);
-      if (!result.parsed) {
-        const err = new Error(`MISSING_DATA: Cannot parse ${vaultPath} for an unknown reason`);
-        err.code = "MISSING_DATA";
-        throw err;
-      }
-      const keys = _dotenvKey(options).split(",");
-      const length = keys.length;
-      let decrypted;
-      for (let i2 = 0; i2 < length; i2++) {
-        try {
-          const key = keys[i2].trim();
-          const attrs = _instructions(result, key);
-          decrypted = DotenvModule.decrypt(attrs.ciphertext, attrs.key);
-          break;
-        } catch (error) {
-          if (i2 + 1 >= length) {
-            throw error;
-          }
-        }
-      }
-      return DotenvModule.parse(decrypted);
-    }
-    function _warn(message) {
-      console.error(`\u26A0 ${message}`);
-    }
-    function _debug(message) {
-      console.log(`\u2506 ${message}`);
-    }
-    function _log(message) {
-      console.log(`\u25C7 ${message}`);
-    }
-    function _dotenvKey(options) {
-      if (options && options.DOTENV_KEY && options.DOTENV_KEY.length > 0) {
-        return options.DOTENV_KEY;
-      }
-      if (process.env.DOTENV_KEY && process.env.DOTENV_KEY.length > 0) {
-        return process.env.DOTENV_KEY;
-      }
-      return "";
-    }
-    function _instructions(result, dotenvKey) {
-      let uri;
-      try {
-        uri = new URL(dotenvKey);
-      } catch (error) {
-        if (error.code === "ERR_INVALID_URL") {
-          const err = new Error("INVALID_DOTENV_KEY: Wrong format. Must be in valid uri format like dotenv://:key_1234@dotenvx.com/vault/.env.vault?environment=development");
-          err.code = "INVALID_DOTENV_KEY";
-          throw err;
-        }
-        throw error;
-      }
-      const key = uri.password;
-      if (!key) {
-        const err = new Error("INVALID_DOTENV_KEY: Missing key part");
-        err.code = "INVALID_DOTENV_KEY";
-        throw err;
-      }
-      const environment = uri.searchParams.get("environment");
-      if (!environment) {
-        const err = new Error("INVALID_DOTENV_KEY: Missing environment part");
-        err.code = "INVALID_DOTENV_KEY";
-        throw err;
-      }
-      const environmentKey = `DOTENV_VAULT_${environment.toUpperCase()}`;
-      const ciphertext = result.parsed[environmentKey];
-      if (!ciphertext) {
-        const err = new Error(`NOT_FOUND_DOTENV_ENVIRONMENT: Cannot locate environment ${environmentKey} in your .env.vault file.`);
-        err.code = "NOT_FOUND_DOTENV_ENVIRONMENT";
-        throw err;
-      }
-      return { ciphertext, key };
-    }
-    function _vaultPath(options) {
-      let possibleVaultPath = null;
-      if (options && options.path && options.path.length > 0) {
-        if (Array.isArray(options.path)) {
-          for (const filepath of options.path) {
-            if (fs2.existsSync(filepath)) {
-              possibleVaultPath = filepath.endsWith(".vault") ? filepath : `${filepath}.vault`;
-            }
-          }
-        } else {
-          possibleVaultPath = options.path.endsWith(".vault") ? options.path : `${options.path}.vault`;
-        }
-      } else {
-        possibleVaultPath = path.resolve(process.cwd(), ".env.vault");
-      }
-      if (fs2.existsSync(possibleVaultPath)) {
-        return possibleVaultPath;
-      }
-      return null;
-    }
-    function _resolveHome(envPath) {
-      return envPath[0] === "~" ? path.join(os.homedir(), envPath.slice(1)) : envPath;
-    }
-    function _configVault(options) {
-      const debug2 = parseBoolean(process.env.DOTENV_CONFIG_DEBUG || options && options.debug);
-      const quiet = parseBoolean(process.env.DOTENV_CONFIG_QUIET || options && options.quiet);
-      if (debug2 || !quiet) {
-        _log("loading env from encrypted .env.vault");
-      }
-      const parsed = DotenvModule._parseVault(options);
-      let processEnv = process.env;
-      if (options && options.processEnv != null) {
-        processEnv = options.processEnv;
-      }
-      DotenvModule.populate(processEnv, parsed, options);
-      return { parsed };
-    }
-    function configDotenv(options) {
-      const dotenvPath = path.resolve(process.cwd(), ".env");
-      let encoding = "utf8";
-      let processEnv = process.env;
-      if (options && options.processEnv != null) {
-        processEnv = options.processEnv;
-      }
-      let debug2 = parseBoolean(processEnv.DOTENV_CONFIG_DEBUG || options && options.debug);
-      let quiet = parseBoolean(processEnv.DOTENV_CONFIG_QUIET || options && options.quiet);
-      if (options && options.encoding) {
-        encoding = options.encoding;
-      } else {
-        if (debug2) {
-          _debug("no encoding is specified (UTF-8 is used by default)");
-        }
-      }
-      let optionPaths = [dotenvPath];
-      if (options && options.path) {
-        if (!Array.isArray(options.path)) {
-          optionPaths = [_resolveHome(options.path)];
-        } else {
-          optionPaths = [];
-          for (const filepath of options.path) {
-            optionPaths.push(_resolveHome(filepath));
-          }
-        }
-      }
-      let lastError;
-      const parsedAll = {};
-      for (const path2 of optionPaths) {
-        try {
-          const parsed = DotenvModule.parse(fs2.readFileSync(path2, { encoding }));
-          DotenvModule.populate(parsedAll, parsed, options);
-        } catch (e2) {
-          if (debug2) {
-            _debug(`failed to load ${path2} ${e2.message}`);
-          }
-          lastError = e2;
-        }
-      }
-      const populated = DotenvModule.populate(processEnv, parsedAll, options);
-      debug2 = parseBoolean(processEnv.DOTENV_CONFIG_DEBUG || debug2);
-      quiet = parseBoolean(processEnv.DOTENV_CONFIG_QUIET || quiet);
-      if (debug2 || !quiet) {
-        const keysCount = Object.keys(populated).length;
-        const shortPaths = [];
-        for (const filePath of optionPaths) {
-          try {
-            const relative = path.relative(process.cwd(), filePath);
-            shortPaths.push(relative);
-          } catch (e2) {
-            if (debug2) {
-              _debug(`failed to load ${filePath} ${e2.message}`);
-            }
-            lastError = e2;
-          }
-        }
-        _log(`injected env (${keysCount}) from ${shortPaths.join(",")} ${dim(`// tip: ${_getRandomTip()}`)}`);
-      }
-      if (lastError) {
-        return { parsed: parsedAll, error: lastError };
-      } else {
-        return { parsed: parsedAll };
-      }
-    }
-    function config(options) {
-      if (_dotenvKey(options).length === 0) {
-        return DotenvModule.configDotenv(options);
-      }
-      const vaultPath = _vaultPath(options);
-      if (!vaultPath) {
-        _warn(`you set DOTENV_KEY but you are missing a .env.vault file at ${vaultPath}`);
-        return DotenvModule.configDotenv(options);
-      }
-      return DotenvModule._configVault(options);
-    }
-    function decrypt(encrypted, keyStr) {
-      const key = Buffer.from(keyStr.slice(-64), "hex");
-      let ciphertext = Buffer.from(encrypted, "base64");
-      const nonce = ciphertext.subarray(0, 12);
-      const authTag = ciphertext.subarray(-16);
-      ciphertext = ciphertext.subarray(12, -16);
-      try {
-        const aesgcm = crypto.createDecipheriv("aes-256-gcm", key, nonce);
-        aesgcm.setAuthTag(authTag);
-        return `${aesgcm.update(ciphertext)}${aesgcm.final()}`;
-      } catch (error) {
-        const isRange = error instanceof RangeError;
-        const invalidKeyLength = error.message === "Invalid key length";
-        const decryptionFailed = error.message === "Unsupported state or unable to authenticate data";
-        if (isRange || invalidKeyLength) {
-          const err = new Error("INVALID_DOTENV_KEY: It must be 64 characters long (or more)");
-          err.code = "INVALID_DOTENV_KEY";
-          throw err;
-        } else if (decryptionFailed) {
-          const err = new Error("DECRYPTION_FAILED: Please check your DOTENV_KEY");
-          err.code = "DECRYPTION_FAILED";
-          throw err;
-        } else {
-          throw error;
-        }
-      }
-    }
-    function populate(processEnv, parsed, options = {}) {
-      const debug2 = Boolean(options && options.debug);
-      const override = Boolean(options && options.override);
-      const populated = {};
-      if (typeof parsed !== "object") {
-        const err = new Error("OBJECT_REQUIRED: Please check the processEnv argument being passed to populate");
-        err.code = "OBJECT_REQUIRED";
-        throw err;
-      }
-      for (const key of Object.keys(parsed)) {
-        if (Object.prototype.hasOwnProperty.call(processEnv, key)) {
-          if (override === true) {
-            processEnv[key] = parsed[key];
-            populated[key] = parsed[key];
-          }
-          if (debug2) {
-            if (override === true) {
-              _debug(`"${key}" is already defined and WAS overwritten`);
-            } else {
-              _debug(`"${key}" is already defined and was NOT overwritten`);
-            }
-          }
-        } else {
-          processEnv[key] = parsed[key];
-          populated[key] = parsed[key];
-        }
-      }
-      return populated;
-    }
-    var DotenvModule = {
-      configDotenv,
-      _configVault,
-      _parseVault,
-      config,
-      decrypt,
-      parse,
-      populate
-    };
-    module.exports.configDotenv = DotenvModule.configDotenv;
-    module.exports._configVault = DotenvModule._configVault;
-    module.exports._parseVault = DotenvModule._parseVault;
-    module.exports.config = DotenvModule.config;
-    module.exports.decrypt = DotenvModule.decrypt;
-    module.exports.parse = DotenvModule.parse;
-    module.exports.populate = DotenvModule.populate;
-    module.exports = DotenvModule;
-  }
-});
-
-// node_modules/dotenv/lib/env-options.js
-var require_env_options = __commonJS({
-  "node_modules/dotenv/lib/env-options.js"(exports, module) {
-    var options = {};
-    if (process.env.DOTENV_CONFIG_ENCODING != null) {
-      options.encoding = process.env.DOTENV_CONFIG_ENCODING;
-    }
-    if (process.env.DOTENV_CONFIG_PATH != null) {
-      options.path = process.env.DOTENV_CONFIG_PATH;
-    }
-    if (process.env.DOTENV_CONFIG_QUIET != null) {
-      options.quiet = process.env.DOTENV_CONFIG_QUIET;
-    }
-    if (process.env.DOTENV_CONFIG_DEBUG != null) {
-      options.debug = process.env.DOTENV_CONFIG_DEBUG;
-    }
-    if (process.env.DOTENV_CONFIG_OVERRIDE != null) {
-      options.override = process.env.DOTENV_CONFIG_OVERRIDE;
-    }
-    if (process.env.DOTENV_CONFIG_DOTENV_KEY != null) {
-      options.DOTENV_KEY = process.env.DOTENV_CONFIG_DOTENV_KEY;
-    }
-    module.exports = options;
-  }
-});
-
-// node_modules/dotenv/lib/cli-options.js
-var require_cli_options = __commonJS({
-  "node_modules/dotenv/lib/cli-options.js"(exports, module) {
-    var re2 = /^dotenv_config_(encoding|path|quiet|debug|override|DOTENV_KEY)=(.+)$/;
-    module.exports = function optionMatcher(args) {
-      const options = args.reduce(function(acc, cur) {
-        const matches = cur.match(re2);
-        if (matches) {
-          acc[matches[1]] = matches[2];
-        }
-        return acc;
-      }, {});
-      if (!("quiet" in options)) {
-        options.quiet = "true";
-      }
-      return options;
-    };
-  }
-});
-
 // node_modules/depd/index.js
 var require_depd = __commonJS({
   "node_modules/depd/index.js"(exports, module) {
@@ -41776,21 +41411,11 @@ var require_jsonwebtoken = __commonJS({
   }
 });
 
-// node_modules/dotenv/config.js
-(function() {
-  require_main().config(
-    Object.assign(
-      {},
-      require_env_options(),
-      require_cli_options()(process.argv)
-    )
-  );
-})();
-
 // server/index.ts
 var import_express = __toESM(require_express2(), 1);
 var import_express_session = __toESM(require_express_session(), 1);
 var import_connect_pg_simple = __toESM(require_connect_pg_simple(), 1);
+import "dotenv/config";
 
 // node_modules/pg/esm/index.mjs
 var import_lib = __toESM(require_lib4(), 1);
@@ -53296,6 +52921,12 @@ var storage = {
   async deleteSupplementEntry(id, userId) {
     await db.delete(supplementLog).where(and(eq(supplementLog.id, id), eq(supplementLog.userId, userId)));
   },
+  async getSupplementHistory(userId, days, supplement) {
+    const since = /* @__PURE__ */ new Date();
+    since.setDate(since.getDate() - days + 1);
+    const sinceStr = since.toLocaleDateString("en-CA");
+    return db.select({ date: supplementLog.date, totalG: sql`sum(${supplementLog.amountG})` }).from(supplementLog).where(and(eq(supplementLog.userId, userId), gte(supplementLog.date, sinceStr), eq(supplementLog.supplement, supplement))).groupBy(supplementLog.date).orderBy(supplementLog.date);
+  },
   // ── Exercises ──────────────────────────────────────────────────────────────
   async getExercises(userId, muscle, search) {
     let q2 = db.select().from(exercises).where(or(isNull(exercises.userId), eq(exercises.userId, userId)));
@@ -53343,8 +52974,37 @@ var storage = {
   async getTemplateExercises(templateId) {
     return db.select().from(templateExercises).where(eq(templateExercises.templateId, templateId)).orderBy(templateExercises.orderIndex);
   },
+  /** Returns template exercises with exercise details (name, muscle, category).
+   *  Uses two separate queries so exercises are never silently dropped if the
+   *  exercise row is missing (avoids INNER JOIN dropping rows). */
+  async getTemplateExercisesWithDetails(templateId) {
+    const tes = await db.select().from(templateExercises).where(eq(templateExercises.templateId, templateId)).orderBy(templateExercises.orderIndex);
+    if (tes.length === 0) return [];
+    const exIds = [...new Set(tes.map((te2) => te2.exerciseId))];
+    const exRows = await db.select({ id: exercises.id, name: exercises.name, primaryMuscle: exercises.primaryMuscle, category: exercises.category }).from(exercises).where(inArray(exercises.id, exIds));
+    const exMap = new Map(exRows.map((e2) => [e2.id, e2]));
+    return tes.map((te2) => {
+      const ex = exMap.get(te2.exerciseId);
+      return {
+        id: te2.id,
+        templateId: te2.templateId,
+        exerciseId: te2.exerciseId,
+        orderIndex: te2.orderIndex,
+        targetSets: te2.targetSets,
+        targetReps: te2.targetReps,
+        targetWeightGrams: te2.targetWeightGrams,
+        exerciseName: ex?.name ?? `Exercise #${te2.exerciseId}`,
+        primaryMuscle: ex?.primaryMuscle ?? "",
+        category: ex?.category ?? ""
+      };
+    });
+  },
   async addTemplateExercise(data) {
     const [te2] = await db.insert(templateExercises).values(data).returning();
+    return te2;
+  },
+  async updateTemplateExercise(id, data) {
+    const [te2] = await db.update(templateExercises).set(data).where(eq(templateExercises.id, id)).returning();
     return te2;
   },
   async removeTemplateExercise(id) {
@@ -53378,8 +53038,9 @@ var storage = {
     const rows = await db.select({
       date: workouts.date,
       weightGrams: workoutSets.weightGrams,
-      reps: workoutSets.reps
-    }).from(workoutSets).innerJoin(workouts, eq(workoutSets.workoutId, workouts.id)).where(and(eq(workoutSets.exerciseId, exerciseId), eq(workouts.userId, userId))).orderBy(workouts.date);
+      reps: workoutSets.reps,
+      setNumber: workoutSets.setNumber
+    }).from(workoutSets).innerJoin(workouts, eq(workoutSets.workoutId, workouts.id)).where(and(eq(workoutSets.exerciseId, exerciseId), eq(workouts.userId, userId))).orderBy(workouts.date, workoutSets.setNumber);
     function toDateStr(d2) {
       if (d2 instanceof Date) return d2.toISOString().slice(0, 10);
       if (typeof d2 === "string") return d2.slice(0, 10);
@@ -53388,18 +53049,38 @@ var storage = {
     const byDate = /* @__PURE__ */ new Map();
     for (const r2 of rows) {
       const key = toDateStr(r2.date);
-      const cur = byDate.get(key) ?? { maxW: 0, totalReps: 0, sets: 0 };
+      const w2 = r2.weightGrams ?? 0;
+      const rep = r2.reps ?? 0;
+      const e1rm = rep > 0 ? w2 * (1 + rep / 30) : w2;
+      const setVol = w2 * rep;
+      const cur = byDate.get(key) ?? {
+        maxW: 0,
+        bestE1rm: 0,
+        bestSetVol: 0,
+        sessionVol: 0,
+        totalReps: 0,
+        sets: 0,
+        setsData: []
+      };
       byDate.set(key, {
-        maxW: Math.max(cur.maxW, r2.weightGrams ?? 0),
-        totalReps: cur.totalReps + (r2.reps ?? 0),
-        sets: cur.sets + 1
+        maxW: Math.max(cur.maxW, w2),
+        bestE1rm: Math.max(cur.bestE1rm, e1rm),
+        bestSetVol: Math.max(cur.bestSetVol, setVol),
+        sessionVol: cur.sessionVol + setVol,
+        totalReps: cur.totalReps + rep,
+        sets: cur.sets + 1,
+        setsData: [...cur.setsData, { reps: rep, weightGrams: w2 }]
       });
     }
     return Array.from(byDate.entries()).map(([date2, v2]) => ({
       date: date2,
       maxWeightGrams: v2.maxW,
+      e1rmGrams: Math.round(v2.bestE1rm),
+      bestSetVolume: v2.bestSetVol,
+      sessionVolume: v2.sessionVol,
       totalReps: v2.totalReps,
-      sets: v2.sets
+      sets: v2.sets,
+      setsData: v2.setsData
     }));
   },
   /** Returns the distinct exercise IDs the user has ever logged a set for. */
@@ -56775,9 +56456,14 @@ var sdk_default = Anthropic;
 var import_jsonwebtoken = __toESM(require_jsonwebtoken(), 1);
 
 // server/services/food-lookup.ts
+function fetchWithTimeout(url, options = {}, timeoutMs = 7e3) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
 async function lookupBarcode(barcode) {
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`,
       { headers: { "User-Agent": "FitCore/1.0 (fitness tracker)" } }
     );
@@ -56823,16 +56509,19 @@ function parseServingSize(serving) {
   if (ozMatch) return parseFloat(ozMatch[1]) * 28.35;
   return null;
 }
-var FS_CLIENT_ID = process.env.FATSECRET_CLIENT_ID;
-var FS_CLIENT_SECRET = process.env.FATSECRET_CLIENT_SECRET;
+var FS_CLIENT_ID = process.env.FATSECRET_CLIENT_ID?.trim();
+var FS_CLIENT_SECRET = process.env.FATSECRET_CLIENT_SECRET?.trim();
 var _fsToken = null;
 var _fsTokenExpiry = 0;
 async function getFatSecretToken() {
-  if (!FS_CLIENT_ID || !FS_CLIENT_SECRET) return null;
+  if (!FS_CLIENT_ID || !FS_CLIENT_SECRET) {
+    console.warn("[FatSecret] credentials missing \u2014 set FATSECRET_CLIENT_ID and FATSECRET_CLIENT_SECRET");
+    return null;
+  }
   if (_fsToken && Date.now() < _fsTokenExpiry) return _fsToken;
   try {
     const creds = Buffer.from(`${FS_CLIENT_ID}:${FS_CLIENT_SECRET}`).toString("base64");
-    const res = await fetch("https://oauth.fatsecret.com/connect/token", {
+    const res = await fetchWithTimeout("https://oauth.fatsecret.com/connect/token", {
       method: "POST",
       headers: {
         "Authorization": `Basic ${creds}`,
@@ -56840,12 +56529,22 @@ async function getFatSecretToken() {
       },
       body: "grant_type=client_credentials&scope=basic"
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.error(`[FatSecret] token fetch failed: HTTP ${res.status} \u2014 ${body}`);
+      return null;
+    }
     const data = await res.json();
+    if (!data.access_token) {
+      console.error("[FatSecret] token response missing access_token:", JSON.stringify(data));
+      return null;
+    }
     _fsToken = data.access_token;
     _fsTokenExpiry = Date.now() + (data.expires_in - 120) * 1e3;
+    console.log(`[FatSecret] token acquired, expires in ${data.expires_in}s`);
     return _fsToken;
-  } catch {
+  } catch (err) {
+    console.error("[FatSecret] token fetch threw:", err?.message ?? err);
     return null;
   }
 }
@@ -56854,10 +56553,13 @@ async function searchFatSecret(query, limit = 25) {
   if (!token) return [];
   try {
     const url = `https://platform.fatsecret.com/rest/server.api?method=foods.search&search_expression=${encodeURIComponent(query)}&format=json&max_results=${limit}&page_number=0`;
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       headers: { "Authorization": `Bearer ${token}`, "Accept": "application/json" }
     });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      console.error(`[FatSecret] search failed: HTTP ${res.status}`);
+      return [];
+    }
     const data = await res.json();
     const raw = data.foods?.food;
     if (!raw) return [];
@@ -56889,7 +56591,7 @@ var CN_KEY = process.env.CALORIENINJA_API_KEY;
 async function searchCalorieNinjas(query, limit = 20) {
   if (!CN_KEY) return [];
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://api.calorieninjas.com/v1/nutrition?query=${encodeURIComponent(query)}`,
       { headers: { "X-Api-Key": CN_KEY, "Accept": "application/json" } }
     );
@@ -56918,7 +56620,7 @@ function toTitleCaseCN(str) {
 async function searchBrandOFF(brandQuery, limit = 25) {
   try {
     const slug = brandQuery.toLowerCase().replace(/[''']/g, "").replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://world.openfoodfacts.org/brand/${slug}/1.json?page_size=${limit}&fields=product_name,brands,serving_size,nutriments,code`,
       { headers: { "User-Agent": "FitCore/1.0" } }
     );
@@ -56958,7 +56660,7 @@ async function fetchUSDA(query, limit, brandedOnly = false) {
   try {
     const dataType = brandedOnly ? "Branded" : "Branded,Survey%20(FNDDS)";
     const url = `https://api.nal.usda.gov/fdc/v1/foods/search?query=${encodeURIComponent(query)}&pageSize=${limit}&api_key=${USDA_KEY}&dataType=${dataType}`;
-    const res = await fetch(url, { headers: { "Accept": "application/json" } });
+    const res = await fetchWithTimeout(url, { headers: { "Accept": "application/json" } });
     if (!res.ok) return [];
     const data = await res.json();
     return data.foods || [];
@@ -57017,7 +56719,7 @@ function toTitleCase(str) {
 async function searchFoodByName(query, limit = 20) {
   try {
     const encoded = encodeURIComponent(query);
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encoded}&search_simple=1&action=process&json=1&page_size=${limit}&fields=product_name,brands,serving_size,nutriments,code`,
       { headers: { "User-Agent": "FitCore/1.0" } }
     );
@@ -57458,29 +57160,72 @@ function registerRoutes(app2) {
     }
     const local = await storage.searchFoodItems(q2);
     if (local.length >= 10) return res.json(local);
-    const isRestaurant = typeFilter === "restaurant";
+    const RESTAURANT_BRANDS = [
+      [/chick-fil-a/i, "chick-fil-a"],
+      [/mcdonald/i, "mcdonalds"],
+      [/burger king/i, "burger-king"],
+      [/wendy/i, "wendys"],
+      [/taco bell/i, "taco-bell"],
+      [/subway/i, "subway"],
+      [/chipotle/i, "chipotle"],
+      [/panera/i, "panera"],
+      [/starbucks/i, "starbucks"],
+      [/dunkin/i, "dunkin-donuts"],
+      [/domino/i, "dominos-pizza"],
+      [/pizza hut/i, "pizza-hut"],
+      [/\bkfc\b/i, "kfc"],
+      [/popeyes/i, "popeyes"],
+      [/five guys/i, "five-guys"],
+      [/shake shack/i, "shake-shack"],
+      [/whataburger/i, "whataburger"],
+      [/in-n-out/i, "in-n-out-burger"],
+      [/\bsonic\b/i, "sonic"],
+      [/\barby/i, "arbys"],
+      [/dairy queen/i, "dairy-queen"],
+      [/chilis/i, "chilis"],
+      [/applebees/i, "applebees"],
+      [/olive garden/i, "olive-garden"],
+      [/red lobster/i, "red-lobster"]
+    ];
+    const matchedBrand = RESTAURANT_BRANDS.find(([rx]) => rx.test(q2));
+    const isRestaurant = typeFilter === "restaurant" || !!matchedBrand;
+    const brandSlug = matchedBrand?.[1] ?? q2;
     const [usda, fs2, cn, off, offBrand] = await Promise.all([
       searchUSDA(q2, isRestaurant ? 40 : 25, isRestaurant),
       searchFatSecret(q2, 20),
       searchCalorieNinjas(q2, 15),
       !isRestaurant && local.length < 3 ? searchFoodByName(q2, 10) : Promise.resolve([]),
-      isRestaurant ? searchBrandOFF(q2, 20) : Promise.resolve([])
+      isRestaurant ? searchBrandOFF(brandSlug, 30) : Promise.resolve([])
     ]);
+    console.log(`[food/search] q="${q2}" isRestaurant=${isRestaurant} brandSlug="${brandSlug}" | usda=${usda.length} fs=${fs2.length} cn=${cn.length} off=${off.length} offBrand=${offBrand.length} local=${local.length}`);
     const allExternal = [...usda, ...cn, ...off, ...offBrand, ...fs2];
     const fused = fuseItems([...local, ...allExternal]);
+    const queryWords = wordSet(q2);
+    const relevant = queryWords.size >= 2 ? fused.filter((item) => {
+      const itemWords = /* @__PURE__ */ new Set([
+        ...wordSet(item.name || ""),
+        ...wordSet(item.brand || item.brandOwner || "")
+      ]);
+      for (const w2 of queryWords) if (itemWords.has(w2)) return true;
+      return false;
+    }) : fused;
     function relevanceScore(item) {
-      const brand = (item.brand || item.brandOwner || "").toLowerCase();
-      const name = (item.name || "").toLowerCase();
-      let base = 5;
-      if (brand === ql) base = 0;
-      else if (brand.startsWith(ql)) base = 1;
-      else if (brand.includes(ql)) base = 2;
-      else if (name.startsWith(ql)) base = 3;
-      else if (name.includes(ql)) base = 4;
-      return base - nutritionScore(item) * 0.01;
+      const brandNorm = normName(item.brand || item.brandOwner || "");
+      const nameNorm = normName(item.name || "");
+      const qNorm = normName(q2);
+      const qWords = wordSet(qNorm);
+      const itemWords = /* @__PURE__ */ new Set([...wordSet(brandNorm), ...wordSet(nameNorm)]);
+      let matches = 0;
+      for (const w2 of qWords) if (itemWords.has(w2)) matches++;
+      const ratio = qWords.size > 0 ? matches / qWords.size : 0;
+      const sim = nameSimilarity(brandNorm + " " + nameNorm, qNorm);
+      if (ratio >= 1) return 0 + (1 - sim) * 0.9;
+      if (ratio >= 0.67) return 1 + (1 - sim) * 0.9;
+      if (ratio >= 0.5) return 2 + (1 - sim) * 0.9;
+      return 3 + (1 - ratio) - nutritionScore(item) * 0.01;
     }
-    fused.sort((a2, b2) => relevanceScore(a2) - relevanceScore(b2));
-    res.json(fused.slice(0, 30));
+    relevant.sort((a2, b2) => relevanceScore(a2) - relevanceScore(b2));
+    res.json(relevant.slice(0, 30));
   });
   app2.get("/api/food/barcode/:code", async (req, res) => {
     if (!requireAuth(req, res)) return;
@@ -57722,6 +57467,12 @@ function registerRoutes(app2) {
     await storage.deleteSupplementEntry(Number(req.params.id), req.user.id);
     res.sendStatus(204);
   });
+  app2.get("/api/supplements/history", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const days = Math.min(Math.max(parseInt(req.query.days) || 30, 7), 365);
+    const sup = req.query.supplement || "creatine";
+    res.json(await storage.getSupplementHistory(req.user.id, days, sup));
+  });
   app2.get("/api/exercises", async (req, res) => {
     if (!requireAuth(req, res)) return;
     const { muscle, search } = req.query;
@@ -57737,6 +57488,17 @@ function registerRoutes(app2) {
     } catch (err) {
       res.status(400).json({ message: err.message });
     }
+  });
+  app2.get("/api/exercises/logged-ids", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const ids = await storage.getLoggedExerciseIds(req.user.id);
+    res.json(ids);
+  });
+  app2.get("/api/exercises/:id", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const exercise = await storage.getExerciseById(Number(req.params.id));
+    if (!exercise) return res.sendStatus(404);
+    res.json(exercise);
   });
   app2.get("/api/exercises/:id/previous-sets", async (req, res) => {
     if (!requireAuth(req, res)) return;
@@ -57764,6 +57526,24 @@ function registerRoutes(app2) {
       exercises: await storage.getTemplateExercises(t2.id)
     })));
     res.json(result);
+  });
+  app2.get("/api/templates/:id", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = req.user.id;
+    const templateId = Number(req.params.id);
+    const templates = await storage.getTemplates(userId);
+    const template = templates.find((t2) => t2.id === templateId);
+    if (!template) return res.sendStatus(404);
+    const rawEx = await storage.getTemplateExercises(templateId);
+    const exercises2 = await storage.getTemplateExercisesWithDetails(templateId);
+    console.log(`[template/${templateId}] raw=${rawEx.length} joined=${exercises2.length} ids=${rawEx.map((e2) => e2.exerciseId).join(",")}`);
+    const result = exercises2.length > 0 ? exercises2 : rawEx.map((te2) => ({
+      ...te2,
+      exerciseName: `Exercise ${te2.exerciseId}`,
+      primaryMuscle: "",
+      category: ""
+    }));
+    res.json({ ...template, exercises: result });
   });
   app2.post("/api/templates", async (req, res) => {
     if (!requireAuth(req, res)) return;
@@ -57797,15 +57577,23 @@ function registerRoutes(app2) {
       res.status(400).json({ message: err.message });
     }
   });
+  app2.patch("/api/template-exercises/:id", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const { targetSets, targetReps, targetWeightGrams, orderIndex } = req.body;
+    const data = {};
+    if (targetSets !== void 0) data.targetSets = Number(targetSets);
+    if (targetReps !== void 0) data.targetReps = String(targetReps);
+    if (targetWeightGrams !== void 0)
+      data.targetWeightGrams = targetWeightGrams === null ? null : Number(targetWeightGrams);
+    if (orderIndex !== void 0) data.orderIndex = Number(orderIndex);
+    const te2 = await storage.updateTemplateExercise(Number(req.params.id), data);
+    if (!te2) return res.sendStatus(404);
+    res.json(te2);
+  });
   app2.delete("/api/template-exercises/:id", async (req, res) => {
     if (!requireAuth(req, res)) return;
     await storage.removeTemplateExercise(Number(req.params.id));
     res.sendStatus(204);
-  });
-  app2.get("/api/exercises/logged-ids", async (req, res) => {
-    if (!requireAuth(req, res)) return;
-    const ids = await storage.getLoggedExerciseIds(req.user.id);
-    res.json(ids);
   });
   app2.get("/api/exercises/:id/history", async (req, res) => {
     if (!requireAuth(req, res)) return;
