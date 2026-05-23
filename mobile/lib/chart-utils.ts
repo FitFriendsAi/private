@@ -5,6 +5,8 @@ export const MONTH_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep"
 
 export interface ChartBar {
   value: number;
+  /** Optional raw value used in tooltip when bar is range-normalized (e.g. body weight). */
+  tooltipValue?: number;
   label: string;
   showLabel: boolean;
   isToday: boolean;

@@ -225,6 +225,7 @@ export default function DashboardScreen() {
   const weightRange  = Math.max(weightBarMax - weightBarMin, 5);
   const weightBarsNorm = useMemo(() => weightBars.map(b => ({
     ...b,
+    tooltipValue: b.value > 0 ? b.value : undefined,   // raw lbs shown in tooltip
     value: b.value > 0 ? ((b.value - weightBarMin) / weightRange) * 80 + 10 : 0,
   })), [weightBars, weightBarMin, weightRange]);
 
@@ -281,7 +282,8 @@ export default function DashboardScreen() {
   // ── Water history expanded view ──────────────────────────────────
   const [waterOpen,    setWaterOpen]    = useState(false);
   const [waterPeriod,  setWaterPeriod]  = useState<7 | 30 | 90>(30);
-  const [chartWidth,   setChartWidth]   = useState(0);
+  const [chartWidth,        setChartWidth]        = useState(0);
+  const [waterSelectedIdx,  setWaterSelectedIdx]  = useState<number | null>(null);
   const expandAnim   = useRef(new Animated.Value(0)).current;
   const contentAnim  = useRef(new Animated.Value(0)).current;
   const lineAnim     = useRef(new Animated.Value(0)).current;
@@ -395,6 +397,9 @@ export default function DashboardScreen() {
     const goalBarH = (targetCups / chartMaxCups) * BAR_MAX_H;
     return { pts, pathLength: Math.ceil(len) + 20, goalY: CHART_H - goalBarH };
   }, [chartBars, chartWidth, chartMaxCups, waterPeriod, targetCups]);
+
+  // Reset water bar selection when period changes
+  useEffect(() => { setWaterSelectedIdx(null); }, [waterPeriod]);
 
   // Animate line draw whenever the chart data or visibility changes
   useEffect(() => {
@@ -1182,60 +1187,113 @@ export default function DashboardScreen() {
                       {waterPeriod === 90 ? "WEEKLY AVG (CUPS/DAY)" : "DAILY INTAKE"}
                     </Text>
 
-                    {/* Chart area: bars + SVG overlay stacked */}
-                    <View
-                      style={{ height: 90 }}
-                      onLayout={e => setChartWidth(e.nativeEvent.layout.width)}
-                    >
-                      {/* Bars */}
-                      <View style={{ flexDirection: "row", alignItems: "flex-end", gap: waterPeriod === 30 ? 2 : 3, height: 90, position: "absolute", left: 0, right: 0, top: 0 }}>
-                        {chartBars.map((b, i) => {
-                          const pct = b.cups / chartMaxCups;
-                          const metGoal = b.cups >= targetCups;
-                          return (
-                            <View key={i} style={{ flex: 1, alignItems: "center", justifyContent: "flex-end", height: 90 }}>
-                              <View style={{
-                                width: "100%", borderRadius: 3,
-                                height: Math.max(pct * 78, b.cups > 0 ? 3 : 2),
-                                backgroundColor: b.isToday ? "#0a0a0a" : metGoal ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0.15)",
-                              }} />
-                            </View>
-                          );
-                        })}
+                    {/* Y-axis + Chart row */}
+                    <View style={{ flexDirection: "row" }}>
+                      {/* Y-axis labels */}
+                      <View style={{ width: 34, height: 90, marginRight: 4 }}>
+                        <Text style={{ position: "absolute", top: 4, right: 2, fontFamily: "Manrope-Bold", fontSize: 8, color: "rgba(0,0,0,0.3)", textAlign: "right" }}>
+                          {chartMaxCups}
+                        </Text>
+                        <Text style={{ position: "absolute", top: 41, right: 2, fontFamily: "Manrope-Bold", fontSize: 8, color: "rgba(0,0,0,0.3)", textAlign: "right" }}>
+                          {Math.round(chartMaxCups / 2)}
+                        </Text>
+                        <Text style={{ position: "absolute", top: 76, right: 2, fontFamily: "Manrope-Bold", fontSize: 8, color: "rgba(0,0,0,0.3)", textAlign: "right" }}>
+                          0
+                        </Text>
                       </View>
 
-                      {/* SVG glow line + goal line */}
-                      {pathLength > 0 && (
-                        <Svg width={chartWidth} height={90} style={{ position: "absolute", left: 0, top: 0 }}>
-                          {/* Goal horizontal line — static white dashed */}
-                          <SvgLine x1={0} y1={goalY} x2={chartWidth} y2={goalY}
-                            stroke="rgba(255,255,255,0.25)" strokeWidth={10} />
-                          <SvgLine x1={0} y1={goalY} x2={chartWidth} y2={goalY}
-                            stroke="rgba(255,255,255,0.55)" strokeWidth={1.5} strokeDasharray="5,5" />
+                      {/* Chart area: bars + SVG overlay stacked */}
+                      <View
+                        style={{ flex: 1, height: 90 }}
+                        onLayout={e => setChartWidth(e.nativeEvent.layout.width)}
+                      >
+                        {/* Bars (Pressable for tap-to-tooltip) */}
+                        <View style={{ flexDirection: "row", alignItems: "flex-end", gap: waterPeriod === 30 ? 2 : 3, height: 90, position: "absolute", left: 0, right: 0, top: 0 }}>
+                          {chartBars.map((b, i) => {
+                            const pct = b.cups / chartMaxCups;
+                            const metGoal = b.cups >= targetCups;
+                            const dimmed = waterSelectedIdx !== null && waterSelectedIdx !== i;
+                            return (
+                              <Pressable
+                                key={i}
+                                onPress={() => setWaterSelectedIdx((prev: number | null) => prev === i ? null : i)}
+                                style={{ flex: 1, justifyContent: "flex-end", height: 90 }}
+                              >
+                                <View style={{
+                                  width: "100%", borderRadius: 3,
+                                  height: Math.max(pct * 78, b.cups > 0 ? 3 : 2),
+                                  backgroundColor: b.isToday ? "#0a0a0a" : metGoal ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0.15)",
+                                  opacity: dimmed ? 0.3 : 1,
+                                }} />
+                              </Pressable>
+                            );
+                          })}
+                        </View>
 
-                          {/* Animated glow line — 4 layers for neon bloom, drawn left→right */}
-                          <AnimatedPolyline points={pts} fill="none"
-                            stroke="rgba(255,255,255,0.06)" strokeWidth={18}
-                            strokeLinecap="round" strokeLinejoin="round"
-                            strokeDasharray={pathLength} strokeDashoffset={animDashOffset} />
-                          <AnimatedPolyline points={pts} fill="none"
-                            stroke="rgba(255,255,255,0.18)" strokeWidth={9}
-                            strokeLinecap="round" strokeLinejoin="round"
-                            strokeDasharray={pathLength} strokeDashoffset={animDashOffset} />
-                          <AnimatedPolyline points={pts} fill="none"
-                            stroke="rgba(255,255,255,0.45)" strokeWidth={4}
-                            strokeLinecap="round" strokeLinejoin="round"
-                            strokeDasharray={pathLength} strokeDashoffset={animDashOffset} />
-                          <AnimatedPolyline points={pts} fill="none"
-                            stroke="white" strokeWidth={1.5}
-                            strokeLinecap="round" strokeLinejoin="round"
-                            strokeDasharray={pathLength} strokeDashoffset={animDashOffset} />
-                        </Svg>
-                      )}
+                        {/* SVG: grid lines + goal line + animated glow */}
+                        {chartWidth > 0 && (
+                          <Svg width={chartWidth} height={90} style={{ position: "absolute", left: 0, top: 0 }} pointerEvents="none">
+                            {/* Horizontal grid lines at 100% and 50% */}
+                            <SvgLine x1={0} y1={12} x2={chartWidth} y2={12} stroke="rgba(0,0,0,1)" strokeOpacity={0.07} strokeWidth={1} />
+                            <SvgLine x1={0} y1={51} x2={chartWidth} y2={51} stroke="rgba(0,0,0,1)" strokeOpacity={0.07} strokeWidth={1} />
+
+                            {/* Goal horizontal line */}
+                            <SvgLine x1={0} y1={goalY} x2={chartWidth} y2={goalY}
+                              stroke="rgba(255,255,255,0.25)" strokeWidth={10} />
+                            <SvgLine x1={0} y1={goalY} x2={chartWidth} y2={goalY}
+                              stroke="rgba(255,255,255,0.55)" strokeWidth={1.5} strokeDasharray="5,5" />
+
+                            {/* Animated glow line — 4 layers for neon bloom, drawn left→right */}
+                            {pathLength > 0 && (
+                              <>
+                                <AnimatedPolyline points={pts} fill="none"
+                                  stroke="rgba(255,255,255,0.06)" strokeWidth={18}
+                                  strokeLinecap="round" strokeLinejoin="round"
+                                  strokeDasharray={pathLength} strokeDashoffset={animDashOffset} />
+                                <AnimatedPolyline points={pts} fill="none"
+                                  stroke="rgba(255,255,255,0.18)" strokeWidth={9}
+                                  strokeLinecap="round" strokeLinejoin="round"
+                                  strokeDasharray={pathLength} strokeDashoffset={animDashOffset} />
+                                <AnimatedPolyline points={pts} fill="none"
+                                  stroke="rgba(255,255,255,0.45)" strokeWidth={4}
+                                  strokeLinecap="round" strokeLinejoin="round"
+                                  strokeDasharray={pathLength} strokeDashoffset={animDashOffset} />
+                                <AnimatedPolyline points={pts} fill="none"
+                                  stroke="white" strokeWidth={1.5}
+                                  strokeLinecap="round" strokeLinejoin="round"
+                                  strokeDasharray={pathLength} strokeDashoffset={animDashOffset} />
+                              </>
+                            )}
+                          </Svg>
+                        )}
+
+                        {/* Tap tooltip */}
+                        {waterSelectedIdx !== null && chartWidth > 0 && (() => {
+                          const b = chartBars[waterSelectedIdx];
+                          if (!b || b.cups === 0) return null;
+                          const gap = waterPeriod === 30 ? 2 : 3;
+                          const barW = (chartWidth - gap * (chartBars.length - 1)) / chartBars.length;
+                          const cx = waterSelectedIdx * (barW + gap) + barW / 2;
+                          const barH = Math.max((b.cups / chartMaxCups) * 78, 3);
+                          const tipW = 80;
+                          const tipX = Math.max(0, Math.min(cx - tipW / 2, chartWidth - tipW));
+                          const tipTop = Math.max(2, 90 - barH - 40);
+                          return (
+                            <View pointerEvents="none" style={{ position: "absolute", left: tipX, top: tipTop, width: tipW, alignItems: "center" }}>
+                              <View style={{ backgroundColor: "rgba(0,0,0,0.88)", borderRadius: 8, paddingHorizontal: 9, paddingVertical: 5 }}>
+                                <Text style={{ color: "#ffffff", fontSize: 11, fontFamily: "Manrope-Bold", textAlign: "center" }}>
+                                  {b.cups} cup{b.cups === 1 ? "" : "s"}
+                                </Text>
+                              </View>
+                              <View style={{ width: 0, height: 0, borderLeftWidth: 5, borderRightWidth: 5, borderTopWidth: 6, borderStyle: "solid", borderLeftColor: "transparent", borderRightColor: "transparent", borderTopColor: "rgba(0,0,0,0.88)" }} />
+                            </View>
+                          );
+                        })()}
+                      </View>
                     </View>
 
-                    {/* X-axis labels */}
-                    <View style={{ flexDirection: "row", gap: waterPeriod === 30 ? 2 : 3, marginTop: 5 }}>
+                    {/* X-axis labels (offset to align with chart, past y-axis) */}
+                    <View style={{ flexDirection: "row", gap: waterPeriod === 30 ? 2 : 3, marginTop: 5, marginLeft: 38 }}>
                       {chartBars.map((b, i) => (
                         <View key={i} style={{ flex: 1, alignItems: "center" }}>
                           {b.showLabel ? (
@@ -1250,7 +1308,7 @@ export default function DashboardScreen() {
                     </View>
 
                     {/* Legend */}
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 14, marginTop: 8 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 14, marginTop: 8, marginLeft: 38 }}>
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
                         <View style={{ width: 16, height: 2, backgroundColor: "white", opacity: 0.7 }} />
                         <Text style={{ fontFamily: "Manrope", fontSize: 10, color: "rgba(0,0,0,0.4)" }}>Goal: {targetCups} cups</Text>
@@ -1299,6 +1357,7 @@ export default function DashboardScreen() {
         chartBars={calBars} chartMaxValue={calBarMax}
         goalValue={Math.round(calTarget)}
         chartLabel="DAILY CALORIES"
+        formatValue={(v) => `${Math.round(v).toLocaleString()} kcal`}
         stats={[
           { label: "AVG / DAY", value: String(calBars.length ? Math.round(calBars.reduce((s,b)=>s+b.value,0)/Math.max(calBars.filter(b=>b.value>0).length,1)) : 0), unit: "kcal" },
           { label: "BEST DAY",  value: String(Math.round(Math.max(...calBars.map(b=>b.value),0))), unit: "kcal" },
@@ -1331,6 +1390,7 @@ export default function DashboardScreen() {
         chartMaxValue={Math.max(...health.weekSteps.map(d=>d.steps), STEP_GOAL, 1)}
         goalValue={STEP_GOAL}
         chartLabel="DAILY STEPS"
+        formatValue={(v) => Math.round(v).toLocaleString()}
         stats={[
           { label: "TODAY",  value: (health.todaySteps ?? 0).toLocaleString(), unit: "steps" },
           { label: "7D AVG", value: health.weekSteps.length ? Math.round(health.weekSteps.reduce((s,d)=>s+d.steps,0)/health.weekSteps.length).toLocaleString() : "—", unit: "steps" },
@@ -1356,6 +1416,7 @@ export default function DashboardScreen() {
         chartBars={creatBars} chartMaxValue={creatBarMax}
         goalValue={5}
         chartLabel="DAILY DOSE"
+        formatValue={(v) => `${v.toFixed(1)}g`}
         stats={[
           { label: "DAYS TAKEN", value: String(creatBars.filter(b=>b.value>=5).length), unit: `of ${creatPeriod}d` },
           { label: "AVG DOSE",   value: creatBars.filter(b=>b.value>0).length ? (creatBars.filter(b=>b.value>0).reduce((s,b)=>s+b.value,0)/creatBars.filter(b=>b.value>0).length).toFixed(1) : "—", unit: "g/day" },
@@ -1382,6 +1443,7 @@ export default function DashboardScreen() {
         period={weightPeriod} onPeriodChange={setWeightPeriod}
         chartBars={weightBarsNorm} chartMaxValue={100}
         chartLabel="WEIGHT TREND"
+        formatValue={(v) => `${v.toFixed(1)} lbs`}
         stats={[
           { label: "CURRENT", value: latestWeight ? String(gramsToLbs(latestWeight.weightGrams)) : "—", unit: "lbs" },
           { label: "THIS WEEK", value: weeklyChange !== null ? `${weeklyChange > 0 ? "+" : ""}${weeklyChange.toFixed(1)}` : "—", unit: "lbs" },

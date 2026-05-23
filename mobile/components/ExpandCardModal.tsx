@@ -164,11 +164,13 @@ export function ExpandCardModal({
     const tipW = 80;
     const tipX = Math.max(0, Math.min(cx - tipW / 2, chartWidth - tipW));
     const tipTop = Math.max(2, CHART_H - barH - 40);
+    // Use tooltipValue if available (e.g. range-normalized weight bars carry raw lbs)
+    const displayVal = b.tooltipValue ?? b.value;
     return (
       <View pointerEvents="none" style={{ position: "absolute", left: tipX, top: tipTop, width: tipW, alignItems: "center" }}>
         <View style={{ backgroundColor: tipBg, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 5 }}>
           <Text style={{ color: tipText, fontSize: 11, fontFamily: "Manrope-Bold", textAlign: "center" }}>
-            {fmtTip(b.value)}
+            {fmtTip(displayVal)}
           </Text>
         </View>
         {/* Arrow */}
