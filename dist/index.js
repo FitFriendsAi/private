@@ -53153,6 +53153,26 @@ var storage = {
     }
     return [];
   },
+  /** For each exerciseId, find the most-recent set that has a non-zero weight.
+   *  Returns a map of exerciseId → weightGrams. */
+  async getLastWeightsForExercises(userId, exerciseIds) {
+    if (exerciseIds.length === 0) return {};
+    const recentWorkouts = await db.select().from(workouts).where(eq(workouts.userId, userId)).orderBy(desc(workouts.completedAt), desc(workouts.date)).limit(20);
+    if (recentWorkouts.length === 0) return {};
+    const result = {};
+    const remaining = new Set(exerciseIds);
+    for (const w2 of recentWorkouts) {
+      if (remaining.size === 0) break;
+      const sets = await db.select().from(workoutSets).where(eq(workoutSets.workoutId, w2.id)).orderBy(desc(workoutSets.setNumber));
+      for (const s2 of sets) {
+        if (remaining.has(s2.exerciseId) && s2.weightGrams && s2.weightGrams > 0) {
+          result[s2.exerciseId] = s2.weightGrams;
+          remaining.delete(s2.exerciseId);
+        }
+      }
+    }
+    return result;
+  },
   // ── Saved Meals ────────────────────────────────────────────────────────────
   async getMeals(userId) {
     const meals = await db.select().from(savedMeals).where(eq(savedMeals.userId, userId)).orderBy(desc(savedMeals.createdAt));
@@ -57693,6 +57713,13 @@ function registerRoutes(app2) {
     if (!requireAuth(req, res)) return;
     const ids = await storage.getLoggedExerciseIds(req.user.id);
     res.json(ids);
+  });
+  app2.get("/api/exercises/last-weights", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const raw = String(req.query.ids ?? "");
+    const ids = raw.split(",").map(Number).filter((n2) => n2 > 0);
+    const weights = await storage.getLastWeightsForExercises(req.user.id, ids);
+    res.json(weights);
   });
   app2.get("/api/exercises/:id", async (req, res) => {
     if (!requireAuth(req, res)) return;

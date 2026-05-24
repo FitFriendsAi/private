@@ -598,6 +598,35 @@ export const storage = {
     return [];
   },
 
+  /** For each exerciseId, find the most-recent set that has a non-zero weight.
+   *  Returns a map of exerciseId → weightGrams. */
+  async getLastWeightsForExercises(userId: number, exerciseIds: number[]): Promise<Record<number, number>> {
+    if (exerciseIds.length === 0) return {};
+    // Fetch the 20 most recent workouts for this user
+    const recentWorkouts = await db.select().from(workouts)
+      .where(eq(workouts.userId, userId))
+      .orderBy(desc(workouts.completedAt), desc(workouts.date))
+      .limit(20);
+    if (recentWorkouts.length === 0) return {};
+
+    const result: Record<number, number> = {};
+    const remaining = new Set(exerciseIds);
+
+    for (const w of recentWorkouts) {
+      if (remaining.size === 0) break;
+      const sets = await db.select().from(workoutSets)
+        .where(eq(workoutSets.workoutId, w.id))
+        .orderBy(desc(workoutSets.setNumber));
+      for (const s of sets) {
+        if (remaining.has(s.exerciseId) && s.weightGrams && s.weightGrams > 0) {
+          result[s.exerciseId] = s.weightGrams;
+          remaining.delete(s.exerciseId);
+        }
+      }
+    }
+    return result;
+  },
+
   // ── Saved Meals ────────────────────────────────────────────────────────────
   async getMeals(userId: number): Promise<(SavedMeal & { ingredients: MealIngredient[] })[]> {
     const meals = await db.select().from(savedMeals)

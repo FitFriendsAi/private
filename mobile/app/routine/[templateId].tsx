@@ -97,6 +97,15 @@ export default function RoutineDetailScreen() {
     enabled:  showExPicker,
   });
 
+  // Fetch last used weight per exercise (bulk, single request)
+  const exerciseIds = localEx.map(e => e.exerciseId).filter(Boolean);
+  const { data: lastWeights = {} } = useQuery<Record<number, number>>({
+    queryKey: ["/api/exercises/last-weights", exerciseIds.join(",")],
+    queryFn:  () => apiRequest("GET", `/api/exercises/last-weights?ids=${exerciseIds.join(",")}`),
+    enabled:  exerciseIds.length > 0,
+    staleTime: 60_000,
+  });
+
   // Sync server data → local state (only when NOT in edit mode)
   useEffect(() => {
     if (template?.exercises && !editMode) {
@@ -504,12 +513,25 @@ export default function RoutineDetailScreen() {
                         }}>
                           {ex.targetReps ?? "—"}
                         </Text>
-                        <Text style={{
-                          flex: 1, fontFamily: "Manrope-SemiBold", fontSize: 14,
-                          color: ex.targetWeightGrams ? text : muted, textAlign: "center",
-                        }}>
-                          {ex.targetWeightGrams ? `${gToLbsStr(ex.targetWeightGrams)} lbs` : "BW"}
-                        </Text>
+                        {(() => {
+                          const w = ex.targetWeightGrams ?? lastWeights[ex.exerciseId] ?? null;
+                          const isLast = !ex.targetWeightGrams && !!lastWeights[ex.exerciseId];
+                          return (
+                            <View style={{ flex: 1, alignItems: "center" }}>
+                              <Text style={{
+                                fontFamily: "Manrope-SemiBold", fontSize: 14,
+                                color: w ? text : muted, textAlign: "center",
+                              }}>
+                                {w ? `${gToLbsStr(w)} lbs` : "BW"}
+                              </Text>
+                              {isLast && (
+                                <Text style={{ fontFamily: "Manrope", fontSize: 9, color: muted, marginTop: 1 }}>
+                                  last
+                                </Text>
+                              )}
+                            </View>
+                          );
+                        })()}
                       </View>
                     ))}
                   </View>

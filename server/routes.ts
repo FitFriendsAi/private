@@ -826,6 +826,15 @@ export function registerRoutes(app: Express) {
     res.json(ids);
   });
 
+  // Bulk last-weight lookup — ?ids=1,2,3
+  app.get("/api/exercises/last-weights", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const raw = String(req.query.ids ?? "");
+    const ids = raw.split(",").map(Number).filter(n => n > 0);
+    const weights = await storage.getLastWeightsForExercises((req.user as any).id, ids);
+    res.json(weights);
+  });
+
   app.get("/api/exercises/:id", async (req, res) => {
     if (!requireAuth(req, res)) return;
     const exercise = await storage.getExerciseById(Number(req.params.id));
