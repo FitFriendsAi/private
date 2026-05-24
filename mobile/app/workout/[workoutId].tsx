@@ -33,7 +33,7 @@ const CX        = SVG_SIZE / 2;
 const CY        = SVG_SIZE / 2;
 const RING_R    = 82;
 const RING_CIRC = 2 * Math.PI * RING_R;   // ≈ 515
-const LIME      = "#84cc16";
+const LIME      = "#C8E84C";
 // Pre-compute static tick-mark endpoints (60 ticks, like a clock face)
 const TICKS = Array.from({ length: 60 }, (_, i) => {
   const ang      = (i / 60) * Math.PI * 2 - Math.PI / 2;
