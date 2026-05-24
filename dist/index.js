@@ -53115,6 +53115,10 @@ var storage = {
     const [item] = await db.insert(foodItems).values(data).returning();
     return item;
   },
+  async updateFoodItem(id, patch) {
+    const [item] = await db.update(foodItems).set(patch).where(eq(foodItems.id, id)).returning();
+    return item;
+  },
   // ── Food Log ───────────────────────────────────────────────────────────────
   async getFoodLog(userId, date2) {
     return db.select().from(foodLog).where(and(eq(foodLog.userId, userId), eq(foodLog.date, date2))).orderBy(foodLog.loggedAt);
@@ -57133,6 +57137,42 @@ function mapOFFProducts(products) {
     };
   }).filter((x2) => x2 !== null);
 }
+async function enrichMissingNutrition(item) {
+  const needsFiber = item.fiberG == null;
+  const needsSodium = item.sodiumMg == null;
+  const needsSugar = item.sugarG == null;
+  if (!needsFiber && !needsSodium && !needsSugar) return {};
+  let donor = null;
+  if (item.barcode) {
+    donor = await lookupBarcode(item.barcode);
+  }
+  if (!donor) {
+    const query = [item.name, item.brand].filter(Boolean).join(" ");
+    const hits = await searchOFF(query, 10);
+    if (hits.length) {
+      const nameLower = item.name.toLowerCase();
+      const nameWords = new Set(nameLower.replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter((w2) => w2.length > 2));
+      let bestScore = 0;
+      for (const h2 of hits) {
+        const hWords = new Set(h2.name.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter((w2) => w2.length > 2));
+        let common = 0;
+        for (const w2 of nameWords) if (hWords.has(w2)) common++;
+        const score = nameWords.size ? common / Math.max(nameWords.size, hWords.size) : 0;
+        if (score > bestScore) {
+          bestScore = score;
+          donor = h2;
+        }
+      }
+      if (bestScore < 0.6) donor = null;
+    }
+  }
+  if (!donor) return {};
+  const patch = {};
+  if (needsFiber && donor.fiberG != null) patch.fiberG = donor.fiberG;
+  if (needsSodium && donor.sodiumMg != null) patch.sodiumMg = donor.sodiumMg;
+  if (needsSugar && donor.sugarG != null) patch.sugarG = donor.sugarG;
+  return patch;
+}
 
 // server/services/vision.ts
 var client = new sdk_default({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -57673,8 +57713,20 @@ function registerRoutes(app2) {
   });
   app2.get("/api/food/items/:id", async (req, res) => {
     if (!requireAuth(req, res)) return;
-    const item = await storage.getFoodItemById(Number(req.params.id));
+    let item = await storage.getFoodItemById(Number(req.params.id));
     if (!item) return res.sendStatus(404);
+    if (item.fiberG == null || item.sodiumMg == null || item.sugarG == null) {
+      try {
+        const patch = await enrichMissingNutrition(item);
+        if (Object.keys(patch).length > 0) {
+          const updated = await storage.updateFoodItem(item.id, patch);
+          if (updated) item = updated;
+          console.log(`[food/enrich] id=${item.id} "${item.name}" patched:`, patch);
+        }
+      } catch (err) {
+        console.warn(`[food/enrich] id=${item.id} failed:`, err?.message ?? err);
+      }
+    }
     res.json(item);
   });
   app2.post("/api/food/items", async (req, res) => {

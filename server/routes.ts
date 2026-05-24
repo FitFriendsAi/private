@@ -4,7 +4,7 @@ import jwt from "jsonwebtoken";
 import { storage } from "./storage.js";
 import { hashPassword, verifyPassword } from "./auth.js";
 import { passport } from "./auth.js";
-import { lookupBarcode, searchFoodByName, searchOFF, searchUSDA, searchFatSecret, searchCalorieNinjas, searchBrandOFF } from "./services/food-lookup.js";
+import { lookupBarcode, searchFoodByName, searchOFF, searchUSDA, searchFatSecret, searchCalorieNinjas, searchBrandOFF, enrichMissingNutrition } from "./services/food-lookup.js";
 import { parseNutritionLabel } from "./services/vision.js";
 import { calculateMacroTargets, getAgeFromBirthDate } from "./services/goal-engine.js";
 import { fetchExerciseGif } from "./services/exercise-gif.js";
@@ -524,8 +524,25 @@ export function registerRoutes(app: Express) {
 
   app.get("/api/food/items/:id", async (req, res) => {
     if (!requireAuth(req, res)) return;
-    const item = await storage.getFoodItemById(Number(req.params.id));
+    let item = await storage.getFoodItemById(Number(req.params.id));
     if (!item) return res.sendStatus(404);
+
+    // If any of fiber / sodium / sugar are missing, try to enrich from OFF silently.
+    // The enriched fields are persisted so subsequent opens are instant.
+    if (item.fiberG == null || item.sodiumMg == null || item.sugarG == null) {
+      try {
+        const patch = await enrichMissingNutrition(item);
+        if (Object.keys(patch).length > 0) {
+          const updated = await storage.updateFoodItem(item.id, patch);
+          if (updated) item = updated;
+          console.log(`[food/enrich] id=${item.id} "${item.name}" patched:`, patch);
+        }
+      } catch (err: any) {
+        // Non-fatal — return whatever we have
+        console.warn(`[food/enrich] id=${item.id} failed:`, err?.message ?? err);
+      }
+    }
+
     res.json(item);
   });
 

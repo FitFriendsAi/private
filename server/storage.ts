@@ -104,6 +104,10 @@ export const storage = {
     const [item] = await db.insert(foodItems).values(data).returning();
     return item;
   },
+  async updateFoodItem(id: number, patch: Partial<InsertFoodItem>): Promise<FoodItem | undefined> {
+    const [item] = await db.update(foodItems).set(patch).where(eq(foodItems.id, id)).returning();
+    return item;
+  },
 
   // ── Food Log ───────────────────────────────────────────────────────────────
   async getFoodLog(userId: number, date: string): Promise<FoodLogEntry[]> {

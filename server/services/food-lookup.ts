@@ -433,3 +433,75 @@ function mapOFFProducts(products: any[]): NutritionFacts[] {
     })
     .filter((x): x is NutritionFacts => x !== null);
 }
+
+// ── Nutrition enrichment ───────────────────────────────────────────────────────
+// Called when a cached food item is missing fiber / sodium / sugar.
+// Tries OFF barcode lookup first (exact match), then Meilisearch text search.
+// Returns only the fields that were missing so the caller can merge safely.
+
+export interface NutritionPatch {
+  fiberG?:   number;
+  sodiumMg?: number;
+  sugarG?:   number;
+}
+
+/**
+ * Attempt to fill missing fiber / sodium / sugar for an existing food item.
+ *
+ * Strategy:
+ *   1. If the item has a barcode → exact OFF barcode lookup (authoritative)
+ *   2. Meilisearch text search with "name brand" — pick the hit whose name
+ *      is most similar to the cached name (≥ 60% word overlap)
+ *
+ * Returns a (possibly empty) patch object; caller decides whether to persist.
+ */
+export async function enrichMissingNutrition(item: {
+  name: string;
+  brand?: string | null;
+  barcode?: string | null;
+  fiberG?: number | null;
+  sodiumMg?: number | null;
+  sugarG?: number | null;
+}): Promise<NutritionPatch> {
+  const needsFiber   = item.fiberG   == null;
+  const needsSodium  = item.sodiumMg == null;
+  const needsSugar   = item.sugarG   == null;
+  if (!needsFiber && !needsSodium && !needsSugar) return {}; // already complete
+
+  let donor: NutritionFacts | null = null;
+
+  // ① Barcode lookup — most reliable
+  if (item.barcode) {
+    donor = await lookupBarcode(item.barcode);
+  }
+
+  // ② Text search — find the best-matching OFF product
+  if (!donor) {
+    const query = [item.name, item.brand].filter(Boolean).join(" ");
+    const hits  = await searchOFF(query, 10);
+    if (hits.length) {
+      // Pick the hit with the highest word overlap vs our cached name
+      const nameLower = item.name.toLowerCase();
+      const nameWords = new Set(nameLower.replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w.length > 2));
+
+      let bestScore = 0;
+      for (const h of hits) {
+        const hWords = new Set(h.name.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w.length > 2));
+        let common = 0;
+        for (const w of nameWords) if (hWords.has(w)) common++;
+        const score = nameWords.size ? common / Math.max(nameWords.size, hWords.size) : 0;
+        if (score > bestScore) { bestScore = score; donor = h; }
+      }
+      // Require at least 60% word overlap — don't patch with an unrelated food
+      if (bestScore < 0.6) donor = null;
+    }
+  }
+
+  if (!donor) return {};
+
+  const patch: NutritionPatch = {};
+  if (needsFiber   && donor.fiberG   != null) patch.fiberG   = donor.fiberG;
+  if (needsSodium  && donor.sodiumMg != null) patch.sodiumMg = donor.sodiumMg;
+  if (needsSugar   && donor.sugarG   != null) patch.sugarG   = donor.sugarG;
+  return patch;
+}
