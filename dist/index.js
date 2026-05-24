@@ -53155,20 +53155,37 @@ var storage = {
     return [];
   },
   /** For each exerciseId, find the most-recent set that has a non-zero weight.
-   *  Returns a map of exerciseId → weightGrams. */
+   *  Returns a map of exerciseId → weightGrams.
+   *  Uses name-based aliasing so CSV-imported exercises (different IDs, same name)
+   *  are matched back to the canonical template exercise ID. */
   async getLastWeightsForExercises(userId, exerciseIds) {
     if (exerciseIds.length === 0) return {};
-    const recentWorkouts = await db.select().from(workouts).where(eq(workouts.userId, userId)).orderBy(desc(workouts.completedAt), desc(workouts.date)).limit(20);
+    const exRows = await db.select({ id: exercises.id, name: exercises.name }).from(exercises).where(inArray(exercises.id, exerciseIds));
+    if (exRows.length === 0) return {};
+    const nameToCanonicalId = {};
+    for (const ex of exRows) nameToCanonicalId[ex.name.toLowerCase()] = ex.id;
+    const nameList = exRows.map((e2) => e2.name.toLowerCase());
+    const aliasRows = await db.select({ id: exercises.id, name: exercises.name }).from(exercises).where(inArray(sql`lower(${exercises.name})`, nameList));
+    const aliasToCanonical = {};
+    for (const a2 of aliasRows) {
+      const canonical = nameToCanonicalId[a2.name.toLowerCase()];
+      if (canonical !== void 0) aliasToCanonical[a2.id] = canonical;
+    }
+    const allRelevantIds = new Set(Object.keys(aliasToCanonical).map(Number));
+    const recentWorkouts = await db.select().from(workouts).where(eq(workouts.userId, userId)).orderBy(desc(workouts.completedAt), desc(workouts.date)).limit(50);
     if (recentWorkouts.length === 0) return {};
     const result = {};
-    const remaining = new Set(exerciseIds);
+    const found = /* @__PURE__ */ new Set();
     for (const w2 of recentWorkouts) {
-      if (remaining.size === 0) break;
+      if (found.size >= exerciseIds.length) break;
       const sets = await db.select().from(workoutSets).where(eq(workoutSets.workoutId, w2.id)).orderBy(desc(workoutSets.setNumber));
       for (const s2 of sets) {
-        if (remaining.has(s2.exerciseId) && s2.weightGrams && s2.weightGrams > 0) {
-          result[s2.exerciseId] = s2.weightGrams;
-          remaining.delete(s2.exerciseId);
+        if (!allRelevantIds.has(s2.exerciseId)) continue;
+        if (!s2.weightGrams || s2.weightGrams <= 0) continue;
+        const canonicalId = aliasToCanonical[s2.exerciseId];
+        if (canonicalId !== void 0 && !found.has(canonicalId)) {
+          result[canonicalId] = s2.weightGrams;
+          found.add(canonicalId);
         }
       }
     }

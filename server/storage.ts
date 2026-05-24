@@ -600,28 +600,60 @@ export const storage = {
   },
 
   /** For each exerciseId, find the most-recent set that has a non-zero weight.
-   *  Returns a map of exerciseId → weightGrams. */
+   *  Returns a map of exerciseId → weightGrams.
+   *  Uses name-based aliasing so CSV-imported exercises (different IDs, same name)
+   *  are matched back to the canonical template exercise ID. */
   async getLastWeightsForExercises(userId: number, exerciseIds: number[]): Promise<Record<number, number>> {
     if (exerciseIds.length === 0) return {};
-    // Fetch the 20 most recent workouts for this user
+
+    // 1. Look up the names of the requested exercises
+    const exRows = await db.select({ id: exercises.id, name: exercises.name })
+      .from(exercises)
+      .where(inArray(exercises.id, exerciseIds));
+    if (exRows.length === 0) return {};
+
+    // 2. For each name, find ALL exercise IDs that share that name (case-insensitive).
+    //    This catches CSV-imported duplicates created with a different ID.
+    const nameToCanonicalId: Record<string, number> = {};
+    for (const ex of exRows) nameToCanonicalId[ex.name.toLowerCase()] = ex.id;
+
+    const nameList = exRows.map(e => e.name.toLowerCase());
+    const aliasRows = await db.select({ id: exercises.id, name: exercises.name })
+      .from(exercises)
+      .where(inArray(sql`lower(${exercises.name})`, nameList));
+
+    // aliasId → canonicalId (the template exercise ID we need to return)
+    const aliasToCanonical: Record<number, number> = {};
+    for (const a of aliasRows) {
+      const canonical = nameToCanonicalId[a.name.toLowerCase()];
+      if (canonical !== undefined) aliasToCanonical[a.id] = canonical;
+    }
+
+    // The full set of exercise IDs we're interested in (original + aliases)
+    const allRelevantIds = new Set(Object.keys(aliasToCanonical).map(Number));
+
+    // 3. Scan the 50 most recent workouts (more history since CSV data may be old)
     const recentWorkouts = await db.select().from(workouts)
       .where(eq(workouts.userId, userId))
       .orderBy(desc(workouts.completedAt), desc(workouts.date))
-      .limit(20);
+      .limit(50);
     if (recentWorkouts.length === 0) return {};
 
     const result: Record<number, number> = {};
-    const remaining = new Set(exerciseIds);
+    const found = new Set<number>(); // canonical IDs already resolved
 
     for (const w of recentWorkouts) {
-      if (remaining.size === 0) break;
+      if (found.size >= exerciseIds.length) break;
       const sets = await db.select().from(workoutSets)
         .where(eq(workoutSets.workoutId, w.id))
         .orderBy(desc(workoutSets.setNumber));
       for (const s of sets) {
-        if (remaining.has(s.exerciseId) && s.weightGrams && s.weightGrams > 0) {
-          result[s.exerciseId] = s.weightGrams;
-          remaining.delete(s.exerciseId);
+        if (!allRelevantIds.has(s.exerciseId)) continue;
+        if (!s.weightGrams || s.weightGrams <= 0) continue;
+        const canonicalId = aliasToCanonical[s.exerciseId];
+        if (canonicalId !== undefined && !found.has(canonicalId)) {
+          result[canonicalId] = s.weightGrams;
+          found.add(canonicalId);
         }
       }
     }
