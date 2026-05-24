@@ -12,14 +12,48 @@ export interface ChartBar {
   isToday: boolean;
 }
 
-/** Zero-fills missing days (7/30) or aggregates into weekly averages (90). */
+/**
+ * Build chart bars from raw data.
+ *
+ * - period 7/30: zero-fills every day in the window.
+ * - period 90 (default): groups into weekly averages (13 bars).
+ * - period 90 + rawPoints: returns only actual data points within the window,
+ *   no zero-fill or averaging. Ideal for sparse data like body weight.
+ */
 export function buildChartBars(
   rawData: { date: string; value: number }[],
   period: 7 | 30 | 90,
+  options?: { rawPoints?: boolean },
 ): ChartBar[] {
   const byDate: Record<string, number> = {};
   rawData.forEach(d => { byDate[d.date] = d.value; });
 
+  // ── Raw-points mode (90 days, actual entries only, no averaging) ──
+  if (period === 90 && options?.rawPoints) {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 89);
+    const cutoffStr = localDateStr(cutoff);
+    const todayStr  = localDateStr(new Date());
+    let prevMonth   = -1;
+    return rawData
+      .filter(d => d.date >= cutoffStr && d.value > 0)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((d) => {
+        const date    = new Date(d.date + "T12:00:00");
+        const month   = date.getMonth();
+        const showLabel = month !== prevMonth;
+        if (showLabel) prevMonth = month;
+        return {
+          value:        d.value,
+          tooltipValue: d.value,
+          label:        MONTH_ABBR[month],
+          showLabel,
+          isToday: d.date === todayStr,
+        };
+      });
+  }
+
+  // ── Weekly-average mode (90 days, default) ──
   if (period === 90) {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - 89);

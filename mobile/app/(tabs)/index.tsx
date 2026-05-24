@@ -218,6 +218,8 @@ export default function DashboardScreen() {
   const weightBars  = useMemo(() => buildChartBars(
     [...measurements].reverse().map((m: any) => ({ date: m.date, value: parseFloat(gramsToLbs(m.weightGrams)) })),
     weightPeriod,
+    // 90-day view: show actual weigh-in values (not weekly averages)
+    { rawPoints: weightPeriod === 90 },
   ), [measurements, weightPeriod]);
   const weightBarMax = Math.max(...weightBars.map(b => b.value), 1);
   const weightBarMin = Math.min(...weightBars.filter(b => b.value > 0).map(b => b.value), weightBarMax);
