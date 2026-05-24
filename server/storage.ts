@@ -92,9 +92,12 @@ export const storage = {
     const [item] = await db.select().from(foodItems).where(eq(foodItems.barcode, barcode));
     return item;
   },
-  async searchFoodItems(query: string): Promise<FoodItem[]> {
+  async searchFoodItems(query: string, foodQuery?: string): Promise<FoodItem[]> {
+    // Use foodQuery (brand-stripped) when provided so restaurant searches like
+    // "chick-fil-a spicy chicken sandwich" don't pull cached "Chick Peas" entries.
+    const q = foodQuery || query;
     return db.select().from(foodItems)
-      .where(or(like(foodItems.name, `%${query}%`), like(foodItems.brand ?? foodItems.name, `%${query}%`)))
+      .where(or(like(foodItems.name, `%${q}%`), like(foodItems.brand, `%${q}%`)))
       .limit(30);
   },
   async createFoodItem(data: InsertFoodItem): Promise<FoodItem> {

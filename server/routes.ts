@@ -440,9 +440,12 @@ export function registerRoutes(app: Express) {
       return (matches / filterWords.size) >= 0.5;
     }
 
-    // 1. Local DB cache — apply scoring even here (fixes unsorted early-return bug)
-    const local = await storage.searchFoodItems(q);
-    if (local.length >= 10) {
+    // 1. Local DB cache
+    // For restaurant queries always skip early-return and hit external APIs —
+    // the local cache may have unrelated items (e.g. "Chick Peas" cached from
+    // a previous search for "chick") that would flood the results.
+    const local = await storage.searchFoodItems(q, isRestaurant ? foodOnlyQuery : undefined);
+    if (!isRestaurant && local.length >= 10) {
       const scored = local
         .filter(isRelevant)
         .sort((a: any, b: any) => relevanceScore(a) - relevanceScore(b));

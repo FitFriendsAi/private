@@ -52733,8 +52733,9 @@ var storage = {
     const [item] = await db.select().from(foodItems).where(eq(foodItems.barcode, barcode));
     return item;
   },
-  async searchFoodItems(query) {
-    return db.select().from(foodItems).where(or(like(foodItems.name, `%${query}%`), like(foodItems.brand ?? foodItems.name, `%${query}%`))).limit(30);
+  async searchFoodItems(query, foodQuery) {
+    const q2 = foodQuery || query;
+    return db.select().from(foodItems).where(or(like(foodItems.name, `%${q2}%`), like(foodItems.brand, `%${q2}%`))).limit(30);
   },
   async createFoodItem(data) {
     const [item] = await db.insert(foodItems).values(data).returning();
@@ -57236,8 +57237,8 @@ function registerRoutes(app2) {
       for (const w2 of filterWords) if (nameWords.has(w2)) matches++;
       return matches / filterWords.size >= 0.5;
     }
-    const local = await storage.searchFoodItems(q2);
-    if (local.length >= 10) {
+    const local = await storage.searchFoodItems(q2, isRestaurant ? foodOnlyQuery : void 0);
+    if (!isRestaurant && local.length >= 10) {
       const scored = local.filter(isRelevant).sort((a2, b2) => relevanceScore(a2) - relevanceScore(b2));
       return res.json(scored.slice(0, 30));
     }
