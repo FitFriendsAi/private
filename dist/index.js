@@ -19,6 +19,7 @@ import { eq, and, desc, gte, lte, like, or, isNull, sql, inArray } from "drizzle
 // shared/schema.ts
 import { pgTable, serial, text, integer, real, boolean, timestamp, date, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
+import { z } from "zod";
 var users = pgTable("users", {
   id: serial("id").primaryKey(),
   email: text("email").notNull().unique(),
@@ -118,7 +119,7 @@ var foodLog = pgTable("food_log", {
   notes: text("notes"),
   loggedAt: timestamp("logged_at").defaultNow()
 });
-var insertFoodLogSchema = createInsertSchema(foodLog).omit({ id: true, loggedAt: true });
+var insertFoodLogSchema = createInsertSchema(foodLog).omit({ id: true }).extend({ loggedAt: z.coerce.date().optional() });
 var nutritionTargets = pgTable("nutrition_targets", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().references(() => users.id),
@@ -138,7 +139,7 @@ var waterLog = pgTable("water_log", {
   amountMl: real("amount_ml").notNull(),
   loggedAt: timestamp("logged_at").defaultNow()
 });
-var insertWaterLogSchema = createInsertSchema(waterLog).omit({ id: true, loggedAt: true });
+var insertWaterLogSchema = createInsertSchema(waterLog).omit({ id: true }).extend({ loggedAt: z.coerce.date().optional() });
 var supplementLog = pgTable("supplement_log", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().references(() => users.id),
@@ -149,7 +150,7 @@ var supplementLog = pgTable("supplement_log", {
   notes: text("notes"),
   loggedAt: timestamp("logged_at").defaultNow()
 });
-var insertSupplementLogSchema = createInsertSchema(supplementLog).omit({ id: true, loggedAt: true });
+var insertSupplementLogSchema = createInsertSchema(supplementLog).omit({ id: true }).extend({ loggedAt: z.coerce.date().optional() });
 var exercises = pgTable("exercises", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
@@ -193,6 +194,7 @@ var workouts = pgTable("workouts", {
   name: text("name").notNull(),
   notes: text("notes"),
   durationMinutes: integer("duration_minutes"),
+  startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
   createdAt: timestamp("created_at").defaultNow()
 });
@@ -482,6 +484,10 @@ var storage = {
   },
   async createWaterEntry(data) {
     const [entry] = await db.insert(waterLog).values(data).returning();
+    return entry;
+  },
+  async updateWaterEntry(id, userId, patch) {
+    const [entry] = await db.update(waterLog).set(patch).where(and(eq(waterLog.id, id), eq(waterLog.userId, userId))).returning();
     return entry;
   },
   async deleteWaterEntry(id, userId) {
@@ -1418,7 +1424,7 @@ async function fetchExerciseGif(exerciseName) {
 }
 
 // server/routes.ts
-import { z } from "zod";
+import { z as z2 } from "zod";
 function requireAuth(req, res) {
   if (req.isAuthenticated()) return true;
   const auth = req.headers.authorization;
@@ -1461,7 +1467,7 @@ async function recalculateTargets(userId) {
 function registerRoutes(app2) {
   app2.post("/api/auth/register", async (req, res) => {
     try {
-      const { email, password, name } = insertUserSchema.extend({ password: z.string().min(8) }).omit({ passwordHash: true }).parse(req.body);
+      const { email, password, name } = insertUserSchema.extend({ password: z2.string().min(8) }).omit({ passwordHash: true }).parse(req.body);
       const existing = await storage.getUserByEmail(email);
       if (existing) return res.status(409).json({ message: "Email already in use" });
       const passwordHash = await hashPassword(password);
@@ -1509,7 +1515,7 @@ function registerRoutes(app2) {
   }
   app2.post("/api/auth/login-mobile", async (req, res) => {
     try {
-      const { email, password } = z.object({ email: z.string().email(), password: z.string() }).parse(req.body);
+      const { email, password } = z2.object({ email: z2.string().email(), password: z2.string() }).parse(req.body);
       const user = await storage.getUserByEmail(email);
       if (!user) return res.status(401).json({ message: "Invalid credentials" });
       const ok = await verifyPassword(password, user.passwordHash);
@@ -1974,6 +1980,15 @@ function registerRoutes(app2) {
       res.status(400).json({ message: err.message });
     }
   });
+  app2.patch("/api/water/:id", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const { loggedAt } = req.body;
+    const patch = {};
+    if (loggedAt) patch.loggedAt = new Date(loggedAt);
+    const entry = await storage.updateWaterEntry(Number(req.params.id), req.user.id, patch);
+    if (!entry) return res.sendStatus(404);
+    res.json(entry);
+  });
   app2.delete("/api/water/:id", async (req, res) => {
     if (!requireAuth(req, res)) return;
     await storage.deleteWaterEntry(Number(req.params.id), req.user.id);
@@ -2349,8 +2364,8 @@ Include 6-10 exercises. Use common gym exercise names. Return ONLY the JSON, no 
   app2.post("/api/heart-rate", async (req, res) => {
     if (!requireAuth(req, res)) return;
     const userId = req.user.id;
-    const schema = z.object({
-      readings: z.array(z.object({ ts: z.number(), bpm: z.number().int().positive() })).min(1).max(500)
+    const schema = z2.object({
+      readings: z2.array(z2.object({ ts: z2.number(), bpm: z2.number().int().positive() })).min(1).max(500)
     });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid readings" });
