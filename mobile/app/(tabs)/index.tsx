@@ -917,7 +917,7 @@ export default function DashboardScreen() {
           {recentWorkouts[0] && (
             <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: "#eeeeee", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Dumbbell size={16} color={PINK} />
+                <Dumbbell size={16} color={LIME} />
                 <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: "#0a0a0a" }}>
                   {recentWorkouts[0].name}
                 </Text>
@@ -1637,8 +1637,8 @@ export default function DashboardScreen() {
       <ExpandCardModal
         visible={workoutOpen} onClose={() => setWorkoutOpen(false)}
         bgColor="#ffffff" isDark={false}
-        glowColor={PINK}
-        title="Workouts" icon={<Dumbbell size={18} color={PINK} />}
+        glowColor={LIME}
+        title="Workouts" icon={<Dumbbell size={18} color={LIME} />}
         period={workoutPeriod} onPeriodChange={setWorkoutPeriod}
         chartBars={workoutBars} chartMaxValue={workoutBarMax}
         chartLabel={workoutPeriod === 90 ? "SESSIONS / WEEK" : "DAILY SESSIONS"}
