@@ -50,7 +50,7 @@ const REST_PRESETS = [30, 45, 60, 90, 120, 180, 240];
 interface TemplateEx {
   id: number; templateId: number; exerciseId: number; orderIndex: number;
   targetSets: number; targetReps: string; targetWeightGrams: number | null;
-  exerciseName: string; primaryMuscle: string; category: string;
+  exerciseName: string; primaryMuscle: string; category: string; equipment: string;
 }
 
 // ── Weight formatting helpers ─────────────────────────────────────────────────
@@ -516,13 +516,15 @@ export default function RoutineDetailScreen() {
                         {(() => {
                           const w = ex.targetWeightGrams ?? lastWeights[ex.exerciseId] ?? null;
                           const isLast = !ex.targetWeightGrams && !!lastWeights[ex.exerciseId];
+                          const isBodyweight = (ex.equipment ?? "").toLowerCase() === "bodyweight";
+                          const label = w ? `${gToLbsStr(w)} lbs` : isBodyweight ? "BW" : "—";
                           return (
                             <View style={{ flex: 1, alignItems: "center" }}>
                               <Text style={{
                                 fontFamily: "Manrope-SemiBold", fontSize: 14,
                                 color: w ? text : muted, textAlign: "center",
                               }}>
-                                {w ? `${gToLbsStr(w)} lbs` : "BW"}
+                                {label}
                               </Text>
                               {isLast && (
                                 <Text style={{ fontFamily: "Manrope", fontSize: 9, color: muted, marginTop: 1 }}>

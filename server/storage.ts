@@ -406,7 +406,7 @@ export const storage = {
 
     const exIds = [...new Set(tes.map(te => te.exerciseId))];
     const exRows = await db
-      .select({ id: exercises.id, name: exercises.name, primaryMuscle: exercises.primaryMuscle, category: exercises.category })
+      .select({ id: exercises.id, name: exercises.name, primaryMuscle: exercises.primaryMuscle, category: exercises.category, equipment: exercises.equipment })
       .from(exercises)
       .where(inArray(exercises.id, exIds));
 
@@ -425,6 +425,7 @@ export const storage = {
         exerciseName:      ex?.name      ?? `Exercise #${te.exerciseId}`,
         primaryMuscle:     ex?.primaryMuscle ?? "",
         category:          ex?.category  ?? "",
+        equipment:         ex?.equipment ?? "",
       };
     });
   },

@@ -52999,7 +52999,7 @@ var storage = {
     const tes = await db.select().from(templateExercises).where(eq(templateExercises.templateId, templateId)).orderBy(templateExercises.orderIndex);
     if (tes.length === 0) return [];
     const exIds = [...new Set(tes.map((te2) => te2.exerciseId))];
-    const exRows = await db.select({ id: exercises.id, name: exercises.name, primaryMuscle: exercises.primaryMuscle, category: exercises.category }).from(exercises).where(inArray(exercises.id, exIds));
+    const exRows = await db.select({ id: exercises.id, name: exercises.name, primaryMuscle: exercises.primaryMuscle, category: exercises.category, equipment: exercises.equipment }).from(exercises).where(inArray(exercises.id, exIds));
     const exMap = new Map(exRows.map((e2) => [e2.id, e2]));
     return tes.map((te2) => {
       const ex = exMap.get(te2.exerciseId);
@@ -53013,7 +53013,8 @@ var storage = {
         targetWeightGrams: te2.targetWeightGrams,
         exerciseName: ex?.name ?? `Exercise #${te2.exerciseId}`,
         primaryMuscle: ex?.primaryMuscle ?? "",
-        category: ex?.category ?? ""
+        category: ex?.category ?? "",
+        equipment: ex?.equipment ?? ""
       };
     });
   },
