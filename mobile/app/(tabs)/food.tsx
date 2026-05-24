@@ -297,6 +297,7 @@ export default function FoodScreen() {
       return;
     }
     setSearching(true);
+    setSearchResults([]); // clear stale results immediately so old query doesn't persist
     searchTimer.current = setTimeout(async () => {
       try {
         const typeParam = searchFilter === "restaurant" ? "&type=restaurant" : "";
