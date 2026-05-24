@@ -314,17 +314,17 @@ export default function WorkoutSessionScreen() {
           onPress={confirmFinish}
           disabled={saving}
           style={({ pressed }) => ({
-            backgroundColor: "#22c55e", borderRadius: 14,
+            backgroundColor: "#C8E84C", borderRadius: 14,
             paddingHorizontal: 14, paddingVertical: 8,
             flexDirection: "row", alignItems: "center", gap: 5,
             opacity: pressed || saving ? 0.7 : 1,
           })}
         >
           {saving
-            ? <ActivityIndicator size="small" color="#fff" />
-            : <Check size={15} color="#fff" />
+            ? <ActivityIndicator size="small" color="#0a0a0a" />
+            : <Check size={15} color="#0a0a0a" />
           }
-          <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: "#fff" }}>Finish</Text>
+          <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: "#0a0a0a" }}>Finish</Text>
         </Pressable>
       </View>
 
@@ -412,7 +412,7 @@ export default function WorkoutSessionScreen() {
                       {/* Set number */}
                       <Text style={{
                         width: 24, fontFamily: "Manrope-Bold", fontSize: 13,
-                        color: s.done ? "#22c55e" : muted, textAlign: "center",
+                        color: s.done ? "#C8E84C" : muted, textAlign: "center",
                       }}>
                         {si + 1}
                       </Text>
@@ -455,14 +455,14 @@ export default function WorkoutSessionScreen() {
                         }}
                         style={({ pressed }) => ({
                           width: 32, height: 32, borderRadius: 16,
-                          backgroundColor: s.done ? "#22c55e" : "#1c1c1c",
+                          backgroundColor: s.done ? "#C8E84C" : "#1c1c1c",
                           borderWidth: 1.5,
-                          borderColor: s.done ? "#22c55e" : border,
+                          borderColor: s.done ? "#C8E84C" : border,
                           alignItems: "center", justifyContent: "center",
                           opacity: pressed ? 0.7 : 1,
                         })}
                       >
-                        {s.done ? <Check size={15} color="#fff" /> : null}
+                        {s.done ? <Check size={15} color="#0a0a0a" /> : null}
                       </Pressable>
                     </View>
                   );
@@ -486,7 +486,7 @@ export default function WorkoutSessionScreen() {
                   </Pressable>
                   <Text style={{
                     fontFamily: "Manrope-SemiBold", fontSize: 11,
-                    color: doneCount > 0 ? "#22c55e" : muted,
+                    color: doneCount > 0 ? "#C8E84C" : muted,
                   }}>
                     {doneCount}/{ae.sets.length} done
                   </Text>
