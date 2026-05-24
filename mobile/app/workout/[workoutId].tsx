@@ -252,9 +252,11 @@ export default function WorkoutSessionScreen() {
           });
         }
       }
-      const completedAt = new Date().toISOString();
+      const completedAt     = new Date().toISOString();
+      const startedAt       = new Date(Date.now() - elapsed * 1000).toISOString();
       const durationMinutes = Math.round(elapsed / 60);
       await apiRequest("PATCH", `/api/workouts/${workoutId}`, {
+        startedAt,
         completedAt,
         durationMinutes,
       });

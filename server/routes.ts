@@ -752,6 +752,16 @@ export function registerRoutes(app: Express) {
     }
   });
 
+  app.patch("/api/water/:id", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const { loggedAt } = req.body;
+    const patch: { loggedAt?: Date } = {};
+    if (loggedAt) patch.loggedAt = new Date(loggedAt);
+    const entry = await storage.updateWaterEntry(Number(req.params.id), (req.user as any).id, patch);
+    if (!entry) return res.sendStatus(404);
+    res.json(entry);
+  });
+
   app.delete("/api/water/:id", async (req, res) => {
     if (!requireAuth(req, res)) return;
     await storage.deleteWaterEntry(Number(req.params.id), (req.user as any).id);

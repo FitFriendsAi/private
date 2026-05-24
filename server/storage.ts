@@ -300,6 +300,10 @@ export const storage = {
     const [entry] = await db.insert(waterLog).values(data).returning();
     return entry;
   },
+  async updateWaterEntry(id: number, userId: number, patch: { loggedAt?: Date }): Promise<WaterLogEntry | undefined> {
+    const [entry] = await db.update(waterLog).set(patch).where(and(eq(waterLog.id, id), eq(waterLog.userId, userId))).returning();
+    return entry;
+  },
   async deleteWaterEntry(id: number, userId: number): Promise<void> {
     await db.delete(waterLog).where(and(eq(waterLog.id, id), eq(waterLog.userId, userId)));
   },

@@ -1,14 +1,14 @@
 import { useState, useEffect, useRef } from "react";
 import {
   View, Text, ScrollView, Pressable, TextInput,
-  Modal, ActivityIndicator, Alert,
+  Modal, ActivityIndicator, Alert, Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
 import { useHealth } from "@/hooks/use-health";
-import { todayStr } from "@/lib/utils";
+import { todayStr, nowTimeStr, timeStrToISO, fmtTime } from "@/lib/utils";
 import { Plus, Search, X, ChevronRight, UtensilsCrossed, Trash2, ScanLine, Camera, PenLine, ChevronDown } from "lucide-react-native";
 import Svg, { Circle } from "react-native-svg";
 
@@ -61,8 +61,10 @@ interface FoodLogEntry {
   proteinActual: number;
   carbsActual: number;
   fatActual: number;
+  loggedAt?: string | null;
   foodItem?: FoodItem;
 }
+
 
 interface MealIngredient {
   id: number;
@@ -139,9 +141,7 @@ export default function FoodScreen() {
   const [searching, setSearching]           = useState(false);
   const [selectedItem, setSelectedItem]     = useState<FoodItem | null>(null);
   const [servings, setServings]             = useState("1");
-  // when adding to a saved meal (not food log)
-  const [addingToMealId, setAddingToMealId] = useState<number | null>(null);
-
+  const [logTime, setLogTime]               = useState(nowTimeStr);
   // ── Create meal modal ──
   const [showCreateMeal, setShowCreateMeal]         = useState(false);
   const [newMealName, setNewMealName]               = useState("");
@@ -149,7 +149,14 @@ export default function FoodScreen() {
   const [newMealIngredients, setNewMealIngredients] = useState<
     { foodItem: FoodItem; servings: number }[]
   >([]);
-  const [mealIngredientServings, setMealIngredientServings] = useState("1");
+
+  // ── Ingredient picker embedded inside Create Meal modal ──
+  const [mealPickerPage, setMealPickerPage]         = useState<"search" | "item" | null>(null);
+  const [mealPickerQuery, setMealPickerQuery]       = useState("");
+  const [mealPickerResults, setMealPickerResults]   = useState<FoodItem[]>([]);
+  const [mealPickerSearching, setMealPickerSearching] = useState(false);
+  const [mealPickerItem, setMealPickerItem]         = useState<FoodItem | null>(null);
+  const [mealPickerServings, setMealPickerServings] = useState("1");
 
   // ── Food detail modal ──
   const [detailEntry, setDetailEntry]     = useState<FoodLogEntry | null>(null);
@@ -248,34 +255,35 @@ export default function FoodScreen() {
     setSearchQuery("");
     setSearchResults([]);
     setServings("1");
-    setAddingToMealId(null);
+    setLogTime(nowTimeStr());
     setSearchFilter("all");
     resetAddModal();
   }
 
   function openAddForMeal(meal: MealType) {
     setActiveMeal(meal);
-    setAddingToMealId(null);
     setSelectedItem(null);
     setSearchQuery("");
     setSearchResults([]);
     setServings("1");
+    setLogTime(nowTimeStr());
     resetAddModal();
     setShowAdd(true);
   }
 
-  function openAddForSavedMeal(mealId: number) {
-    setAddingToMealId(mealId);
-    setSelectedItem(null);
-    setSearchQuery("");
-    setSearchResults([]);
-    setMealIngredientServings("1");
-    setShowAdd(true);
-  }
 
-  // ── Add food modal view: "home" | "search" | "manual" ───────────────────
-  const [addView, setAddView] = useState<"home" | "search" | "manual">("home");
+  // ── Add food modal view: "home" | "search" | "manual" | "barcode" ─────────
+  const [addView, setAddView] = useState<"home" | "search" | "manual" | "barcode">("home");
   const [showMealPicker, setShowMealPicker] = useState(false);
+
+  // ── Barcode scanner state ─────────────────────────────────────────────────
+  const [barcodeError, setBarcodeError]           = useState("");
+  const [barcodeManualCode, setBarcodeManualCode] = useState("");
+  const [barcodeLoading, setBarcodeLoading]       = useState(false);
+
+  // ── Scan label state ──────────────────────────────────────────────────────
+  const [scanLabelLoading, setScanLabelLoading] = useState(false);
+  const [scanLabelError, setScanLabelError]     = useState("");
 
   // Manual entry state
   const [manualName, setManualName]       = useState("");
@@ -288,13 +296,16 @@ export default function FoodScreen() {
     setAddView("home");
     setShowMealPicker(false);
     setManualName(""); setManualCals(""); setManualProtein(""); setManualCarbs(""); setManualFat("");
+    setBarcodeError(""); setBarcodeManualCode(""); setBarcodeLoading(false);
+    setScanLabelError(""); setScanLabelLoading(false);
   }
 
   // ── Search filter: "all" | "restaurant" ──────────────────────────────────
   const [searchFilter, setSearchFilter] = useState<"all" | "restaurant">("all");
 
   // ── Debounced live search ──────────────────────────────────────────────────
-  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchTimer     = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mealSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (searchTimer.current) clearTimeout(searchTimer.current);
@@ -320,6 +331,41 @@ export default function FoodScreen() {
     return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
   }, [searchQuery, searchFilter]);
 
+  // ── Debounced search for the embedded ingredient picker ───────────────────
+  useEffect(() => {
+    if (mealSearchTimer.current) clearTimeout(mealSearchTimer.current);
+    const q = mealPickerQuery.trim();
+    if (q.length < 2) { setMealPickerResults([]); setMealPickerSearching(false); return; }
+    setMealPickerSearching(true);
+    setMealPickerResults([]);
+    mealSearchTimer.current = setTimeout(async () => {
+      try {
+        const results = await apiRequest<FoodItem[]>("GET", `/api/food/search?q=${encodeURIComponent(q)}`);
+        setMealPickerResults(results);
+      } catch {
+        // silent
+      } finally {
+        setMealPickerSearching(false);
+      }
+    }, 220);
+    return () => { if (mealSearchTimer.current) clearTimeout(mealSearchTimer.current); };
+  }, [mealPickerQuery]);
+
+  function closeMealPicker() {
+    setMealPickerPage(null);
+    setMealPickerQuery("");
+    setMealPickerResults([]);
+    setMealPickerItem(null);
+    setMealPickerServings("1");
+  }
+
+  function addIngredientToMeal() {
+    if (!mealPickerItem) return;
+    const sv = parseFloat(mealPickerServings) || 1;
+    setNewMealIngredients(prev => [...prev, { foodItem: mealPickerItem!, servings: sv }]);
+    closeMealPicker();
+  }
+
   function addToLog() {
     if (!selectedItem) return;
     const sv = parseFloat(servings) || 1;
@@ -333,22 +379,10 @@ export default function FoodScreen() {
       proteinActual:  Math.round(selectedItem.proteinG * sv * 10) / 10,
       carbsActual:    Math.round(selectedItem.carbsG   * sv * 10) / 10,
       fatActual:      Math.round(selectedItem.fatG     * sv * 10) / 10,
+      loggedAt: timeStrToISO(logTime),
     });
   }
 
-  function addToSavedMeal() {
-    if (!selectedItem) return;
-    const sv = parseFloat(mealIngredientServings) || 1;
-    setNewMealIngredients(prev => [
-      ...prev,
-      { foodItem: selectedItem, servings: sv },
-    ]);
-    setSelectedItem(null);
-    setSearchQuery("");
-    setSearchResults([]);
-    setMealIngredientServings("1");
-    setShowAdd(false);
-  }
 
   function saveMeal() {
     if (!newMealName.trim() || newMealIngredients.length === 0) {
@@ -381,7 +415,108 @@ export default function FoodScreen() {
       proteinActual: parseFloat(manualProtein) || 0,
       carbsActual:   parseFloat(manualCarbs)   || 0,
       fatActual:     parseFloat(manualFat)     || 0,
+      loggedAt: timeStrToISO(logTime),
     });
+  }
+
+  // ── Barcode lookup ────────────────────────────────────────────────────────
+  async function lookupBarcodeCode(code: string) {
+    const trimmed = code.trim();
+    if (!trimmed) return;
+    setBarcodeLoading(true);
+    setBarcodeError("");
+    try {
+      const item = await apiRequest<FoodItem>("GET", `/api/food/barcode/${encodeURIComponent(trimmed)}`);
+      setSelectedItem(item);
+      setAddView("home"); // selectedItem set → serving selector renders
+    } catch {
+      setBarcodeError("Product not found. Try a different barcode or search by name.");
+    } finally {
+      setBarcodeLoading(false);
+    }
+  }
+
+  // ── Open camera to photograph a barcode (web only) ────────────────────────
+  function openBarcodeCapture() {
+    if (Platform.OS !== "web") return;
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    (input as any).capture = "environment";
+    input.onchange = async (e: Event) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      setBarcodeLoading(true);
+      setBarcodeError("");
+      try {
+        if ("BarcodeDetector" in window) {
+          // Native browser BarcodeDetector API (Chrome 88+, Android)
+          const detector = new (window as any).BarcodeDetector();
+          const bitmap = await createImageBitmap(file);
+          const barcodes = await detector.detect(bitmap);
+          if (barcodes.length > 0) {
+            await lookupBarcodeCode(barcodes[0].rawValue);
+            return;
+          }
+          setBarcodeError("No barcode found in photo. Try a closer shot or type the number below.");
+        } else {
+          // iOS Safari / Firefox — BarcodeDetector not available
+          setBarcodeError("Auto-detect isn't supported in this browser. Please type the barcode number below.");
+        }
+      } catch {
+        setBarcodeError("Couldn't read barcode. Try a different angle or type the number below.");
+      } finally {
+        setBarcodeLoading(false);
+      }
+    };
+    input.click();
+  }
+
+  // ── Open camera to photograph a nutrition label (web only) ────────────────
+  function openScanLabel() {
+    if (Platform.OS !== "web") return;
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    (input as any).capture = "environment";
+    input.onchange = (e: Event) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      setScanLabelLoading(true);
+      setScanLabelError("");
+      const fr = new FileReader();
+      fr.onload = async (ev) => {
+        const dataUrl = ev.target?.result as string;
+        const [header, base64] = dataUrl.split(",");
+        const mediaType = header.match(/data:([^;]+)/)?.[1] || "image/jpeg";
+        try {
+          // Claude Vision extracts nutrition facts
+          const data = await apiRequest<any>("POST", "/api/food/scan-label", { imageBase64: base64, mediaType });
+          // Persist as a food item so the log entry has a real id
+          const item = await apiRequest<FoodItem>("POST", "/api/food/items", {
+            name: data.name || "Scanned Food",
+            brand: data.brand || undefined,
+            servingSizeG: data.servingSizeG || 100,
+            servingUnit: data.servingUnit || "serving",
+            calories: data.calories || 0,
+            proteinG: data.proteinG || 0,
+            carbsG: data.carbsG || 0,
+            fatG: data.fatG || 0,
+            fiberG: data.fiberG || undefined,
+            sodiumMg: data.sodiumMg || undefined,
+            sugarG: data.sugarG || undefined,
+            source: "custom",
+          });
+          setSelectedItem(item); // → serving selector
+        } catch {
+          setScanLabelError("Couldn't read the label. Try a clearer, well-lit photo.");
+        } finally {
+          setScanLabelLoading(false);
+        }
+      };
+      fr.readAsDataURL(file);
+    };
+    input.click();
   }
 
   const { card, cardBorder: border, text, muted, bg, accent, accentText } = palette;
@@ -503,9 +638,16 @@ export default function FoodScreen() {
                   })}
                 >
                   <View style={{ flex: 1, marginRight: 8 }}>
-                    <Text numberOfLines={1} style={{ fontSize: 13, fontFamily: "Manrope-SemiBold", color: text }}>
-                      {entry.foodName ?? entry.foodItem?.name ?? `Food #${entry.foodItemId}`}
-                    </Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                      <Text numberOfLines={1} style={{ fontSize: 13, fontFamily: "Manrope-SemiBold", color: text, flex: 1, marginRight: 6 }}>
+                        {entry.foodName ?? entry.foodItem?.name ?? `Food #${entry.foodItemId}`}
+                      </Text>
+                      {entry.loggedAt ? (
+                        <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted, flexShrink: 0 }}>
+                          {fmtTime(entry.loggedAt)}
+                        </Text>
+                      ) : null}
+                    </View>
                     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 3 }}>
                       <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: muted }}>{entry.caloriesActual} kcal</Text>
                       <Text style={{ fontSize: 11, fontFamily: "Manrope", color: LIME }}>P {Math.round(entry.proteinActual)}g</Text>
@@ -788,14 +930,212 @@ export default function FoodScreen() {
         })()}
       </Modal>
 
+      {/* ── Create Meal Modal ── */}
+      <Modal visible={showCreateMeal} animationType="slide" presentationStyle="pageSheet">
+        <View style={{ flex: 1, backgroundColor: bg }}>
+
+          {/* Header — changes based on picker page */}
+          <View style={{ padding: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderBottomWidth: 1, borderBottomColor: border }}>
+            {mealPickerPage ? (
+              <Pressable onPress={closeMealPicker} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <ChevronDown size={16} color={muted} style={{ transform: [{ rotate: "90deg" }] }} />
+                <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 14, color: muted }}>Back</Text>
+              </Pressable>
+            ) : (
+              <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 18, color: text }}>New Saved Meal</Text>
+            )}
+            <Pressable onPress={() => { setShowCreateMeal(false); closeMealPicker(); setNewMealName(""); setNewMealDesc(""); setNewMealIngredients([]); }}>
+              <X size={22} color={text} />
+            </Pressable>
+          </View>
+
+          {/* ── PAGE: Meal form ── */}
+          {!mealPickerPage && (
+            <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+              <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: muted, letterSpacing: 0.8, marginBottom: 6 }}>MEAL NAME</Text>
+              <TextInput
+                value={newMealName}
+                onChangeText={setNewMealName}
+                placeholder="e.g. My usual breakfast"
+                placeholderTextColor={muted}
+                style={{ backgroundColor: card, borderRadius: 12, padding: 13, borderWidth: 1, borderColor: border, fontFamily: "Manrope-SemiBold", fontSize: 14, color: text, marginBottom: 14 }}
+              />
+
+              <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: muted, letterSpacing: 0.8, marginBottom: 6 }}>DESCRIPTION (OPTIONAL)</Text>
+              <TextInput
+                value={newMealDesc}
+                onChangeText={setNewMealDesc}
+                placeholder="e.g. Chicken & rice meal prep"
+                placeholderTextColor={muted}
+                style={{ backgroundColor: card, borderRadius: 12, padding: 13, borderWidth: 1, borderColor: border, fontFamily: "Manrope-SemiBold", fontSize: 14, color: text, marginBottom: 20 }}
+              />
+
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: muted, letterSpacing: 0.8 }}>
+                  INGREDIENTS ({newMealIngredients.length})
+                </Text>
+                <Pressable
+                  onPress={() => setMealPickerPage("search")}
+                  style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 4, opacity: pressed ? 0.7 : 1 })}
+                >
+                  <Plus size={14} color={accentActive} />
+                  <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: accentActive }}>Add Food</Text>
+                </Pressable>
+              </View>
+
+              {newMealIngredients.length === 0 && (
+                <Pressable
+                  onPress={() => setMealPickerPage("search")}
+                  style={({ pressed }) => ({
+                    borderRadius: 14, borderWidth: 1.5, borderColor: border, borderStyle: "dashed",
+                    paddingVertical: 20, alignItems: "center", marginBottom: 16, opacity: pressed ? 0.7 : 1,
+                  })}
+                >
+                  <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted }}>Tap to add ingredients</Text>
+                </Pressable>
+              )}
+
+              {newMealIngredients.map((ing, i) => (
+                <View key={i} style={{ backgroundColor: card, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: border, marginBottom: 8, flexDirection: "row", alignItems: "center" }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: text }}>{ing.foodItem.name}</Text>
+                    <Text style={{ fontFamily: "Manrope", fontSize: 11, color: muted, marginTop: 2 }}>
+                      {ing.servings}× · {Math.round(ing.foodItem.calories * ing.servings)} kcal
+                    </Text>
+                  </View>
+                  <Pressable onPress={() => setNewMealIngredients(prev => prev.filter((_, j) => j !== i))} hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}>
+                    <X size={15} color={muted} />
+                  </Pressable>
+                </View>
+              ))}
+
+              {newMealIngredients.length > 0 && (() => {
+                const t = newMealIngredients.reduce(
+                  (acc, { foodItem, servings: sv }) => ({
+                    calories: acc.calories + foodItem.calories * sv,
+                    protein:  acc.protein  + foodItem.proteinG * sv,
+                    carbs:    acc.carbs    + foodItem.carbsG   * sv,
+                    fat:      acc.fat      + foodItem.fatG     * sv,
+                  }),
+                  { calories: 0, protein: 0, carbs: 0, fat: 0 }
+                );
+                return (
+                  <View style={{ backgroundColor: card, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: border, marginBottom: 20, flexDirection: "row", justifyContent: "space-around" }}>
+                    {[
+                      { label: "KCAL", val: Math.round(t.calories), color: text },
+                      { label: "P",    val: Math.round(t.protein),  color: LIME   },
+                      { label: "C",    val: Math.round(t.carbs),    color: BLUE   },
+                      { label: "F",    val: Math.round(t.fat),      color: PURPLE },
+                    ].map(m => (
+                      <View key={m.label} style={{ alignItems: "center" }}>
+                        <Text style={{ ...(DOT as any), fontSize: 18, color: m.color }}>{m.val}</Text>
+                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 9, color: muted, marginTop: 2 }}>{m.label}</Text>
+                      </View>
+                    ))}
+                  </View>
+                );
+              })()}
+
+              <Pressable
+                onPress={saveMeal}
+                disabled={createMeal.isPending || !newMealName.trim() || newMealIngredients.length === 0}
+                style={({ pressed }) => ({
+                  backgroundColor: accentActive, borderRadius: 16, paddingVertical: 16, alignItems: "center",
+                  opacity: (pressed || createMeal.isPending || !newMealName.trim() || newMealIngredients.length === 0) ? 0.6 : 1,
+                })}
+              >
+                <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 15, color: isWhite ? "#fff" : palette.accentText }}>
+                  {createMeal.isPending ? "Saving…" : "Save Meal"}
+                </Text>
+              </Pressable>
+            </ScrollView>
+          )}
+
+          {/* ── PAGE: Ingredient search ── */}
+          {mealPickerPage === "search" && (
+            <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+              {/* Search bar */}
+              <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: card, borderRadius: 14, borderWidth: 1, borderColor: border, paddingHorizontal: 12, paddingVertical: 10, gap: 8, marginBottom: 14 }}>
+                {mealPickerSearching
+                  ? <ActivityIndicator size="small" color={muted} style={{ width: 18 }} />
+                  : <Search size={18} color={muted} />
+                }
+                <TextInput
+                  value={mealPickerQuery}
+                  onChangeText={setMealPickerQuery}
+                  placeholder="Search food, restaurant, or brand…"
+                  placeholderTextColor={muted}
+                  returnKeyType="search"
+                  autoFocus
+                  style={{ flex: 1, color: text, fontFamily: "Manrope", fontSize: 15, padding: 0 }}
+                />
+                {mealPickerQuery.length > 0 && (
+                  <Pressable onPress={() => { setMealPickerQuery(""); setMealPickerResults([]); }} hitSlop={8}>
+                    <X size={16} color={muted} />
+                  </Pressable>
+                )}
+              </View>
+
+              {mealPickerQuery.length >= 2 && mealPickerResults.length === 0 && !mealPickerSearching && (
+                <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted, textAlign: "center", marginTop: 10 }}>No results found</Text>
+              )}
+
+              {mealPickerResults.map(item => (
+                <Pressable
+                  key={(item.id ?? 0) + "_" + item.name}
+                  onPress={() => { setMealPickerItem(item); setMealPickerPage("item"); }}
+                  style={({ pressed }) => ({ backgroundColor: card, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: border, marginBottom: 8, opacity: pressed ? 0.7 : 1 })}
+                >
+                  {item.brand && <Text style={{ fontFamily: "Manrope-Bold", fontSize: 10, color: "#aaaaaa", letterSpacing: 0.6, marginBottom: 2 }}>{item.brand.toUpperCase()}</Text>}
+                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 14, color: text }}>{item.name}</Text>
+                  <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted, marginTop: 2 }}>{item.calories} kcal · P {item.proteinG}g · C {item.carbsG}g · F {item.fatG}g</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          )}
+
+          {/* ── PAGE: Servings for selected ingredient ── */}
+          {mealPickerPage === "item" && mealPickerItem && (
+            <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+              <View style={{ backgroundColor: card, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: border, marginBottom: 20 }}>
+                <Text style={{ fontFamily: "Manrope-Bold", fontSize: 16, color: text }}>{mealPickerItem.name}</Text>
+                {mealPickerItem.brand && <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted }}>{mealPickerItem.brand}</Text>}
+                <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted, marginTop: 4 }}>
+                  Per serving: {mealPickerItem.calories} kcal · {mealPickerItem.proteinG}g protein
+                </Text>
+              </View>
+
+              <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: muted, letterSpacing: 0.8, marginBottom: 8 }}>SERVINGS</Text>
+              <TextInput
+                value={mealPickerServings}
+                onChangeText={setMealPickerServings}
+                keyboardType="decimal-pad"
+                style={{ backgroundColor: card, borderRadius: 12, padding: 14, color: text, fontFamily: "Manrope-ExtraBold", fontSize: 24, borderWidth: 1, borderColor: border, textAlign: "center", marginBottom: 24 }}
+              />
+
+              <Pressable
+                onPress={addIngredientToMeal}
+                style={({ pressed }) => ({ backgroundColor: accentActive, borderRadius: 16, paddingVertical: 16, alignItems: "center", opacity: pressed ? 0.7 : 1 })}
+              >
+                <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 15, color: isWhite ? "#fff" : palette.accentText }}>
+                  Add Ingredient
+                </Text>
+              </Pressable>
+            </ScrollView>
+          )}
+
+        </View>
+      </Modal>
+
       {/* ── Add Food Modal ── */}
+      {/* NOTE: rendered AFTER Create Meal so it gets higher z-index on RN Web */}
       <Modal visible={showAdd} animationType="slide" presentationStyle="pageSheet">
         <View style={{ flex: 1, backgroundColor: bg }}>
 
           {/* Header */}
           <View style={{ padding: 20, paddingBottom: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderBottomWidth: 1, borderBottomColor: border }}>
             <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 20, color: text }}>
-              {addingToMealId ? "Add Ingredient" : "Add Food"}
+              Add Food
             </Text>
             <Pressable onPress={closeAddModal} hitSlop={8}>
               <X size={22} color={text} />
@@ -808,8 +1148,7 @@ export default function FoodScreen() {
             {addView === "home" && !selectedItem && (
               <>
                 {/* Meal selector */}
-                {!addingToMealId && (
-                  <View style={{ marginBottom: 20 }}>
+                <View style={{ marginBottom: 20 }}>
                     <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 11, color: muted, letterSpacing: 0.8, marginBottom: 8 }}>MEAL</Text>
                     <Pressable
                       onPress={() => setShowMealPicker(p => !p)}
@@ -839,12 +1178,11 @@ export default function FoodScreen() {
                       </View>
                     )}
                   </View>
-                )}
 
                 {/* Barcode + Scan Label buttons */}
-                <View style={{ flexDirection: "row", gap: 12, marginBottom: 24 }}>
+                <View style={{ flexDirection: "row", gap: 12, marginBottom: scanLabelError ? 8 : 24 }}>
                   <Pressable
-                    onPress={() => Alert.alert("Barcode Scanner", "Point your camera at a barcode to look up nutrition info.\n\n(Camera access coming soon)")}
+                    onPress={() => setAddView("barcode")}
                     style={({ pressed }) => ({
                       flex: 1, backgroundColor: card, borderRadius: 16, borderWidth: 1, borderColor: border,
                       paddingVertical: 20, alignItems: "center", gap: 8, opacity: pressed ? 0.7 : 1,
@@ -854,16 +1192,34 @@ export default function FoodScreen() {
                     <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: text }}>Barcode</Text>
                   </Pressable>
                   <Pressable
-                    onPress={() => Alert.alert("Scan Nutrition Label", "Take a photo of a nutrition label to auto-fill values.\n\n(Camera access coming soon)")}
+                    onPress={openScanLabel}
+                    disabled={scanLabelLoading}
                     style={({ pressed }) => ({
                       flex: 1, backgroundColor: card, borderRadius: 16, borderWidth: 1, borderColor: border,
-                      paddingVertical: 20, alignItems: "center", gap: 8, opacity: pressed ? 0.7 : 1,
+                      paddingVertical: 20, alignItems: "center", gap: 8, opacity: (pressed || scanLabelLoading) ? 0.7 : 1,
                     })}
                   >
-                    <Camera size={26} color={text} />
-                    <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: text }}>Scan Label</Text>
+                    {scanLabelLoading
+                      ? <ActivityIndicator size="small" color={accentActive} />
+                      : <Camera size={26} color={text} />
+                    }
+                    <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: text }}>
+                      {scanLabelLoading ? "Reading…" : "Scan Label"}
+                    </Text>
                   </Pressable>
                 </View>
+
+                {/* Scan label feedback */}
+                {scanLabelLoading && (
+                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: muted, textAlign: "center", marginBottom: 16 }}>
+                    Claude is reading the nutrition label…
+                  </Text>
+                )}
+                {scanLabelError ? (
+                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: "#ef4444", textAlign: "center", marginBottom: 16 }}>
+                    {scanLabelError}
+                  </Text>
+                ) : null}
 
                 {/* OR SEARCH divider */}
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 16 }}>
@@ -990,6 +1346,17 @@ export default function FoodScreen() {
                   </View>
                 ))}
 
+                {/* Time override */}
+                <View style={{ marginBottom: 14 }}>
+                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 11, color: muted, letterSpacing: 0.8, marginBottom: 6 }}>TIME</Text>
+                  <TextInput
+                    value={logTime} onChangeText={setLogTime}
+                    placeholder="8:30 AM" placeholderTextColor={muted}
+                    keyboardType="numbers-and-punctuation"
+                    style={{ backgroundColor: card, borderRadius: 12, padding: 13, borderWidth: 1, borderColor: border, fontFamily: "Manrope-SemiBold", fontSize: 15, color: text }}
+                  />
+                </View>
+
                 <Pressable
                   onPress={addManualToLog}
                   disabled={addEntry.isPending || !manualName.trim()}
@@ -1002,7 +1369,84 @@ export default function FoodScreen() {
               </>
             )}
 
-            {/* ── Serving selector (after item picked from search) ── */}
+            {/* ── BARCODE view ── */}
+            {addView === "barcode" && !selectedItem && (
+              <>
+                <Pressable onPress={() => { setAddView("home"); setBarcodeError(""); setBarcodeManualCode(""); }} style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 18 }}>
+                  <ChevronDown size={16} color={muted} style={{ transform: [{ rotate: "90deg" }] }} />
+                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: muted }}>Back</Text>
+                </Pressable>
+
+                {barcodeLoading ? (
+                  <View style={{ alignItems: "center", paddingVertical: 48 }}>
+                    <ActivityIndicator size="large" color={accentActive} />
+                    <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 14, color: muted, marginTop: 14 }}>
+                      Looking up product…
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    {/* Photo capture button */}
+                    <Pressable
+                      onPress={openBarcodeCapture}
+                      style={({ pressed }) => ({
+                        backgroundColor: accentActive, borderRadius: 16, paddingVertical: 18,
+                        flexDirection: "row", alignItems: "center", justifyContent: "center",
+                        gap: 10, marginBottom: 10, opacity: pressed ? 0.8 : 1,
+                      })}
+                    >
+                      <ScanLine size={22} color={isWhite ? "#fff" : palette.accentText} />
+                      <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 15, color: isWhite ? "#fff" : palette.accentText }}>
+                        Take Photo of Barcode
+                      </Text>
+                    </Pressable>
+                    <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted, textAlign: "center", marginBottom: 24 }}>
+                      Point your camera at the barcode on the product
+                    </Text>
+
+                    {barcodeError ? (
+                      <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: "#ef4444", textAlign: "center", marginBottom: 16 }}>
+                        {barcodeError}
+                      </Text>
+                    ) : null}
+
+                    {/* Divider */}
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 16 }}>
+                      <View style={{ flex: 1, height: 1, backgroundColor: border }} />
+                      <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 11, color: muted, letterSpacing: 1 }}>OR ENTER CODE</Text>
+                      <View style={{ flex: 1, height: 1, backgroundColor: border }} />
+                    </View>
+
+                    {/* Manual barcode entry */}
+                    <View style={{ flexDirection: "row", gap: 10 }}>
+                      <TextInput
+                        value={barcodeManualCode}
+                        onChangeText={setBarcodeManualCode}
+                        placeholder="e.g. 0123456789012"
+                        placeholderTextColor={muted}
+                        keyboardType="number-pad"
+                        returnKeyType="search"
+                        onSubmitEditing={() => lookupBarcodeCode(barcodeManualCode)}
+                        style={{ flex: 1, backgroundColor: card, borderRadius: 12, padding: 13, borderWidth: 1, borderColor: border, fontFamily: "Manrope-SemiBold", fontSize: 15, color: text }}
+                      />
+                      <Pressable
+                        onPress={() => lookupBarcodeCode(barcodeManualCode)}
+                        disabled={!barcodeManualCode.trim()}
+                        style={({ pressed }) => ({
+                          backgroundColor: accentActive, borderRadius: 12, paddingHorizontal: 18,
+                          justifyContent: "center",
+                          opacity: (!barcodeManualCode.trim() || pressed) ? 0.4 : 1,
+                        })}
+                      >
+                        <Search size={20} color={isWhite ? "#fff" : palette.accentText} />
+                      </Pressable>
+                    </View>
+                  </>
+                )}
+              </>
+            )}
+
+            {/* ── Serving selector (after item picked from search / barcode / scan) ── */}
             {selectedItem && (
               <>
                 <View style={{ backgroundColor: card, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: border, marginBottom: 20 }}>
@@ -1015,23 +1459,33 @@ export default function FoodScreen() {
 
                 <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: muted, letterSpacing: 0.8, marginBottom: 8 }}>SERVINGS</Text>
                 <TextInput
-                  value={addingToMealId ? mealIngredientServings : servings}
-                  onChangeText={addingToMealId ? setMealIngredientServings : setServings}
+                  value={servings}
+                  onChangeText={setServings}
                   keyboardType="decimal-pad"
-                  style={{ backgroundColor: card, borderRadius: 12, padding: 14, color: text, fontFamily: "Manrope-ExtraBold", fontSize: 24, borderWidth: 1, borderColor: border, textAlign: "center", marginBottom: 20 }}
+                  style={{ backgroundColor: card, borderRadius: 12, padding: 14, color: text, fontFamily: "Manrope-ExtraBold", fontSize: 24, borderWidth: 1, borderColor: border, textAlign: "center", marginBottom: 14 }}
                 />
+
+                <View style={{ marginBottom: 20 }}>
+                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: muted, letterSpacing: 0.8, marginBottom: 8 }}>TIME</Text>
+                  <TextInput
+                    value={logTime} onChangeText={setLogTime}
+                    placeholder="8:30 AM" placeholderTextColor={muted}
+                    keyboardType="numbers-and-punctuation"
+                    style={{ backgroundColor: card, borderRadius: 12, padding: 14, color: text, fontFamily: "Manrope-Bold", fontSize: 18, borderWidth: 1, borderColor: border, textAlign: "center" }}
+                  />
+                </View>
 
                 <View style={{ flexDirection: "row", gap: 10 }}>
                   <Pressable onPress={() => setSelectedItem(null)} style={{ flex: 1, paddingVertical: 14, borderRadius: 14, borderWidth: 1, borderColor: border, alignItems: "center" }}>
                     <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: muted }}>Back</Text>
                   </Pressable>
                   <Pressable
-                    onPress={addingToMealId ? addToSavedMeal : addToLog}
+                    onPress={addToLog}
                     disabled={addEntry.isPending}
                     style={({ pressed }) => ({ flex: 2, paddingVertical: 14, borderRadius: 14, backgroundColor: accentActive, alignItems: "center", opacity: (pressed || addEntry.isPending) ? 0.7 : 1 })}
                   >
                     <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 14, color: isWhite ? "#fff" : palette.accentText }}>
-                      {addEntry.isPending ? "Adding…" : addingToMealId ? "Add Ingredient" : `Add to ${MEAL_LABELS[activeMeal]}`}
+                      {addEntry.isPending ? "Adding…" : `Add to ${MEAL_LABELS[activeMeal]}`}
                     </Text>
                   </Pressable>
                 </View>
@@ -1042,122 +1496,6 @@ export default function FoodScreen() {
         </View>
       </Modal>
 
-      {/* ── Create Meal Modal ── */}
-      <Modal visible={showCreateMeal} animationType="slide" presentationStyle="pageSheet">
-        <View style={{ flex: 1, backgroundColor: bg }}>
-          <View style={{ padding: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderBottomWidth: 1, borderBottomColor: border }}>
-            <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 18, color: text }}>New Saved Meal</Text>
-            <Pressable onPress={() => setShowCreateMeal(false)}><X size={22} color={text} /></Pressable>
-          </View>
-
-          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
-            {/* Name */}
-            <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: muted, letterSpacing: 0.8, marginBottom: 6 }}>MEAL NAME</Text>
-            <TextInput
-              value={newMealName}
-              onChangeText={setNewMealName}
-              placeholder="e.g. My usual breakfast"
-              placeholderTextColor={muted}
-              style={{ backgroundColor: card, borderRadius: 12, padding: 13, borderWidth: 1, borderColor: border, fontFamily: "Manrope-SemiBold", fontSize: 14, color: text, marginBottom: 14 }}
-            />
-
-            {/* Description (optional) */}
-            <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: muted, letterSpacing: 0.8, marginBottom: 6 }}>DESCRIPTION (OPTIONAL)</Text>
-            <TextInput
-              value={newMealDesc}
-              onChangeText={setNewMealDesc}
-              placeholder="e.g. Chicken & rice meal prep"
-              placeholderTextColor={muted}
-              style={{ backgroundColor: card, borderRadius: 12, padding: 13, borderWidth: 1, borderColor: border, fontFamily: "Manrope-SemiBold", fontSize: 14, color: text, marginBottom: 20 }}
-            />
-
-            {/* Ingredients */}
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-              <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: muted, letterSpacing: 0.8 }}>
-                INGREDIENTS ({newMealIngredients.length})
-              </Text>
-              <Pressable
-                onPress={() => openAddForSavedMeal(-1)}
-                style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 4, opacity: pressed ? 0.7 : 1 })}
-              >
-                <Plus size={14} color={accentActive} />
-                <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: accentActive }}>Add Food</Text>
-              </Pressable>
-            </View>
-
-            {newMealIngredients.length === 0 && (
-              <Pressable
-                onPress={() => openAddForSavedMeal(-1)}
-                style={({ pressed }) => ({
-                  borderRadius: 14, borderWidth: 1.5, borderColor: border, borderStyle: "dashed",
-                  paddingVertical: 20, alignItems: "center", marginBottom: 16, opacity: pressed ? 0.7 : 1,
-                })}
-              >
-                <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted }}>Tap to add ingredients</Text>
-              </Pressable>
-            )}
-
-            {newMealIngredients.map((ing, i) => (
-              <View key={i} style={{ backgroundColor: card, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: border, marginBottom: 8, flexDirection: "row", alignItems: "center" }}>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: text }}>{ing.foodItem.name}</Text>
-                  <Text style={{ fontFamily: "Manrope", fontSize: 11, color: muted, marginTop: 2 }}>
-                    {ing.servings}× · {Math.round(ing.foodItem.calories * ing.servings)} kcal
-                  </Text>
-                </View>
-                <Pressable
-                  onPress={() => setNewMealIngredients(prev => prev.filter((_, j) => j !== i))}
-                  hitSlop={8}
-                  style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
-                >
-                  <X size={15} color={muted} />
-                </Pressable>
-              </View>
-            ))}
-
-            {/* Total summary */}
-            {newMealIngredients.length > 0 && (() => {
-              const t = newMealIngredients.reduce(
-                (acc, { foodItem, servings: sv }) => ({
-                  calories: acc.calories + foodItem.calories * sv,
-                  protein:  acc.protein  + foodItem.proteinG * sv,
-                  carbs:    acc.carbs    + foodItem.carbsG   * sv,
-                  fat:      acc.fat      + foodItem.fatG     * sv,
-                }),
-                { calories: 0, protein: 0, carbs: 0, fat: 0 }
-              );
-              return (
-                <View style={{ backgroundColor: card, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: border, marginBottom: 20, flexDirection: "row", justifyContent: "space-around" }}>
-                  {[
-                    { label: "KCAL", val: Math.round(t.calories), color: text },
-                    { label: "P",    val: Math.round(t.protein),  color: LIME   },
-                    { label: "C",    val: Math.round(t.carbs),    color: BLUE   },
-                    { label: "F",    val: Math.round(t.fat),      color: PURPLE },
-                  ].map(m => (
-                    <View key={m.label} style={{ alignItems: "center" }}>
-                      <Text style={{ ...(DOT as any), fontSize: 18, color: m.color }}>{m.val}</Text>
-                      <Text style={{ fontFamily: "Manrope-Bold", fontSize: 9, color: muted, marginTop: 2 }}>{m.label}</Text>
-                    </View>
-                  ))}
-                </View>
-              );
-            })()}
-
-            <Pressable
-              onPress={saveMeal}
-              disabled={createMeal.isPending || !newMealName.trim() || newMealIngredients.length === 0}
-              style={({ pressed }) => ({
-                backgroundColor: accentActive, borderRadius: 16, paddingVertical: 16, alignItems: "center",
-                opacity: (pressed || createMeal.isPending || !newMealName.trim() || newMealIngredients.length === 0) ? 0.6 : 1,
-              })}
-            >
-              <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 15, color: isWhite ? "#fff" : palette.accentText }}>
-                {createMeal.isPending ? "Saving…" : "Save Meal"}
-              </Text>
-            </Pressable>
-          </ScrollView>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 }

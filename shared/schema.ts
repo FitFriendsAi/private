@@ -117,7 +117,9 @@ export const foodLog = pgTable("food_log", {
   loggedAt: timestamp("logged_at").defaultNow(),
 });
 
-export const insertFoodLogSchema = createInsertSchema(foodLog).omit({ id: true, loggedAt: true });
+export const insertFoodLogSchema = createInsertSchema(foodLog)
+  .omit({ id: true })
+  .extend({ loggedAt: z.coerce.date().optional() }); // allow ISO-string override from client
 export type FoodLogEntry = typeof foodLog.$inferSelect;
 export type InsertFoodLogEntry = z.infer<typeof insertFoodLogSchema>;
 
@@ -147,7 +149,9 @@ export const waterLog = pgTable("water_log", {
   loggedAt: timestamp("logged_at").defaultNow(),
 });
 
-export const insertWaterLogSchema = createInsertSchema(waterLog).omit({ id: true, loggedAt: true });
+export const insertWaterLogSchema = createInsertSchema(waterLog)
+  .omit({ id: true })
+  .extend({ loggedAt: z.coerce.date().optional() });
 export type WaterLogEntry = typeof waterLog.$inferSelect;
 export type InsertWaterLogEntry = z.infer<typeof insertWaterLogSchema>;
 
@@ -162,7 +166,9 @@ export const supplementLog = pgTable("supplement_log", {
   loggedAt: timestamp("logged_at").defaultNow(),
 });
 
-export const insertSupplementLogSchema = createInsertSchema(supplementLog).omit({ id: true, loggedAt: true });
+export const insertSupplementLogSchema = createInsertSchema(supplementLog)
+  .omit({ id: true })
+  .extend({ loggedAt: z.coerce.date().optional() });
 export type SupplementLogEntry = typeof supplementLog.$inferSelect;
 export type InsertSupplementLogEntry = z.infer<typeof insertSupplementLogSchema>;
 
@@ -220,6 +226,7 @@ export const workouts = pgTable("workouts", {
   name: text("name").notNull(),
   notes: text("notes"),
   durationMinutes: integer("duration_minutes"),
+  startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });

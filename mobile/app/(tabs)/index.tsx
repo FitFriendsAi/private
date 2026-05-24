@@ -7,7 +7,7 @@ import { apiRequest } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
 import { useHealth } from "@/hooks/use-health";
-import { todayStr, gramsToLbs, mlToOz, ozToMl } from "@/lib/utils";
+import { todayStr, gramsToLbs, mlToOz, ozToMl, nowTimeStr, timeStrToISO, fmtTime } from "@/lib/utils";
 import {
   Droplets, Pill, Heart, Zap, TrendingDown, TrendingUp,
   ChevronRight, Dumbbell, Flame, Plus, Minus,
@@ -16,7 +16,7 @@ import Svg, { Circle, Polyline, Line as SvgLine } from "react-native-svg";
 const AnimatedPolyline = Animated.createAnimatedComponent(Polyline);
 import { ExpandCardModal } from "@/components/ExpandCardModal";
 import { MacroExpandModal } from "@/components/MacroExpandModal";
-import { buildChartBars } from "@/lib/chart-utils";
+import { buildChartBars, type ChartBar } from "@/lib/chart-utils";
 
 const HR_RED = "#c0202c";
 
@@ -162,8 +162,10 @@ export default function DashboardScreen() {
   const [creatPeriod,  setCreatPeriod]  = useState<7 | 30 | 90>(30);
   const [weightOpen,   setWeightOpen]   = useState(false);
   const [weightPeriod, setWeightPeriod] = useState<7 | 30 | 90>(30);
-  const [macrosOpen,   setMacrosOpen]   = useState(false);
-  const [macrosPeriod, setMacrosPeriod] = useState<7 | 30 | 90>(30);
+  const [macrosOpen,    setMacrosOpen]    = useState(false);
+  const [macrosPeriod,  setMacrosPeriod]  = useState<7 | 30 | 90>(30);
+  const [workoutOpen,   setWorkoutOpen]   = useState(false);
+  const [workoutPeriod, setWorkoutPeriod] = useState<7 | 30 | 90>(30);
 
   // History queries (enabled only when respective modal is open)
   const { data: calHistory = [] }   = useQuery<{ date: string; calories: number; protein: number; carbs: number; fat: number }[]>({
@@ -180,6 +182,12 @@ export default function DashboardScreen() {
     queryKey: ["/api/supplements/history", creatPeriod],
     queryFn:  () => apiRequest("GET", `/api/supplements/history?days=${creatPeriod}&supplement=creatine`),
     enabled:  creatOpen,
+  });
+  // Fetch full workout history when the workout modal is open (200 most recent)
+  const { data: workoutHistory = [] } = useQuery<any[]>({
+    queryKey: ["/api/workouts", "expanded"],
+    queryFn:  () => apiRequest("GET", "/api/workouts?limit=200"),
+    enabled:  workoutOpen,
   });
 
   // ── Derived values ──
@@ -227,6 +235,79 @@ export default function DashboardScreen() {
   const weightAxisSpread = Math.max(weightBarMax - weightBarMin, 5);
   const weightAxisMax    = Math.ceil(weightBarMax  + Math.max(weightAxisSpread * 0.08, 1));
   const weightAxisMin    = Math.max(0, Math.floor(weightBarMin - Math.max(weightAxisSpread * 0.08, 1)));
+
+  // ── Workout chart bars (sessions per day for 7/30, weekly totals for 90) ──
+  const workoutBars = useMemo((): ChartBar[] => {
+    const now = new Date();
+    const fmtD = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    const cutoff = new Date(now);
+    cutoff.setDate(now.getDate() - (workoutPeriod - 1));
+    const cutoffStr = fmtD(cutoff);
+    const byDate: Record<string, number> = {};
+    workoutHistory
+      .filter(w => w.date >= cutoffStr)
+      .forEach(w => { byDate[w.date] = (byDate[w.date] ?? 0) + 1; });
+
+    if (workoutPeriod === 90) {
+      // Weekly sums (sum, not avg, so value = sessions that week)
+      const startDate = new Date(now);
+      startDate.setDate(now.getDate() - 89);
+      const bars: ChartBar[] = [];
+      let weekTotal = 0, weekFirst: Date | null = null;
+      let prevMonth = -1;
+      for (let i = 0; i < 90; i++) {
+        const d = new Date(startDate);
+        d.setDate(startDate.getDate() + i);
+        if (!weekFirst) weekFirst = d;
+        weekTotal += byDate[fmtD(d)] ?? 0;
+        if ((i + 1) % 7 === 0 || i === 89) {
+          const month = (weekFirst as Date).getMonth();
+          bars.push({ value: weekTotal, label: MONTH_ABBR[month], showLabel: month !== prevMonth, isToday: false });
+          prevMonth = month;
+          weekTotal = 0; weekFirst = null;
+        }
+      }
+      return bars;
+    }
+    return buildChartBars(
+      Object.entries(byDate).map(([date, value]) => ({ date, value })),
+      workoutPeriod as 7 | 30,
+    );
+  }, [workoutHistory, workoutPeriod]);
+  const workoutBarMax = Math.max(...workoutBars.map(b => b.value), 1);
+  const workoutSessionsInPeriod = workoutBars.reduce((s, b) => s + b.value, 0);
+
+  // Sessions this week (rolling 7-day)
+  const workoutThisWeek = useMemo(() => {
+    const d = new Date(); d.setDate(d.getDate() - 6);
+    const ws = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    return workoutHistory.filter(w => w.date >= ws).length;
+  }, [workoutHistory]);
+
+  // Month-by-month calendar data for the workout modal
+  const workoutMonths = useMemo(() => {
+    const monthMap: Record<string, Record<number, string>> = {};
+    workoutHistory.forEach(w => {
+      const ym = w.date.substring(0, 7);
+      const day = parseInt(w.date.split("-")[2]);
+      if (!monthMap[ym]) monthMap[ym] = {};
+      if (!monthMap[ym][day]) monthMap[ym][day] = w.name || "Workout";
+    });
+    // Always include current month even if no workouts
+    const now = new Date();
+    const curYm = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+    if (!monthMap[curYm]) monthMap[curYm] = {};
+    return Object.keys(monthMap).sort().reverse().map(ym => {
+      const [yr, mo] = ym.split("-").map(Number);
+      return {
+        ym, year: yr, month: mo,
+        daysInMonth: new Date(yr, mo, 0).getDate(),
+        firstDay:    new Date(yr, mo - 1, 1).getDay(),
+        workoutsByDay: monthMap[ym],
+      };
+    });
+  }, [workoutHistory]);
 
   const workoutDates = new Set(recentWorkouts.map((w: any) => w.date));
 
@@ -276,6 +357,22 @@ export default function DashboardScreen() {
     onSuccess: () => console.log("✅ water removed"),
     onError:   (e: any) => console.error("❌ removeWater failed:", e?.message ?? e),
     onSettled: () => qc.invalidateQueries({ queryKey: ["/api/water", today] }),
+  });
+
+  // ── Water custom-time log ────────────────────────────────────────
+  const [waterTimeOpen,  setWaterTimeOpen]  = useState(false);
+  const [waterTimeStr,   setWaterTimeStr]   = useState(nowTimeStr);
+  const [waterTimeOz,    setWaterTimeOz]    = useState("8");
+
+  const addWaterAtTime = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/water", {
+      date: today, amountMl: ozToMl(parseFloat(waterTimeOz) || 8),
+      loggedAt: timeStrToISO(waterTimeStr),
+    }),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["/api/water", today] });
+      setWaterTimeOpen(false);
+    },
   });
 
   // ── Water history expanded view ──────────────────────────────────
@@ -785,7 +882,7 @@ export default function DashboardScreen() {
         </View>
 
         {/* ── Workout Calendar — always white ─────────────────────── */}
-        <View style={{ backgroundColor: "#ffffff", borderRadius: 24, padding: 18, marginBottom: 10 }}>
+        <Pressable onPress={() => setWorkoutOpen(true)} style={({ pressed }) => ({ backgroundColor: "#ffffff", borderRadius: 24, padding: 18, marginBottom: 10, opacity: pressed ? 0.88 : 1 })}>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
             <Text style={{ fontFamily: "Manrope-Bold", fontSize: 15, color: "#0a0a0a" }}>Workouts</Text>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
@@ -830,7 +927,7 @@ export default function DashboardScreen() {
               </Text>
             </View>
           )}
-        </View>
+        </Pressable>
 
         {/* ── Body Weight — always white ───────────────────────────── */}
         {latestWeight && (
@@ -1331,13 +1428,61 @@ export default function DashboardScreen() {
                         <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: "rgba(0,0,0,0.12)", alignItems: "center", justifyContent: "center" }}>
                           <Droplets size={14} color="rgba(0,0,0,0.5)" />
                         </View>
-                        <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 14, color: "#0a0a0a" }}>8 oz</Text>
+                        <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 14, color: "#0a0a0a" }}>
+                          {mlToOz(e.amountMl)} oz
+                        </Text>
                       </View>
-                      <Text style={{ fontFamily: "Manrope", fontSize: 12, color: "rgba(0,0,0,0.4)" }}>
-                        {e.loggedAt ? new Date(e.loggedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "—"}
+                      <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: "rgba(0,0,0,0.5)" }}>
+                        {fmtTime(e.loggedAt) || "—"}
                       </Text>
                     </View>
                   ))
+                )}
+
+                {/* Log water at a custom time */}
+                {!waterTimeOpen ? (
+                  <Pressable
+                    onPress={() => { setWaterTimeStr(nowTimeStr()); setWaterTimeOz("8"); setWaterTimeOpen(true); }}
+                    style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 14, opacity: pressed ? 0.6 : 1 })}
+                  >
+                    <Plus size={14} color="rgba(0,0,0,0.5)" />
+                    <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: "rgba(0,0,0,0.5)" }}>Log at custom time</Text>
+                  </Pressable>
+                ) : (
+                  <View style={{ marginTop: 14, backgroundColor: "rgba(0,0,0,0.06)", borderRadius: 14, padding: 14, gap: 10 }}>
+                    <View style={{ flexDirection: "row", gap: 8 }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 10, color: "rgba(0,0,0,0.45)", letterSpacing: 0.6, marginBottom: 4 }}>AMOUNT (OZ)</Text>
+                        <TextInput
+                          value={waterTimeOz} onChangeText={setWaterTimeOz}
+                          keyboardType="decimal-pad"
+                          style={{ backgroundColor: "white", borderRadius: 10, padding: 10, fontFamily: "Manrope-ExtraBold", fontSize: 18, color: "#0a0a0a", textAlign: "center" }}
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 10, color: "rgba(0,0,0,0.45)", letterSpacing: 0.6, marginBottom: 4 }}>TIME</Text>
+                        <TextInput
+                          value={waterTimeStr} onChangeText={setWaterTimeStr}
+                          keyboardType="numbers-and-punctuation"
+                          style={{ backgroundColor: "white", borderRadius: 10, padding: 10, fontFamily: "Manrope-Bold", fontSize: 16, color: "#0a0a0a", textAlign: "center" }}
+                        />
+                      </View>
+                    </View>
+                    <View style={{ flexDirection: "row", gap: 8 }}>
+                      <Pressable onPress={() => setWaterTimeOpen(false)} style={{ flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: "center", backgroundColor: "rgba(0,0,0,0.1)" }}>
+                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: "#0a0a0a" }}>Cancel</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => addWaterAtTime.mutate()}
+                        disabled={addWaterAtTime.isPending}
+                        style={({ pressed }) => ({ flex: 2, paddingVertical: 10, borderRadius: 10, alignItems: "center", backgroundColor: "#0a0a0a", opacity: (pressed || addWaterAtTime.isPending) ? 0.7 : 1 })}
+                      >
+                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: "#ffffff" }}>
+                          {addWaterAtTime.isPending ? "Logging…" : "Log Water"}
+                        </Text>
+                      </Pressable>
+                    </View>
+                  </View>
                 )}
 
               </ScrollView>
@@ -1421,6 +1566,30 @@ export default function DashboardScreen() {
           { label: "AVG DOSE",   value: creatBars.filter(b=>b.value>0).length ? (creatBars.filter(b=>b.value>0).reduce((s,b)=>s+b.value,0)/creatBars.filter(b=>b.value>0).length).toFixed(1) : "—", unit: "g/day" },
           { label: "TODAY",      value: creatineGrams > 0 ? `${creatineGrams.toFixed(1)}` : "0", unit: "g" },
         ]}
+        logSection={
+          supplements.filter((s: any) => s.supplement === "creatine").length > 0 ? (
+            <View style={{ marginTop: 8 }}>
+              <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: "rgba(0,0,0,0.4)", letterSpacing: 0.6, marginBottom: 10 }}>TODAY'S DOSES</Text>
+              {supplements
+                .filter((s: any) => s.supplement === "creatine")
+                .map((s: any, i: number) => (
+                  <View key={s.id ?? i} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 10, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: "rgba(0,0,0,0.1)" }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                      <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: "rgba(0,0,0,0.1)", alignItems: "center", justifyContent: "center" }}>
+                        <Pill size={14} color="rgba(0,0,0,0.5)" />
+                      </View>
+                      <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 14, color: "#0a0a0a" }}>
+                        {s.amountG != null ? `${s.amountG}g` : "—"}
+                      </Text>
+                    </View>
+                    <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: "rgba(0,0,0,0.5)" }}>
+                      {fmtTime(s.loggedAt) || "—"}
+                    </Text>
+                  </View>
+                ))}
+            </View>
+          ) : null
+        }
       >
         <View style={{ alignItems: "center", marginBottom: 28, marginTop: 8 }}>
           <Text style={{ fontFamily: "Doto", fontSize: 72, color: "#0a0a0a", lineHeight: 76 }}>{creatineGrams.toFixed(1)}</Text>
@@ -1432,6 +1601,7 @@ export default function DashboardScreen() {
           </View>
         </View>
       </ExpandCardModal>
+
 
       {/* ── Body Weight expand modal ────────────────────────────── */}
       <ExpandCardModal
@@ -1457,6 +1627,106 @@ export default function DashboardScreen() {
               {weeklyChange < 0 ? <TrendingDown size={16} color="#22c55e" /> : weeklyChange > 0 ? <TrendingUp size={16} color="#ef4444" /> : null}
               <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: weeklyChange < 0 ? "#22c55e" : weeklyChange > 0 ? "#ef4444" : "#888888" }}>
                 {weeklyChange === 0 ? "No change" : `${weeklyChange > 0 ? "+" : ""}${weeklyChange.toFixed(1)} lbs this week`}
+              </Text>
+            </View>
+          )}
+        </View>
+      </ExpandCardModal>
+
+      {/* ── Workouts expand modal ──────────────────────────────── */}
+      <ExpandCardModal
+        visible={workoutOpen} onClose={() => setWorkoutOpen(false)}
+        bgColor="#ffffff" isDark={false}
+        glowColor={PINK}
+        title="Workouts" icon={<Dumbbell size={18} color={PINK} />}
+        period={workoutPeriod} onPeriodChange={setWorkoutPeriod}
+        chartBars={workoutBars} chartMaxValue={workoutBarMax}
+        chartLabel={workoutPeriod === 90 ? "SESSIONS / WEEK" : "DAILY SESSIONS"}
+        noWeeklyAvgLabel
+        formatValue={(v) => `${Math.round(v)} session${Math.round(v) !== 1 ? "s" : ""}`}
+        stats={[
+          { label: "THIS PERIOD", value: String(Math.round(workoutSessionsInPeriod)), unit: "sessions" },
+          { label: "THIS WEEK",   value: String(workoutThisWeek), unit: "sessions" },
+          { label: "STREAK",      value: String(streak),          unit: "days" },
+        ]}
+        logSection={
+          <View style={{ marginTop: 8 }}>
+            <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: "rgba(0,0,0,0.4)", letterSpacing: 0.6, marginBottom: 20 }}>
+              WORKOUT CALENDAR
+            </Text>
+            {workoutMonths.length === 0 ? (
+              <Text style={{ fontFamily: "Manrope", fontSize: 13, color: "rgba(0,0,0,0.4)", textAlign: "center", paddingVertical: 20 }}>
+                No workouts logged yet.
+              </Text>
+            ) : workoutMonths.map(({ ym, year, month, daysInMonth, firstDay, workoutsByDay }) => (
+              <View key={ym} style={{ marginBottom: 28 }}>
+                {/* Month header */}
+                <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: "#0a0a0a", marginBottom: 10 }}>
+                  {MONTH_ABBR[month - 1]} {year}
+                </Text>
+                {/* Day-of-week headers */}
+                <View style={{ flexDirection: "row", marginBottom: 4 }}>
+                  {["S","M","T","W","T","F","S"].map((d, i) => (
+                    <View key={i} style={{ flex: 1, alignItems: "center" }}>
+                      <Text style={{ fontSize: 9, color: "rgba(0,0,0,0.35)", fontFamily: "Manrope-Bold" }}>{d}</Text>
+                    </View>
+                  ))}
+                </View>
+                {/* Day grid */}
+                <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+                  {/* Leading blank cells for day-of-week offset */}
+                  {Array.from({ length: firstDay }).map((_, i) => (
+                    <View key={`blank-${i}`} style={{ width: "14.28%" }} />
+                  ))}
+                  {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
+                    const ds = `${year}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+                    const workoutName = workoutsByDay[day];
+                    const isTodayCell = ds === today;
+                    return (
+                      <View key={day} style={{ width: "14.28%", alignItems: "center", marginBottom: 7 }}>
+                        <View style={{
+                          width: 24, height: 24, borderRadius: 12,
+                          backgroundColor: workoutName ? "#0a0a0a" : "transparent",
+                          borderWidth: isTodayCell && !workoutName ? 1 : 0,
+                          borderColor: "rgba(0,0,0,0.25)",
+                          alignItems: "center", justifyContent: "center",
+                        }}>
+                          <Text style={{
+                            fontSize: 9, fontFamily: "Manrope-Bold",
+                            color: workoutName ? "#ffffff" : isTodayCell ? "#0a0a0a" : "rgba(0,0,0,0.45)",
+                          }}>{day}</Text>
+                        </View>
+                        {workoutName && (
+                          <Text numberOfLines={1} style={{
+                            fontSize: 6, color: "rgba(0,0,0,0.55)",
+                            fontFamily: "Manrope-SemiBold", textAlign: "center",
+                            marginTop: 2, width: "100%",
+                          }}>
+                            {workoutName}
+                          </Text>
+                        )}
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            ))}
+          </View>
+        }
+      >
+        {/* Hero */}
+        <View style={{ alignItems: "center", marginBottom: 28, marginTop: 8 }}>
+          <Text style={{ fontFamily: "Doto", fontSize: 72, color: "#0a0a0a", lineHeight: 76 }}>
+            {Math.round(workoutSessionsInPeriod) || recentWorkouts.length}
+          </Text>
+          <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: "rgba(0,0,0,0.5)" }}>
+            sessions in {workoutPeriod} days
+          </Text>
+          {streak > 0 && (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: 8 }}>
+              <Flame size={14} color="#f97316" />
+              <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: "#f97316" }}>
+                {streak}-day streak
               </Text>
             </View>
           )}

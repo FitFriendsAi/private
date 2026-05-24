@@ -8,7 +8,7 @@ import { useRouter } from "expo-router";
 import Svg, { Circle } from "react-native-svg";
 import { apiRequest } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
-import { Zap, Plus, X, Clock, Upload, ChevronRight } from "lucide-react-native";
+import { Zap, Plus, X, Clock, Upload, ChevronRight, Trash2 } from "lucide-react-native";
 
 const LIME = "#c8e84c";
 const DOT: object = { fontFamily: "Doto" };
@@ -94,6 +94,7 @@ export default function WorkoutsScreen() {
 
   const [showNewRoutine, setShowNewRoutine] = useState(false);
   const [routineName,    setRoutineName]    = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
   const { data: templates = [] } = useQuery<any[]>({
     queryKey: ["/api/templates"],
@@ -129,6 +130,19 @@ export default function WorkoutsScreen() {
       qc.invalidateQueries({ queryKey: ["/api/templates"] });
     },
     onError: () => Alert.alert("Error", "Could not create routine."),
+  });
+
+  // ── Delete workout ──
+  const deleteWorkout = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/workouts/${id}`),
+    onSuccess:  () => {
+      setConfirmDeleteId(null);
+      qc.invalidateQueries({ queryKey: ["/api/workouts"] });
+    },
+    onError: () => {
+      setConfirmDeleteId(null);
+      Alert.alert("Error", "Could not delete workout.");
+    },
   });
 
   // ── Open routine detail (exercise list + Start button) ──
@@ -298,44 +312,102 @@ export default function WorkoutsScreen() {
               <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted }}>No workouts logged yet</Text>
             </View>
           ) : (
-            workouts.map((w: any) => (
-              <Pressable
-                key={w.id}
-                onPress={() => router.push({
-                  pathname: "/workout-detail/[workoutId]",
-                  params: { workoutId: String(w.id) },
-                })}
-                style={({ pressed }) => ({
-                  backgroundColor: card, borderRadius: 18, padding: 14,
-                  marginBottom: 8, flexDirection: "row", alignItems: "center", gap: 14,
-                  borderWidth: 1, borderColor: border, opacity: pressed ? 0.75 : 1,
-                })}
-              >
-                {w.durationMinutes
-                  ? <DurationDonut minutes={w.durationMinutes} />
-                  : <EmptyRing />
-                }
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: text }}>
-                    {w.name.toUpperCase()}
-                  </Text>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: 2 }}>
-                    <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted }}>
-                      {formatDate(w.date)}
-                    </Text>
-                    {w.durationMinutes ? (
-                      <>
-                        <Text style={{ color: muted }}>·</Text>
-                        <Clock size={11} color={muted} />
-                        <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted }}>
-                          {w.durationMinutes}m
+            workouts.map((w: any) => {
+              const isConfirming = confirmDeleteId === w.id;
+              const isDeleting   = deleteWorkout.isPending && confirmDeleteId === w.id;
+              return (
+                <View
+                  key={w.id}
+                  style={{
+                    backgroundColor: isConfirming ? "#fee2e2" : card,
+                    borderRadius: 18, marginBottom: 8,
+                    flexDirection: "row", alignItems: "center",
+                    borderWidth: 1, borderColor: isConfirming ? "#fca5a5" : border,
+                    overflow: "hidden",
+                  }}
+                >
+                  {isConfirming ? (
+                    /* ── Confirm-delete state ── */
+                    <>
+                      <View style={{ flex: 1, paddingHorizontal: 16, paddingVertical: 14 }}>
+                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: "#dc2626" }}>
+                          Delete "{w.name}"?
                         </Text>
-                      </>
-                    ) : null}
-                  </View>
+                        <Text style={{ fontFamily: "Manrope", fontSize: 12, color: "#ef4444", marginTop: 2 }}>
+                          This cannot be undone.
+                        </Text>
+                      </View>
+                      <Pressable
+                        onPress={() => setConfirmDeleteId(null)}
+                        style={({ pressed }) => ({ paddingHorizontal: 12, paddingVertical: 18, opacity: pressed ? 0.6 : 1 })}
+                      >
+                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: "#6b7280" }}>Cancel</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => deleteWorkout.mutate(w.id)}
+                        disabled={isDeleting}
+                        style={({ pressed }) => ({
+                          backgroundColor: "#dc2626", paddingHorizontal: 16, paddingVertical: 18,
+                          opacity: pressed || isDeleting ? 0.7 : 1,
+                        })}
+                      >
+                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: "#ffffff" }}>
+                          {isDeleting ? "…" : "Delete"}
+                        </Text>
+                      </Pressable>
+                    </>
+                  ) : (
+                    /* ── Normal state ── */
+                    <>
+                      <Pressable
+                        onPress={() => router.push({
+                          pathname: "/workout-detail/[workoutId]",
+                          params: { workoutId: String(w.id) },
+                        })}
+                        style={({ pressed }) => ({
+                          flex: 1, flexDirection: "row", alignItems: "center",
+                          gap: 14, padding: 14, opacity: pressed ? 0.75 : 1,
+                        })}
+                      >
+                        {w.durationMinutes
+                          ? <DurationDonut minutes={w.durationMinutes} />
+                          : <EmptyRing />
+                        }
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: text }}>
+                            {w.name.toUpperCase()}
+                          </Text>
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: 2 }}>
+                            <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted }}>
+                              {formatDate(w.date)}
+                            </Text>
+                            {w.durationMinutes ? (
+                              <>
+                                <Text style={{ color: muted }}>·</Text>
+                                <Clock size={11} color={muted} />
+                                <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted }}>
+                                  {w.durationMinutes}m
+                                </Text>
+                              </>
+                            ) : null}
+                          </View>
+                        </View>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => setConfirmDeleteId(w.id)}
+                        hitSlop={8}
+                        style={({ pressed }) => ({
+                          paddingHorizontal: 14, paddingVertical: 18,
+                          opacity: pressed ? 0.5 : 1,
+                        })}
+                      >
+                        <Trash2 size={16} color={muted} />
+                      </Pressable>
+                    </>
+                  )}
                 </View>
-              </Pressable>
-            ))
+              );
+            })
           )}
         </View>
 

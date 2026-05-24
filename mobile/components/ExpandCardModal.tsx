@@ -37,6 +37,8 @@ interface Props {
   period: 7 | 30 | 90;
   onPeriodChange: (p: 7 | 30 | 90) => void;
   noPeriodSelector?: boolean;
+  /** When true, suppresses the " (WEEKLY AVG)" suffix on the chart label for 90-day view. */
+  noWeeklyAvgLabel?: boolean;
 
   chartBars: ChartBar[];
   chartMaxValue: number;
@@ -58,7 +60,7 @@ export function ExpandCardModal({
   visible, onClose,
   bgColor, isDark = false,
   title, icon,
-  period, onPeriodChange, noPeriodSelector,
+  period, onPeriodChange, noPeriodSelector, noWeeklyAvgLabel,
   chartBars, chartMaxValue, chartMinValue, goalValue, chartLabel,
   glowColor = "white",
   formatValue,
@@ -251,7 +253,7 @@ export function ExpandCardModal({
                   <View style={{ marginBottom: 24 }}>
                     {chartLabel && (
                       <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: textMuted, letterSpacing: 0.6, marginBottom: 10 }}>
-                        {period === 90 ? `${chartLabel} (WEEKLY AVG)` : chartLabel}
+                        {period === 90 && !noWeeklyAvgLabel ? `${chartLabel} (WEEKLY AVG)` : chartLabel}
                       </Text>
                     )}
 
