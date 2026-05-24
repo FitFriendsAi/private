@@ -389,17 +389,17 @@ export default function WorkoutSessionScreen() {
                 </View>
 
                 {/* Column headers */}
-                <View style={{ flexDirection: "row", gap: 8, marginBottom: 4 }}>
-                  <Text style={{ width: 24, fontFamily: "Manrope-Bold", fontSize: 9, color: muted, textAlign: "center", letterSpacing: 0.5 }}>
+                <View style={{ flexDirection: "row", gap: 6, marginBottom: 4, width: "100%" }}>
+                  <Text style={{ width: 20, fontFamily: "Manrope-Bold", fontSize: 9, color: muted, textAlign: "center", letterSpacing: 0.5 }}>
                     SET
                   </Text>
-                  <Text style={{ flex: 1, fontFamily: "Manrope-Bold", fontSize: 9, color: muted, textAlign: "center", letterSpacing: 0.5 }}>
+                  <Text style={{ flex: 1, minWidth: 0, fontFamily: "Manrope-Bold", fontSize: 9, color: muted, textAlign: "center", letterSpacing: 0.5 }}>
                     LBS
                   </Text>
-                  <Text style={{ flex: 1, fontFamily: "Manrope-Bold", fontSize: 9, color: muted, textAlign: "center", letterSpacing: 0.5 }}>
+                  <Text style={{ flex: 1, minWidth: 0, fontFamily: "Manrope-Bold", fontSize: 9, color: muted, textAlign: "center", letterSpacing: 0.5 }}>
                     REPS
                   </Text>
-                  <View style={{ width: 32 }} />
+                  <View style={{ width: 32, flexShrink: 0 }} />
                 </View>
 
                 {/* Set rows */}
@@ -407,17 +407,20 @@ export default function WorkoutSessionScreen() {
                   const pSet = prev?.sets[si];
                   return (
                     <View key={si} style={{
-                      flexDirection: "row", gap: 8, marginBottom: 7, alignItems: "center",
+                      flexDirection: "row", gap: 6, marginBottom: 7, alignItems: "center",
+                      // Prevent row from overflowing card on narrow screens
+                      width: "100%",
                     }}>
-                      {/* Set number */}
+                      {/* Set number — fixed width */}
                       <Text style={{
-                        width: 24, fontFamily: "Manrope-Bold", fontSize: 13,
+                        width: 20, fontFamily: "Manrope-Bold", fontSize: 13,
                         color: s.done ? "#C8E84C" : muted, textAlign: "center",
+                        flexShrink: 0,
                       }}>
                         {si + 1}
                       </Text>
 
-                      {/* Weight */}
+                      {/* Weight — shrinkable */}
                       <TextInput
                         value={s.weight}
                         onChangeText={v => updateSet(ei, si, "weight", v)}
@@ -425,14 +428,15 @@ export default function WorkoutSessionScreen() {
                         placeholder={pSet ? String(gramsToLbs(pSet.weightGrams)) : "0"}
                         placeholderTextColor="rgba(255,255,255,0.2)"
                         style={{
-                          flex: 1, backgroundColor: s.done ? "rgba(200,232,76,0.07)" : "#111111",
+                          flex: 1, minWidth: 0,
+                          backgroundColor: s.done ? "rgba(200,232,76,0.07)" : "#111111",
                           borderRadius: 10, paddingVertical: 10, paddingHorizontal: 4,
                           textAlign: "center", fontFamily: "Manrope-Bold", fontSize: 14, color: text,
                           borderWidth: 1, borderColor: s.done ? "rgba(200,232,76,0.3)" : border,
                         }}
                       />
 
-                      {/* Reps */}
+                      {/* Reps — shrinkable */}
                       <TextInput
                         value={s.reps}
                         onChangeText={v => updateSet(ei, si, "reps", v)}
@@ -440,21 +444,22 @@ export default function WorkoutSessionScreen() {
                         placeholder={pSet ? String(pSet.reps) : "0"}
                         placeholderTextColor="rgba(255,255,255,0.2)"
                         style={{
-                          flex: 1, backgroundColor: s.done ? "rgba(200,232,76,0.07)" : "#111111",
+                          flex: 1, minWidth: 0,
+                          backgroundColor: s.done ? "rgba(200,232,76,0.07)" : "#111111",
                           borderRadius: 10, paddingVertical: 10, paddingHorizontal: 4,
                           textAlign: "center", fontFamily: "Manrope-Bold", fontSize: 14, color: text,
                           borderWidth: 1, borderColor: s.done ? "rgba(200,232,76,0.3)" : border,
                         }}
                       />
 
-                      {/* Done button (long-press to remove) */}
+                      {/* Done button — fixed, never shrinks */}
                       <Pressable
                         onPress={() => toggleDone(ei, si)}
                         onLongPress={() => {
                           if (ae.sets.length > 1) removeSet(ei, si);
                         }}
                         style={({ pressed }) => ({
-                          width: 32, height: 32, borderRadius: 16,
+                          width: 32, height: 32, borderRadius: 16, flexShrink: 0,
                           backgroundColor: s.done ? "#C8E84C" : "#1c1c1c",
                           borderWidth: 1.5,
                           borderColor: s.done ? "#C8E84C" : border,
