@@ -527,9 +527,11 @@ export function registerRoutes(app: Express) {
     let item = await storage.getFoodItemById(Number(req.params.id));
     if (!item) return res.sendStatus(404);
 
-    // If any of fiber / sodium / sugar are missing, try to enrich from OFF silently.
+    // If any optional nutrition fields are missing, try to enrich from OFF silently.
     // The enriched fields are persisted so subsequent opens are instant.
-    if (item.fiberG == null || item.sodiumMg == null || item.sugarG == null) {
+    if (item.fiberG == null || item.sodiumMg == null || item.sugarG == null ||
+        item.saturatedFatG == null || item.cholesterolMg == null || item.potassiumMg == null ||
+        item.calciumMg == null || item.ironMg == null) {
       try {
         const patch = await enrichMissingNutrition(item);
         if (Object.keys(patch).length > 0) {

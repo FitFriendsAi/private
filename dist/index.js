@@ -52890,6 +52890,14 @@ var foodItems = pgTable("food_items", {
   fiberG: real("fiber_g"),
   sodiumMg: real("sodium_mg"),
   sugarG: real("sugar_g"),
+  saturatedFatG: real("saturated_fat_g"),
+  transFatG: real("trans_fat_g"),
+  cholesterolMg: real("cholesterol_mg"),
+  potassiumMg: real("potassium_mg"),
+  calciumMg: real("calcium_mg"),
+  ironMg: real("iron_mg"),
+  vitaminDMcg: real("vitamin_d_mcg"),
+  vitaminCMg: real("vitamin_c_mg"),
   source: text("source").default("custom"),
   // openfoodfacts | custom | scanned
   createdAt: timestamp("created_at").defaultNow()
@@ -56865,9 +56873,17 @@ async function lookupBarcode(barcode) {
       proteinG: extractNutrient(n2, "proteins", "proteins_serving", scale) ?? 0,
       carbsG: extractNutrient(n2, "carbohydrates", "carbohydrates_serving", scale) ?? 0,
       fatG: extractNutrient(n2, "fat", "fat_serving", scale) ?? 0,
-      fiberG: extractNutrient(n2, "fiber", "fiber_serving", scale) ?? void 0,
-      sodiumMg: extractNutrient(n2, "sodium", "sodium_serving", scale) !== void 0 ? extractNutrient(n2, "sodium", "sodium_serving", scale) * 1e3 : void 0,
-      sugarG: extractNutrient(n2, "sugars", "sugars_serving", scale) ?? void 0
+      fiberG: extractNutrient(n2, "fiber", "fiber_serving", scale),
+      sodiumMg: extractOFFSodium(n2, scale),
+      sugarG: extractNutrient(n2, "sugars", "sugars_serving", scale),
+      saturatedFatG: extractNutrient(n2, "saturated-fat", "saturated-fat_serving", scale),
+      transFatG: extractNutrient(n2, "trans-fat", "trans-fat_serving", scale),
+      cholesterolMg: extractOFFCholesterol(n2, scale),
+      potassiumMg: extractOFFMineral(n2, "potassium", scale),
+      calciumMg: extractOFFMineral(n2, "calcium", scale),
+      ironMg: extractOFFMineral(n2, "iron", scale),
+      vitaminDMcg: extractOFFVitamin(n2, "vitamin-d", scale),
+      vitaminCMg: extractOFFVitamin(n2, "vitamin-c", scale)
     };
   } catch {
     return null;
@@ -56877,6 +56893,22 @@ function extractNutrient(n2, per100Key, servingKey, scale) {
   if (n2[servingKey] !== void 0) return Math.round(n2[servingKey] * 10) / 10;
   if (n2[per100Key] !== void 0) return Math.round(n2[per100Key] * scale * 10) / 10;
   return void 0;
+}
+function extractOFFSodium(n2, scale) {
+  const v2 = extractNutrient(n2, "sodium", "sodium_serving", scale);
+  return v2 !== void 0 ? v2 * 1e3 : void 0;
+}
+function extractOFFCholesterol(n2, scale) {
+  const v2 = extractNutrient(n2, "cholesterol", "cholesterol_serving", scale);
+  return v2 !== void 0 ? v2 * 1e3 : void 0;
+}
+function extractOFFMineral(n2, key, scale) {
+  const v2 = extractNutrient(n2, key, `${key}_serving`, scale);
+  return v2 !== void 0 ? v2 * 1e3 : void 0;
+}
+function extractOFFVitamin(n2, key, scale) {
+  const v2 = extractNutrient(n2, key, `${key}_serving`, scale);
+  return v2 !== void 0 ? Math.round(v2 * 1e3 * 10) / 10 : void 0;
 }
 function parseServingSize(serving) {
   if (!serving) return null;
@@ -57022,8 +57054,16 @@ async function searchBrandOFF(brandQuery, limit = 25) {
         carbsG: extractNutrient(n2, "carbohydrates", "carbohydrates_serving", scale) ?? 0,
         fatG: extractNutrient(n2, "fat", "fat_serving", scale) ?? 0,
         fiberG: extractNutrient(n2, "fiber", "fiber_serving", scale),
-        sodiumMg: extractNutrient(n2, "sodium", "sodium_serving", scale) !== void 0 ? extractNutrient(n2, "sodium", "sodium_serving", scale) * 1e3 : void 0,
-        sugarG: extractNutrient(n2, "sugars", "sugars_serving", scale)
+        sodiumMg: extractOFFSodium(n2, scale),
+        sugarG: extractNutrient(n2, "sugars", "sugars_serving", scale),
+        saturatedFatG: extractNutrient(n2, "saturated-fat", "saturated-fat_serving", scale),
+        transFatG: extractNutrient(n2, "trans-fat", "trans-fat_serving", scale),
+        cholesterolMg: extractOFFCholesterol(n2, scale),
+        potassiumMg: extractOFFMineral(n2, "potassium", scale),
+        calciumMg: extractOFFMineral(n2, "calcium", scale),
+        ironMg: extractOFFMineral(n2, "iron", scale),
+        vitaminDMcg: extractOFFVitamin(n2, "vitamin-d", scale),
+        vitaminCMg: extractOFFVitamin(n2, "vitamin-c", scale)
       };
     });
   } catch {
@@ -57086,9 +57126,20 @@ async function searchUSDA(query, limit = 20, brandedOnly = false) {
         proteinG: Math.round((nMap[1003] || 0) * scale * 10) / 10,
         carbsG: Math.round((nMap[1005] || 0) * scale * 10) / 10,
         fatG: Math.round((nMap[1004] || 0) * scale * 10) / 10,
-        fiberG: nMap[1079] ? Math.round(nMap[1079] * scale * 10) / 10 : void 0,
-        sodiumMg: nMap[1093] ? Math.round(nMap[1093] * scale) : void 0,
-        sugarG: nMap[2e3] ? Math.round(nMap[2e3] * scale * 10) / 10 : void 0
+        fiberG: nMap[1079] != null ? Math.round(nMap[1079] * scale * 10) / 10 : void 0,
+        sodiumMg: nMap[1093] != null ? Math.round(nMap[1093] * scale) : void 0,
+        sugarG: nMap[2e3] != null ? Math.round(nMap[2e3] * scale * 10) / 10 : void 0,
+        // USDA nutrient IDs: 1258=Sat fat, 1257=Trans fat, 1253=Cholesterol(mg),
+        // 1092=Potassium(mg), 1087=Calcium(mg), 1089=Iron(mg),
+        // 1114=Vit D(µg), 1162=Vit C(mg)
+        saturatedFatG: nMap[1258] != null ? Math.round(nMap[1258] * scale * 10) / 10 : void 0,
+        transFatG: nMap[1257] != null ? Math.round(nMap[1257] * scale * 10) / 10 : void 0,
+        cholesterolMg: nMap[1253] != null ? Math.round(nMap[1253] * scale) : void 0,
+        potassiumMg: nMap[1092] != null ? Math.round(nMap[1092] * scale) : void 0,
+        calciumMg: nMap[1087] != null ? Math.round(nMap[1087] * scale) : void 0,
+        ironMg: nMap[1089] != null ? Math.round(nMap[1089] * scale * 100) / 100 : void 0,
+        vitaminDMcg: nMap[1114] != null ? Math.round(nMap[1114] * scale * 10) / 10 : void 0,
+        vitaminCMg: nMap[1162] != null ? Math.round(nMap[1162] * scale * 10) / 10 : void 0
       };
     });
   } catch {
@@ -57132,16 +57183,35 @@ function mapOFFProducts(products) {
       carbsG: extractNutrient(n2, "carbohydrates", "carbohydrates_serving", scale) ?? 0,
       fatG: extractNutrient(n2, "fat", "fat_serving", scale) ?? 0,
       fiberG: extractNutrient(n2, "fiber", "fiber_serving", scale),
-      sodiumMg: extractNutrient(n2, "sodium", "sodium_serving", scale) !== void 0 ? extractNutrient(n2, "sodium", "sodium_serving", scale) * 1e3 : void 0,
-      sugarG: extractNutrient(n2, "sugars", "sugars_serving", scale)
+      sodiumMg: extractOFFSodium(n2, scale),
+      sugarG: extractNutrient(n2, "sugars", "sugars_serving", scale),
+      saturatedFatG: extractNutrient(n2, "saturated-fat", "saturated-fat_serving", scale),
+      transFatG: extractNutrient(n2, "trans-fat", "trans-fat_serving", scale),
+      cholesterolMg: extractOFFCholesterol(n2, scale),
+      potassiumMg: extractOFFMineral(n2, "potassium", scale),
+      calciumMg: extractOFFMineral(n2, "calcium", scale),
+      ironMg: extractOFFMineral(n2, "iron", scale),
+      vitaminDMcg: extractOFFVitamin(n2, "vitamin-d", scale),
+      vitaminCMg: extractOFFVitamin(n2, "vitamin-c", scale)
     };
   }).filter((x2) => x2 !== null);
 }
+var ENRICHABLE_FIELDS = [
+  "fiberG",
+  "sodiumMg",
+  "sugarG",
+  "saturatedFatG",
+  "transFatG",
+  "cholesterolMg",
+  "potassiumMg",
+  "calciumMg",
+  "ironMg",
+  "vitaminDMcg",
+  "vitaminCMg"
+];
 async function enrichMissingNutrition(item) {
-  const needsFiber = item.fiberG == null;
-  const needsSodium = item.sodiumMg == null;
-  const needsSugar = item.sugarG == null;
-  if (!needsFiber && !needsSodium && !needsSugar) return {};
+  const missing = ENRICHABLE_FIELDS.filter((f3) => item[f3] == null);
+  if (missing.length === 0) return {};
   let donor = null;
   if (item.barcode) {
     donor = await lookupBarcode(item.barcode);
@@ -57150,8 +57220,9 @@ async function enrichMissingNutrition(item) {
     const query = [item.name, item.brand].filter(Boolean).join(" ");
     const hits = await searchOFF(query, 10);
     if (hits.length) {
-      const nameLower = item.name.toLowerCase();
-      const nameWords = new Set(nameLower.replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter((w2) => w2.length > 2));
+      const nameWords = new Set(
+        item.name.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter((w2) => w2.length > 2)
+      );
       let bestScore = 0;
       for (const h2 of hits) {
         const hWords = new Set(h2.name.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter((w2) => w2.length > 2));
@@ -57168,9 +57239,10 @@ async function enrichMissingNutrition(item) {
   }
   if (!donor) return {};
   const patch = {};
-  if (needsFiber && donor.fiberG != null) patch.fiberG = donor.fiberG;
-  if (needsSodium && donor.sodiumMg != null) patch.sodiumMg = donor.sodiumMg;
-  if (needsSugar && donor.sugarG != null) patch.sugarG = donor.sugarG;
+  for (const f3 of missing) {
+    const val = donor[f3];
+    if (val != null) patch[f3] = val;
+  }
   return patch;
 }
 
@@ -57715,7 +57787,7 @@ function registerRoutes(app2) {
     if (!requireAuth(req, res)) return;
     let item = await storage.getFoodItemById(Number(req.params.id));
     if (!item) return res.sendStatus(404);
-    if (item.fiberG == null || item.sodiumMg == null || item.sugarG == null) {
+    if (item.fiberG == null || item.sodiumMg == null || item.sugarG == null || item.saturatedFatG == null || item.cholesterolMg == null || item.potassiumMg == null || item.calciumMg == null || item.ironMg == null) {
       try {
         const patch = await enrichMissingNutrition(item);
         if (Object.keys(patch).length > 0) {

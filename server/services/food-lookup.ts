@@ -20,6 +20,14 @@ export interface NutritionFacts {
   fiberG?: number;
   sodiumMg?: number;
   sugarG?: number;
+  saturatedFatG?: number;
+  transFatG?: number;
+  cholesterolMg?: number;
+  potassiumMg?: number;
+  calciumMg?: number;
+  ironMg?: number;
+  vitaminDMcg?: number;
+  vitaminCMg?: number;
 }
 
 export async function lookupBarcode(barcode: string): Promise<NutritionFacts | null> {
@@ -50,14 +58,20 @@ export async function lookupBarcode(barcode: string): Promise<NutritionFacts | n
       servingSizeG: servingG,
       servingUnit: p.serving_size || "100g",
       calories: Math.round(calories),
-      proteinG: extractNutrient(n, "proteins", "proteins_serving", scale) ?? 0,
-      carbsG: extractNutrient(n, "carbohydrates", "carbohydrates_serving", scale) ?? 0,
-      fatG: extractNutrient(n, "fat", "fat_serving", scale) ?? 0,
-      fiberG: extractNutrient(n, "fiber", "fiber_serving", scale) ?? undefined,
-      sodiumMg: extractNutrient(n, "sodium", "sodium_serving", scale) !== undefined
-        ? (extractNutrient(n, "sodium", "sodium_serving", scale)! * 1000)
-        : undefined,
-      sugarG: extractNutrient(n, "sugars", "sugars_serving", scale) ?? undefined,
+      proteinG:      extractNutrient(n, "proteins",         "proteins_serving",         scale) ?? 0,
+      carbsG:        extractNutrient(n, "carbohydrates",    "carbohydrates_serving",    scale) ?? 0,
+      fatG:          extractNutrient(n, "fat",              "fat_serving",              scale) ?? 0,
+      fiberG:        extractNutrient(n, "fiber",            "fiber_serving",            scale),
+      sodiumMg:      extractOFFSodium(n, scale),
+      sugarG:        extractNutrient(n, "sugars",           "sugars_serving",           scale),
+      saturatedFatG: extractNutrient(n, "saturated-fat",    "saturated-fat_serving",    scale),
+      transFatG:     extractNutrient(n, "trans-fat",        "trans-fat_serving",        scale),
+      cholesterolMg: extractOFFCholesterol(n, scale),
+      potassiumMg:   extractOFFMineral(n, "potassium", scale),
+      calciumMg:     extractOFFMineral(n, "calcium",   scale),
+      ironMg:        extractOFFMineral(n, "iron",      scale),
+      vitaminDMcg:   extractOFFVitamin(n, "vitamin-d", scale),
+      vitaminCMg:    extractOFFVitamin(n, "vitamin-c", scale),
     };
   } catch {
     return null;
@@ -71,8 +85,33 @@ function extractNutrient(
   scale: number
 ): number | undefined {
   if (n[servingKey] !== undefined) return Math.round(n[servingKey] * 10) / 10;
-  if (n[per100Key] !== undefined) return Math.round(n[per100Key] * scale * 10) / 10;
+  if (n[per100Key]  !== undefined) return Math.round(n[per100Key] * scale * 10) / 10;
   return undefined;
+}
+
+// OFF stores sodium in g (not mg) — convert to mg
+function extractOFFSodium(n: Record<string, any>, scale: number): number | undefined {
+  const v = extractNutrient(n, "sodium", "sodium_serving", scale);
+  return v !== undefined ? v * 1000 : undefined;
+}
+
+// OFF stores cholesterol in g — convert to mg
+function extractOFFCholesterol(n: Record<string, any>, scale: number): number | undefined {
+  const v = extractNutrient(n, "cholesterol", "cholesterol_serving", scale);
+  return v !== undefined ? v * 1000 : undefined;
+}
+
+// OFF stores potassium/calcium/iron in g — convert to mg
+function extractOFFMineral(n: Record<string, any>, key: string, scale: number): number | undefined {
+  const v = extractNutrient(n, key, `${key}_serving`, scale);
+  return v !== undefined ? v * 1000 : undefined;
+}
+
+// OFF stores vitamins in g — convert to µg (vitamin D) or mg (vitamin C)
+function extractOFFVitamin(n: Record<string, any>, key: string, scale: number): number | undefined {
+  const v = extractNutrient(n, key, `${key}_serving`, scale);
+  // Both vitamin-d (µg) and vitamin-c (mg) are stored in g in OFF → multiply by 1000
+  return v !== undefined ? Math.round(v * 1000 * 10) / 10 : undefined;
 }
 
 function parseServingSize(serving: string | undefined): number | null {
@@ -241,19 +280,26 @@ export async function searchBrandOFF(brandQuery: string, limit = 25): Promise<Nu
         const servingG = parseServingSize(p.serving_size) || 100;
         const scale = p.serving_size ? 1 : servingG / 100;
         return {
-          name:         p.product_name,
-          brand:        p.brands,
-          barcode:      p.code,
-          servingSizeG: servingG,
-          servingUnit:  p.serving_size || "100g",
-          calories:  Math.round(extractNutrient(n, "energy-kcal", "energy-kcal_serving", scale) ?? 0),
-          proteinG:  extractNutrient(n, "proteins",      "proteins_serving",      scale) ?? 0,
-          carbsG:    extractNutrient(n, "carbohydrates", "carbohydrates_serving", scale) ?? 0,
-          fatG:      extractNutrient(n, "fat",           "fat_serving",           scale) ?? 0,
-          fiberG:    extractNutrient(n, "fiber",         "fiber_serving",         scale),
-          sodiumMg:  extractNutrient(n, "sodium",        "sodium_serving",        scale) !== undefined
-            ? extractNutrient(n, "sodium", "sodium_serving", scale)! * 1000 : undefined,
-          sugarG:    extractNutrient(n, "sugars",        "sugars_serving",        scale),
+          name:          p.product_name,
+          brand:         p.brands,
+          barcode:       p.code,
+          servingSizeG:  servingG,
+          servingUnit:   p.serving_size || "100g",
+          calories:      Math.round(extractNutrient(n, "energy-kcal", "energy-kcal_serving", scale) ?? 0),
+          proteinG:      extractNutrient(n, "proteins",      "proteins_serving",      scale) ?? 0,
+          carbsG:        extractNutrient(n, "carbohydrates", "carbohydrates_serving", scale) ?? 0,
+          fatG:          extractNutrient(n, "fat",           "fat_serving",           scale) ?? 0,
+          fiberG:        extractNutrient(n, "fiber",         "fiber_serving",         scale),
+          sodiumMg:      extractOFFSodium(n, scale),
+          sugarG:        extractNutrient(n, "sugars",        "sugars_serving",        scale),
+          saturatedFatG: extractNutrient(n, "saturated-fat", "saturated-fat_serving", scale),
+          transFatG:     extractNutrient(n, "trans-fat",     "trans-fat_serving",     scale),
+          cholesterolMg: extractOFFCholesterol(n, scale),
+          potassiumMg:   extractOFFMineral(n, "potassium", scale),
+          calciumMg:     extractOFFMineral(n, "calcium",   scale),
+          ironMg:        extractOFFMineral(n, "iron",      scale),
+          vitaminDMcg:   extractOFFVitamin(n, "vitamin-d", scale),
+          vitaminCMg:    extractOFFVitamin(n, "vitamin-c", scale),
         } as NutritionFacts;
       });
   } catch {
@@ -340,13 +386,24 @@ export async function searchUSDA(query: string, limit = 20, brandedOnly = false)
           servingUnit: f.servingSize
             ? `${f.servingSize}${f.servingSizeUnit || "g"}`
             : "100g",
-          calories:  Math.round((nMap[1008] || 0) * scale),
-          proteinG:  Math.round((nMap[1003] || 0) * scale * 10) / 10,
-          carbsG:    Math.round((nMap[1005] || 0) * scale * 10) / 10,
-          fatG:      Math.round((nMap[1004] || 0) * scale * 10) / 10,
-          fiberG:    nMap[1079]  ? Math.round(nMap[1079]  * scale * 10) / 10 : undefined,
-          sodiumMg:  nMap[1093]  ? Math.round(nMap[1093]  * scale)            : undefined,
-          sugarG:    nMap[2000]  ? Math.round(nMap[2000]  * scale * 10) / 10  : undefined,
+          calories:       Math.round((nMap[1008] || 0) * scale),
+          proteinG:       Math.round((nMap[1003] || 0) * scale * 10) / 10,
+          carbsG:         Math.round((nMap[1005] || 0) * scale * 10) / 10,
+          fatG:           Math.round((nMap[1004] || 0) * scale * 10) / 10,
+          fiberG:         nMap[1079] != null ? Math.round(nMap[1079] * scale * 10) / 10  : undefined,
+          sodiumMg:       nMap[1093] != null ? Math.round(nMap[1093] * scale)             : undefined,
+          sugarG:         nMap[2000] != null ? Math.round(nMap[2000] * scale * 10) / 10  : undefined,
+          // USDA nutrient IDs: 1258=Sat fat, 1257=Trans fat, 1253=Cholesterol(mg),
+          // 1092=Potassium(mg), 1087=Calcium(mg), 1089=Iron(mg),
+          // 1114=Vit D(µg), 1162=Vit C(mg)
+          saturatedFatG:  nMap[1258] != null ? Math.round(nMap[1258] * scale * 10) / 10  : undefined,
+          transFatG:      nMap[1257] != null ? Math.round(nMap[1257] * scale * 10) / 10  : undefined,
+          cholesterolMg:  nMap[1253] != null ? Math.round(nMap[1253] * scale)             : undefined,
+          potassiumMg:    nMap[1092] != null ? Math.round(nMap[1092] * scale)             : undefined,
+          calciumMg:      nMap[1087] != null ? Math.round(nMap[1087] * scale)             : undefined,
+          ironMg:         nMap[1089] != null ? Math.round(nMap[1089] * scale * 100) / 100 : undefined,
+          vitaminDMcg:    nMap[1114] != null ? Math.round(nMap[1114] * scale * 10)  / 10  : undefined,
+          vitaminCMg:     nMap[1162] != null ? Math.round(nMap[1162] * scale * 10)  / 10  : undefined,
         } as NutritionFacts;
       });
   } catch {
@@ -416,37 +473,52 @@ function mapOFFProducts(products: any[]): NutritionFacts[] {
       if (!cals || cals <= 0) return null; // skip zero-calorie or missing entries
 
       return {
-        name:         p.product_name,
-        brand:        p.brands || undefined,
-        barcode:      p.code   || undefined,
-        servingSizeG: servingG,
-        servingUnit:  p.serving_size || "100g",
-        calories:     Math.round(cals),
-        proteinG:     extractNutrient(n, "proteins",      "proteins_serving",      scale) ?? 0,
-        carbsG:       extractNutrient(n, "carbohydrates", "carbohydrates_serving", scale) ?? 0,
-        fatG:         extractNutrient(n, "fat",           "fat_serving",           scale) ?? 0,
-        fiberG:       extractNutrient(n, "fiber",         "fiber_serving",         scale),
-        sodiumMg:     extractNutrient(n, "sodium",        "sodium_serving",        scale) !== undefined
-          ? extractNutrient(n, "sodium", "sodium_serving", scale)! * 1000 : undefined,
-        sugarG:       extractNutrient(n, "sugars",        "sugars_serving",        scale),
+        name:          p.product_name,
+        brand:         p.brands || undefined,
+        barcode:       p.code   || undefined,
+        servingSizeG:  servingG,
+        servingUnit:   p.serving_size || "100g",
+        calories:      Math.round(cals),
+        proteinG:      extractNutrient(n, "proteins",      "proteins_serving",      scale) ?? 0,
+        carbsG:        extractNutrient(n, "carbohydrates", "carbohydrates_serving", scale) ?? 0,
+        fatG:          extractNutrient(n, "fat",           "fat_serving",           scale) ?? 0,
+        fiberG:        extractNutrient(n, "fiber",         "fiber_serving",         scale),
+        sodiumMg:      extractOFFSodium(n, scale),
+        sugarG:        extractNutrient(n, "sugars",        "sugars_serving",        scale),
+        saturatedFatG: extractNutrient(n, "saturated-fat", "saturated-fat_serving", scale),
+        transFatG:     extractNutrient(n, "trans-fat",     "trans-fat_serving",     scale),
+        cholesterolMg: extractOFFCholesterol(n, scale),
+        potassiumMg:   extractOFFMineral(n, "potassium", scale),
+        calciumMg:     extractOFFMineral(n, "calcium",   scale),
+        ironMg:        extractOFFMineral(n, "iron",      scale),
+        vitaminDMcg:   extractOFFVitamin(n, "vitamin-d", scale),
+        vitaminCMg:    extractOFFVitamin(n, "vitamin-c", scale),
       };
     })
     .filter((x): x is NutritionFacts => x !== null);
 }
 
 // ── Nutrition enrichment ───────────────────────────────────────────────────────
-// Called when a cached food item is missing fiber / sodium / sugar.
+// Called when a cached food item is missing any optional nutrition fields.
 // Tries OFF barcode lookup first (exact match), then Meilisearch text search.
 // Returns only the fields that were missing so the caller can merge safely.
 
-export interface NutritionPatch {
-  fiberG?:   number;
-  sodiumMg?: number;
-  sugarG?:   number;
-}
+export type NutritionPatch = Partial<Pick<NutritionFacts,
+  "fiberG" | "sodiumMg" | "sugarG" |
+  "saturatedFatG" | "transFatG" | "cholesterolMg" |
+  "potassiumMg" | "calciumMg" | "ironMg" |
+  "vitaminDMcg" | "vitaminCMg"
+>>;
+
+const ENRICHABLE_FIELDS = [
+  "fiberG", "sodiumMg", "sugarG",
+  "saturatedFatG", "transFatG", "cholesterolMg",
+  "potassiumMg", "calciumMg", "ironMg",
+  "vitaminDMcg", "vitaminCMg",
+] as const;
 
 /**
- * Attempt to fill missing fiber / sodium / sugar for an existing food item.
+ * Attempt to fill all missing optional nutrition fields for a cached food item.
  *
  * Strategy:
  *   1. If the item has a barcode → exact OFF barcode lookup (authoritative)
@@ -459,31 +531,26 @@ export async function enrichMissingNutrition(item: {
   name: string;
   brand?: string | null;
   barcode?: string | null;
-  fiberG?: number | null;
-  sodiumMg?: number | null;
-  sugarG?: number | null;
-}): Promise<NutritionPatch> {
-  const needsFiber   = item.fiberG   == null;
-  const needsSodium  = item.sodiumMg == null;
-  const needsSugar   = item.sugarG   == null;
-  if (!needsFiber && !needsSodium && !needsSugar) return {}; // already complete
+} & Partial<Record<typeof ENRICHABLE_FIELDS[number], number | null>>): Promise<NutritionPatch> {
+  // Check if anything is actually missing
+  const missing = ENRICHABLE_FIELDS.filter(f => item[f] == null);
+  if (missing.length === 0) return {};
 
   let donor: NutritionFacts | null = null;
 
-  // ① Barcode lookup — most reliable
+  // ① Barcode lookup — most reliable (exact product match)
   if (item.barcode) {
     donor = await lookupBarcode(item.barcode);
   }
 
-  // ② Text search — find the best-matching OFF product
+  // ② Text search — find the best-matching OFF product by name + brand
   if (!donor) {
     const query = [item.name, item.brand].filter(Boolean).join(" ");
     const hits  = await searchOFF(query, 10);
     if (hits.length) {
-      // Pick the hit with the highest word overlap vs our cached name
-      const nameLower = item.name.toLowerCase();
-      const nameWords = new Set(nameLower.replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w.length > 2));
-
+      const nameWords = new Set(
+        item.name.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w.length > 2)
+      );
       let bestScore = 0;
       for (const h of hits) {
         const hWords = new Set(h.name.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w.length > 2));
@@ -492,16 +559,18 @@ export async function enrichMissingNutrition(item: {
         const score = nameWords.size ? common / Math.max(nameWords.size, hWords.size) : 0;
         if (score > bestScore) { bestScore = score; donor = h; }
       }
-      // Require at least 60% word overlap — don't patch with an unrelated food
+      // Require ≥60% word overlap — don't patch with an unrelated food
       if (bestScore < 0.6) donor = null;
     }
   }
 
   if (!donor) return {};
 
+  // Build patch: only fill fields that were null in the cached item
   const patch: NutritionPatch = {};
-  if (needsFiber   && donor.fiberG   != null) patch.fiberG   = donor.fiberG;
-  if (needsSodium  && donor.sodiumMg != null) patch.sodiumMg = donor.sodiumMg;
-  if (needsSugar   && donor.sugarG   != null) patch.sugarG   = donor.sugarG;
+  for (const f of missing) {
+    const val = donor[f];
+    if (val != null) (patch as any)[f] = val;
+  }
   return patch;
 }

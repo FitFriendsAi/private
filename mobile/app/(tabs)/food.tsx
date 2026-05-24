@@ -40,6 +40,14 @@ interface FoodItem {
   fiberG?: number;
   sodiumMg?: number;
   sugarG?: number;
+  saturatedFatG?: number;
+  transFatG?: number;
+  cholesterolMg?: number;
+  potassiumMg?: number;
+  calciumMg?: number;
+  ironMg?: number;
+  vitaminDMcg?: number;
+  vitaminCMg?: number;
   source?: string;
 }
 
@@ -638,12 +646,25 @@ export default function FoodScreen() {
           const c = Math.round(e.carbsActual);
           const f = Math.round(e.fatActual);
 
-          // Per-serving from item (if available)
-          const servSizeG  = item?.servingSizeG;
-          const servUnit   = item?.servingUnit ?? "g";
-          const fiberG     = item?.fiberG  != null ? Math.round(item.fiberG  * e.servings * 10) / 10 : null;
-          const sugarG     = item?.sugarG  != null ? Math.round(item.sugarG  * e.servings * 10) / 10 : null;
-          const sodiumMg   = item?.sodiumMg != null ? Math.round(item.sodiumMg * e.servings) : null;
+          // Per-serving from item (if available), scaled by number of servings logged
+          const servSizeG    = item?.servingSizeG;
+          const servUnit     = item?.servingUnit ?? "g";
+          const sv           = e.servings;
+          const scale1dp     = (v: number | undefined | null) => v != null ? Math.round(v * sv * 10) / 10 : null;
+          const scale0dp     = (v: number | undefined | null) => v != null ? Math.round(v * sv)          : null;
+          const scale2dp     = (v: number | undefined | null) => v != null ? Math.round(v * sv * 100) / 100 : null;
+
+          const fiberG       = scale1dp(item?.fiberG);
+          const sugarG       = scale1dp(item?.sugarG);
+          const sodiumMg     = scale0dp(item?.sodiumMg);
+          const saturatedFatG = scale1dp(item?.saturatedFatG);
+          const transFatG    = scale1dp(item?.transFatG);
+          const cholesterolMg = scale0dp(item?.cholesterolMg);
+          const potassiumMg  = scale0dp(item?.potassiumMg);
+          const calciumMg    = scale0dp(item?.calciumMg);
+          const ironMg       = scale2dp(item?.ironMg);
+          const vitaminDMcg  = scale1dp(item?.vitaminDMcg);
+          const vitaminCMg   = scale1dp(item?.vitaminCMg);
 
           const calFromP   = p * 4, calFromC = c * 4, calFromF = f * 9;
           const macroTotal = calFromP + calFromC + calFromF || 1;
@@ -705,18 +726,41 @@ export default function FoodScreen() {
                 {/* Additional nutrients */}
                 <View style={{ backgroundColor: card, borderRadius: 16, borderWidth: 1, borderColor: border, padding: 16, marginBottom: 8 }}>
                   <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: text, marginBottom: 4 }}>Nutrition Details</Text>
-                  {[
-                    { label: "Dietary Fiber", val: fiberG   != null ? `${fiberG}g`    : null, color: "#4ade80" },
-                    { label: "Total Sugars",  val: sugarG   != null ? `${sugarG}g`    : null, color: "#fb923c" },
-                    { label: "Sodium",        val: sodiumMg != null ? `${sodiumMg}mg` : null, color: "#94a3b8" },
-                  ].map((row) => (
-                    <View key={row.label} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 8, borderTopWidth: 1, borderTopColor: border }}>
-                      <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted }}>{row.label}</Text>
-                      <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: row.val != null ? row.color : muted }}>
-                        {row.val ?? "—"}
-                      </Text>
+                  {([
+                    // Fats
+                    { label: "Saturated Fat",  val: saturatedFatG != null ? `${saturatedFatG}g`  : null, color: "#f97316" },
+                    { label: "Trans Fat",      val: transFatG     != null ? `${transFatG}g`      : null, color: "#ef4444" },
+                    // Cholesterol & sodium
+                    { label: "Cholesterol",    val: cholesterolMg != null ? `${cholesterolMg}mg` : null, color: "#fbbf24" },
+                    { label: "Sodium",         val: sodiumMg      != null ? `${sodiumMg}mg`      : null, color: "#94a3b8" },
+                    // Carbs breakdown
+                    { label: "Dietary Fiber",  val: fiberG        != null ? `${fiberG}g`         : null, color: "#4ade80" },
+                    { label: "Total Sugars",   val: sugarG        != null ? `${sugarG}g`         : null, color: "#fb923c" },
+                    // Minerals
+                    { label: "Potassium",      val: potassiumMg   != null ? `${potassiumMg}mg`   : null, color: "#a78bfa" },
+                    { label: "Calcium",        val: calciumMg     != null ? `${calciumMg}mg`     : null, color: "#67e8f9" },
+                    { label: "Iron",           val: ironMg        != null ? `${ironMg}mg`        : null, color: "#f87171" },
+                    // Vitamins
+                    { label: "Vitamin D",      val: vitaminDMcg   != null ? `${vitaminDMcg}µg`   : null, color: "#fde68a" },
+                    { label: "Vitamin C",      val: vitaminCMg    != null ? `${vitaminCMg}mg`    : null, color: "#86efac" },
+                  ] as { label: string; val: string | null; color: string }[])
+                    .filter(row => row.val != null) // only show fields we actually have data for
+                    .map((row) => (
+                      <View key={row.label} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 8, borderTopWidth: 1, borderTopColor: border }}>
+                        <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted }}>{row.label}</Text>
+                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: row.color }}>
+                          {row.val}
+                        </Text>
+                      </View>
+                    ))
+                  }
+                  {/* If we have NO detail fields at all, show a placeholder */}
+                  {[saturatedFatG, transFatG, cholesterolMg, sodiumMg, fiberG, sugarG,
+                    potassiumMg, calciumMg, ironMg, vitaminDMcg, vitaminCMg].every(v => v == null) && (
+                    <View style={{ paddingVertical: 8, borderTopWidth: 1, borderTopColor: border, alignItems: "center" }}>
+                      <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted }}>No additional data available</Text>
                     </View>
-                  ))}
+                  )}
                 </View>
 
                 {/* Remove button */}

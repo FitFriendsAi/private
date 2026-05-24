@@ -83,6 +83,14 @@ export const foodItems = pgTable("food_items", {
   fiberG: real("fiber_g"),
   sodiumMg: real("sodium_mg"),
   sugarG: real("sugar_g"),
+  saturatedFatG: real("saturated_fat_g"),
+  transFatG: real("trans_fat_g"),
+  cholesterolMg: real("cholesterol_mg"),
+  potassiumMg: real("potassium_mg"),
+  calciumMg: real("calcium_mg"),
+  ironMg: real("iron_mg"),
+  vitaminDMcg: real("vitamin_d_mcg"),
+  vitaminCMg: real("vitamin_c_mg"),
   source: text("source").default("custom"), // openfoodfacts | custom | scanned
   createdAt: timestamp("created_at").defaultNow(),
 });
