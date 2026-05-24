@@ -57223,19 +57223,18 @@ function registerRoutes(app2) {
       if (ratio >= 0.5) return 2 + (1 - sim) * 0.9;
       return 3 + (1 - ratio) - nutritionScore(item) * 0.01;
     }
+    const filterWords = isRestaurant && foodOnlyQuery ? wordSet(foodOnlyQuery) : queryWords;
     function isRelevant(item) {
-      if (queryWords.size < 2) return true;
+      if (filterWords.size < 2) return true;
       if (matchedBrandNorm) {
         const b2 = normName(item.brand || item.brandOwner || "").replace(/\s/g, "");
-        if (b2 && (b2.includes(matchedBrandNorm.replace(/\s/g, "")) || matchedBrandNorm.replace(/\s/g, "").includes(b2))) return true;
+        const mn = matchedBrandNorm.replace(/\s/g, "");
+        if (b2 && (b2.includes(mn) || mn.includes(b2))) return true;
       }
-      const itemWords = /* @__PURE__ */ new Set([
-        ...wordSet(item.name || ""),
-        ...wordSet(item.brand || item.brandOwner || "")
-      ]);
+      const nameWords = wordSet(item.name || "");
       let matches = 0;
-      for (const w2 of queryWords) if (itemWords.has(w2)) matches++;
-      return matches / queryWords.size >= 0.5;
+      for (const w2 of filterWords) if (nameWords.has(w2)) matches++;
+      return matches / filterWords.size >= 0.5;
     }
     const local = await storage.searchFoodItems(q2);
     if (local.length >= 10) {

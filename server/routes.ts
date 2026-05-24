@@ -411,26 +411,33 @@ export function registerRoutes(app: Express) {
       return 3 + (1 - ratio) - nutritionScore(item) * 0.01;
     }
 
+    // For restaurant queries, filter on food-only words (brand stripped out).
+    // e.g. "chick-fil-a spicy chicken sandwich" → filterWords = {"spicy","chicken","sandwich"}
+    // This stops USDA stemming ("chicken"→"chick") from leaking "Chick Peas" into results.
+    const filterWords = (isRestaurant && foodOnlyQuery)
+      ? wordSet(foodOnlyQuery)
+      : queryWords;
+
     /**
-     * Relevance filter — require ≥ 50% of query words to match the item's
-     * name+brand. Single-word queries skip the filter entirely.
-     * This stops "Spicy Guacamole" appearing for "spicy chicken sandwich".
+     * Relevance filter — require ≥ 50% of filterWords to appear in item name+brand.
+     * Restaurant-brand items (e.g. Chick-fil-A) always pass so they are never dropped.
      */
     function isRelevant(item: any): boolean {
-      if (queryWords.size < 2) return true;
-      // Restaurant-brand items always pass regardless of word overlap
+      if (filterWords.size < 2) return true;
+
+      // Always keep items from the matched restaurant brand
       if (matchedBrandNorm) {
         const b = normName(item.brand || item.brandOwner || "").replace(/\s/g, "");
-        if (b && (b.includes(matchedBrandNorm.replace(/\s/g, "")) ||
-                  matchedBrandNorm.replace(/\s/g, "").includes(b))) return true;
+        const mn = matchedBrandNorm.replace(/\s/g, "");
+        if (b && (b.includes(mn) || mn.includes(b))) return true;
       }
-      const itemWords = new Set([
-        ...wordSet(item.name  || ""),
-        ...wordSet(item.brand || item.brandOwner || ""),
-      ]);
+
+      const nameWords = wordSet(item.name  || "");
+      // For relevance, only check the item NAME (not brand) so "Goya — Chick Peas" can't
+      // sneak through on a brand word accidentally overlapping a query word.
       let matches = 0;
-      for (const w of queryWords) if (itemWords.has(w)) matches++;
-      return (matches / queryWords.size) >= 0.5;
+      for (const w of filterWords) if (nameWords.has(w)) matches++;
+      return (matches / filterWords.size) >= 0.5;
     }
 
     // 1. Local DB cache — apply scoring even here (fixes unsorted early-return bug)
