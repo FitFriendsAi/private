@@ -4,7 +4,7 @@ import jwt from "jsonwebtoken";
 import { storage } from "./storage.js";
 import { hashPassword, verifyPassword } from "./auth.js";
 import { passport } from "./auth.js";
-import { lookupBarcode, searchFoodByName, searchUSDA, searchFatSecret, searchCalorieNinjas, searchBrandOFF } from "./services/food-lookup.js";
+import { lookupBarcode, searchFoodByName, searchOFF, searchUSDA, searchFatSecret, searchCalorieNinjas, searchBrandOFF } from "./services/food-lookup.js";
 import { parseNutritionLabel } from "./services/vision.js";
 import { calculateMacroTargets, getAgeFromBirthDate } from "./services/goal-engine.js";
 import { fetchExerciseGif } from "./services/exercise-gif.js";
@@ -453,14 +453,17 @@ export function registerRoutes(app: Express) {
     }
 
     // 2. All external APIs in parallel
-    // For restaurant queries use foodOnlyQuery (brand name stripped) for USDA/FatSecret
-    // to avoid noise like "Chick Peas" when searching "chick-fil-a chicken sandwich"
+    // For restaurant queries use foodOnlyQuery (brand name stripped) for USDA/CalorieNinjas
+    // to avoid noise like "Chick Peas" when searching "chick-fil-a chicken sandwich".
+    // OFF text search always gets the full query because it handles brand+food combos well.
     const apiQuery = isRestaurant ? foodOnlyQuery : q;
     const [usda, fs, cn, off, offBrand] = await Promise.all([
       searchUSDA(apiQuery, isRestaurant ? 40 : 25, isRestaurant),
-      searchFatSecret(q, 20),          // FatSecret handles brand names well, keep full query
+      searchFatSecret(q, 20),           // FatSecret handles brand names well — keep full query
       searchCalorieNinjas(apiQuery, 15),
-      (!isRestaurant && local.length < 3) ? searchFoodByName(q, 10) : Promise.resolve([]),
+      // OFF Meilisearch: always run with full query to fill any gaps in USDA/FatSecret;
+      // for restaurants also add a food-only search to catch items not indexed under the brand
+      searchOFF(q, isRestaurant ? 30 : 25),
       isRestaurant ? searchBrandOFF(brandSlug, 30) : Promise.resolve([]),
     ]);
 

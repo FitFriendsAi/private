@@ -358,7 +358,7 @@ function toTitleCase(str: string): string {
   return str.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
 }
 
-// ── Open Food Facts ───────────────────────────────────────────────────────────
+// ── Open Food Facts — legacy CGI text search (kept for barcode-adjacent lookups) ──
 export async function searchFoodByName(query: string, limit = 20): Promise<NutritionFacts[]> {
   try {
     const encoded = encodeURIComponent(query);
@@ -369,30 +369,67 @@ export async function searchFoodByName(query: string, limit = 20): Promise<Nutri
     if (!res.ok) return [];
     const data = await res.json() as any;
     const products = (data.products || []) as any[];
-    return products
-      .filter((p: any) => p.product_name && p.nutriments?.["energy-kcal_100g"])
-      .map((p: any) => {
-        const n = p.nutriments || {};
-        const servingG = parseServingSize(p.serving_size) || 100;
-        const scale = p.serving_size ? 1 : servingG / 100;
-        return {
-          name: p.product_name,
-          brand: p.brands,
-          barcode: p.code,
-          servingSizeG: servingG,
-          servingUnit: p.serving_size || "100g",
-          calories: Math.round(extractNutrient(n, "energy-kcal", "energy-kcal_serving", scale) ?? 0),
-          proteinG: extractNutrient(n, "proteins", "proteins_serving", scale) ?? 0,
-          carbsG: extractNutrient(n, "carbohydrates", "carbohydrates_serving", scale) ?? 0,
-          fatG: extractNutrient(n, "fat", "fat_serving", scale) ?? 0,
-          fiberG: extractNutrient(n, "fiber", "fiber_serving", scale),
-          sodiumMg: extractNutrient(n, "sodium", "sodium_serving", scale) !== undefined
-            ? extractNutrient(n, "sodium", "sodium_serving", scale)! * 1000
-            : undefined,
-          sugarG: extractNutrient(n, "sugars", "sugars_serving", scale),
-        } as NutritionFacts;
-      });
+    return mapOFFProducts(products);
   } catch {
     return [];
   }
+}
+
+// ── Open Food Facts — Meilisearch full-text search ────────────────────────────
+// Uses OFF's faster, higher-quality search index at search.openfoodfacts.org.
+// Returns products with complete nutrition data (calories, protein, carbs, fat),
+// including fiber, sodium, and sugar when available.
+// Called for every query (not just thin-cache fallback) so OFF supplements
+// any gaps left by USDA / FatSecret.
+export async function searchOFF(query: string, limit = 20): Promise<NutritionFacts[]> {
+  try {
+    const res = await fetchWithTimeout(
+      `https://search.openfoodfacts.org/search` +
+      `?q=${encodeURIComponent(query)}&page_size=${limit}` +
+      `&fields=product_name,brands,serving_size,nutriments,code`,
+      { headers: { "User-Agent": "FitCore/1.0 (fitness tracker)" } },
+      8000
+    );
+    if (!res.ok) return [];
+    const data = await res.json() as any;
+    // Meilisearch returns { hits: [...] } vs CGI's { products: [...] }
+    const products = (data.hits || []) as any[];
+    return mapOFFProducts(products);
+  } catch {
+    return [];
+  }
+}
+
+/** Shared OFF product → NutritionFacts mapper (works for both CGI and Meilisearch). */
+function mapOFFProducts(products: any[]): NutritionFacts[] {
+  return products
+    .filter((p: any) => p.product_name && (p.nutriments?.["energy-kcal_100g"] || p.nutriments?.["energy-kcal_serving"]))
+    .map((p: any): NutritionFacts | null => {
+      const n = p.nutriments || {};
+      const servingG   = parseServingSize(p.serving_size) || 100;
+      const hasServing = !!p.serving_size;
+      // scale=1 when the product has a serving size (use _serving keys directly);
+      // scale=servingG/100 when we only have per-100g values.
+      const scale = hasServing ? 1 : servingG / 100;
+
+      const cals = extractNutrient(n, "energy-kcal", "energy-kcal_serving", scale);
+      if (!cals || cals <= 0) return null; // skip zero-calorie or missing entries
+
+      return {
+        name:         p.product_name,
+        brand:        p.brands || undefined,
+        barcode:      p.code   || undefined,
+        servingSizeG: servingG,
+        servingUnit:  p.serving_size || "100g",
+        calories:     Math.round(cals),
+        proteinG:     extractNutrient(n, "proteins",      "proteins_serving",      scale) ?? 0,
+        carbsG:       extractNutrient(n, "carbohydrates", "carbohydrates_serving", scale) ?? 0,
+        fatG:         extractNutrient(n, "fat",           "fat_serving",           scale) ?? 0,
+        fiberG:       extractNutrient(n, "fiber",         "fiber_serving",         scale),
+        sodiumMg:     extractNutrient(n, "sodium",        "sodium_serving",        scale) !== undefined
+          ? extractNutrient(n, "sodium", "sodium_serving", scale)! * 1000 : undefined,
+        sugarG:       extractNutrient(n, "sugars",        "sugars_serving",        scale),
+      };
+    })
+    .filter((x): x is NutritionFacts => x !== null);
 }
