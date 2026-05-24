@@ -322,17 +322,7 @@ export function registerRoutes(app: Express) {
       return results;
     }
 
-    // 1. Local DB cache (previous searches / custom items)
-    const local = await storage.searchFoodItems(q);
-    if (local.length >= 10) return res.json(local);
-
-    // 2. All external APIs in parallel
-    //    CalorieNinjas + USDA + OFF → full nutrition panels
-    //    FatSecret → best name coverage, macros only on free tier
-    //
-    //    Auto-detect restaurant queries. When a known chain is in the query,
-    //    extract just the brand name for the OFF brand-page lookup (passing the
-    //    full query "chick-fil-a chicken biscuit" as a brand slug returns nothing).
+    // ── Restaurant brand detection (needed for scoring + API selection) ─────────
     const RESTAURANT_BRANDS: [RegExp, string][] = [
       [/chick-fil-a/i,   "chick-fil-a"],
       [/mcdonald/i,      "mcdonalds"],
@@ -360,10 +350,83 @@ export function registerRoutes(app: Express) {
       [/olive garden/i,  "olive-garden"],
       [/red lobster/i,   "red-lobster"],
     ];
-    const matchedBrand = RESTAURANT_BRANDS.find(([rx]) => rx.test(q));
-    const isRestaurant = typeFilter === "restaurant" || !!matchedBrand;
-    const brandSlug    = matchedBrand?.[1] ?? q; // use clean slug, not full query
+    const matchedBrand    = RESTAURANT_BRANDS.find(([rx]) => rx.test(q));
+    const isRestaurant    = typeFilter === "restaurant" || !!matchedBrand;
+    const brandSlug       = matchedBrand?.[1] ?? q;
+    // Normalized brand slug for item-level brand matching (e.g. "chickfila")
+    const matchedBrandNorm = matchedBrand ? normName(matchedBrand[1]) : null;
 
+    // ── Scoring helpers (defined early so they can also rank local-cache results) ─
+    const queryWords = wordSet(q);
+
+    /**
+     * Relevance score — lower = better (used for sort).
+     *
+     * Tier -1 (score -1 to 0): item's brand matches the restaurant named in query
+     *                           e.g. searching "chick-fil-a sandwich" → Chick-fil-A items first
+     * Tier  0 (score  0 to 1): ALL query words found in item brand+name
+     * Tier  1 (score  1 to 2): ≥ 67% of query words matched
+     * Tier  2 (score  2 to 3): ≥ 50% of query words matched
+     * Tier  3 (score  3 to 4): < 50% matched (barely relevant)
+     */
+    function relevanceScore(item: any): number {
+      const brandNorm = normName(item.brand || item.brandOwner || "");
+      const nameNorm  = normName(item.name  || "");
+      const qNorm     = normName(q);
+      const qWords    = wordSet(qNorm);
+      const itemWords = new Set([...wordSet(brandNorm), ...wordSet(nameNorm)]);
+      const sim       = nameSimilarity(brandNorm + " " + nameNorm, qNorm);
+
+      // Tier -1: restaurant brand exact match — always first
+      if (matchedBrandNorm && brandNorm) {
+        if (brandNorm.replace(/\s/g, "").includes(matchedBrandNorm.replace(/\s/g, "")) ||
+            matchedBrandNorm.replace(/\s/g, "").includes(brandNorm.replace(/\s/g, ""))) {
+          return -1 + (1 - sim) * 0.9;
+        }
+      }
+
+      let matches = 0;
+      for (const w of qWords) if (itemWords.has(w)) matches++;
+      const ratio = qWords.size > 0 ? matches / qWords.size : 0;
+
+      if (ratio >= 1.0)  return 0 + (1 - sim) * 0.9;
+      if (ratio >= 0.67) return 1 + (1 - sim) * 0.9;
+      if (ratio >= 0.5)  return 2 + (1 - sim) * 0.9;
+      return 3 + (1 - ratio) - nutritionScore(item) * 0.01;
+    }
+
+    /**
+     * Relevance filter — require ≥ 50% of query words to match the item's
+     * name+brand. Single-word queries skip the filter entirely.
+     * This stops "Spicy Guacamole" appearing for "spicy chicken sandwich".
+     */
+    function isRelevant(item: any): boolean {
+      if (queryWords.size < 2) return true;
+      // Restaurant-brand items always pass regardless of word overlap
+      if (matchedBrandNorm) {
+        const b = normName(item.brand || item.brandOwner || "").replace(/\s/g, "");
+        if (b && (b.includes(matchedBrandNorm.replace(/\s/g, "")) ||
+                  matchedBrandNorm.replace(/\s/g, "").includes(b))) return true;
+      }
+      const itemWords = new Set([
+        ...wordSet(item.name  || ""),
+        ...wordSet(item.brand || item.brandOwner || ""),
+      ]);
+      let matches = 0;
+      for (const w of queryWords) if (itemWords.has(w)) matches++;
+      return (matches / queryWords.size) >= 0.5;
+    }
+
+    // 1. Local DB cache — apply scoring even here (fixes unsorted early-return bug)
+    const local = await storage.searchFoodItems(q);
+    if (local.length >= 10) {
+      const scored = local
+        .filter(isRelevant)
+        .sort((a: any, b: any) => relevanceScore(a) - relevanceScore(b));
+      return res.json(scored.slice(0, 30));
+    }
+
+    // 2. All external APIs in parallel
     const [usda, fs, cn, off, offBrand] = await Promise.all([
       searchUSDA(q, isRestaurant ? 40 : 25, isRestaurant),
       searchFatSecret(q, 20),
@@ -374,59 +437,14 @@ export function registerRoutes(app: Express) {
 
     console.log(`[food/search] q="${q}" isRestaurant=${isRestaurant} brandSlug="${brandSlug}" | usda=${usda.length} fs=${fs.length} cn=${cn.length} off=${off.length} offBrand=${offBrand.length} local=${local.length}`);
 
-    // 3. Fuse all sources into deduplicated, enriched results.
-    //    Order matters: full-nutrition sources first so they become the base
-    //    when the fuzzy grouper picks the "best" representative.
+    // 3. Fuse all sources — full-nutrition sources first so they become the base
     const allExternal = [...usda, ...cn, ...off, ...offBrand, ...fs];
     const fused = fuseItems([...local, ...allExternal]);
 
-    // 3.5 — Relevance filter: drop items with zero word overlap with the query.
-    //    Prevents USDA "chick peas" results flooding a "chick-fil-a chicken biscuit" search.
-    //    Skip the filter if the query is very short (≤2 significant words) to avoid
-    //    over-filtering single-ingredient searches like "rice" or "egg".
-    const queryWords = wordSet(q);
-    const relevant = queryWords.size >= 2
-      ? fused.filter(item => {
-          const itemWords = new Set([
-            ...wordSet(item.name  || ""),
-            ...wordSet(item.brand || item.brandOwner || ""),
-          ]);
-          for (const w of queryWords) if (itemWords.has(w)) return true;
-          return false;
-        })
-      : fused;
-
-    // 4. Relevance sort — scored by fraction of query words matched.
-    //
-    //    Tier 0 (score 0–1):  ALL query words found in item's brand+name
-    //                         e.g. "chickfila" + "chicken" + "biscuit" all present
-    //    Tier 1 (score 1–2):  ≥ 67% of query words matched
-    //    Tier 2 (score 2–3):  ≥ 50% matched
-    //    Tier 3 (score 3–4):  < 50% matched (passed filter but weak match)
-    //
-    //    Within each tier, Jaccard similarity is used as a tiebreaker so the
-    //    item whose name/brand most closely mirrors the full query ranks first.
-    function relevanceScore(item: any): number {
-      const brandNorm = normName(item.brand || item.brandOwner || "");
-      const nameNorm  = normName(item.name  || "");
-      const qNorm     = normName(q);
-      const qWords    = wordSet(qNorm);
-      const itemWords = new Set([...wordSet(brandNorm), ...wordSet(nameNorm)]);
-
-      // Count how many query words are present in this item
-      let matches = 0;
-      for (const w of qWords) if (itemWords.has(w)) matches++;
-      const ratio = qWords.size > 0 ? matches / qWords.size : 0;
-
-      // Similarity tiebreaker within each tier (higher sim → lower score → ranks first)
-      const sim = nameSimilarity(brandNorm + " " + nameNorm, qNorm);
-
-      if (ratio >= 1.0)  return 0 + (1 - sim) * 0.9;   // all words matched
-      if (ratio >= 0.67) return 1 + (1 - sim) * 0.9;   // most words matched
-      if (ratio >= 0.5)  return 2 + (1 - sim) * 0.9;   // half matched
-      return 3 + (1 - ratio) - nutritionScore(item) * 0.01; // few matched
-    }
-    relevant.sort((a, b) => relevanceScore(a) - relevanceScore(b));
+    // 4. Filter (≥50% word match) then sort by relevance score
+    const relevant = fused
+      .filter(isRelevant)
+      .sort((a, b) => relevanceScore(a) - relevanceScore(b));
 
     res.json(relevant.slice(0, 30));
   });

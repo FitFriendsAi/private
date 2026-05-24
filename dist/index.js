@@ -57161,8 +57161,6 @@ function registerRoutes(app2) {
       }
       return results;
     }
-    const local = await storage.searchFoodItems(q2);
-    if (local.length >= 10) return res.json(local);
     const RESTAURANT_BRANDS = [
       [/chick-fil-a/i, "chick-fil-a"],
       [/mcdonald/i, "mcdonalds"],
@@ -57193,6 +57191,47 @@ function registerRoutes(app2) {
     const matchedBrand = RESTAURANT_BRANDS.find(([rx]) => rx.test(q2));
     const isRestaurant = typeFilter === "restaurant" || !!matchedBrand;
     const brandSlug = matchedBrand?.[1] ?? q2;
+    const matchedBrandNorm = matchedBrand ? normName(matchedBrand[1]) : null;
+    const queryWords = wordSet(q2);
+    function relevanceScore(item) {
+      const brandNorm = normName(item.brand || item.brandOwner || "");
+      const nameNorm = normName(item.name || "");
+      const qNorm = normName(q2);
+      const qWords = wordSet(qNorm);
+      const itemWords = /* @__PURE__ */ new Set([...wordSet(brandNorm), ...wordSet(nameNorm)]);
+      const sim = nameSimilarity(brandNorm + " " + nameNorm, qNorm);
+      if (matchedBrandNorm && brandNorm) {
+        if (brandNorm.replace(/\s/g, "").includes(matchedBrandNorm.replace(/\s/g, "")) || matchedBrandNorm.replace(/\s/g, "").includes(brandNorm.replace(/\s/g, ""))) {
+          return -1 + (1 - sim) * 0.9;
+        }
+      }
+      let matches = 0;
+      for (const w2 of qWords) if (itemWords.has(w2)) matches++;
+      const ratio = qWords.size > 0 ? matches / qWords.size : 0;
+      if (ratio >= 1) return 0 + (1 - sim) * 0.9;
+      if (ratio >= 0.67) return 1 + (1 - sim) * 0.9;
+      if (ratio >= 0.5) return 2 + (1 - sim) * 0.9;
+      return 3 + (1 - ratio) - nutritionScore(item) * 0.01;
+    }
+    function isRelevant(item) {
+      if (queryWords.size < 2) return true;
+      if (matchedBrandNorm) {
+        const b2 = normName(item.brand || item.brandOwner || "").replace(/\s/g, "");
+        if (b2 && (b2.includes(matchedBrandNorm.replace(/\s/g, "")) || matchedBrandNorm.replace(/\s/g, "").includes(b2))) return true;
+      }
+      const itemWords = /* @__PURE__ */ new Set([
+        ...wordSet(item.name || ""),
+        ...wordSet(item.brand || item.brandOwner || "")
+      ]);
+      let matches = 0;
+      for (const w2 of queryWords) if (itemWords.has(w2)) matches++;
+      return matches / queryWords.size >= 0.5;
+    }
+    const local = await storage.searchFoodItems(q2);
+    if (local.length >= 10) {
+      const scored = local.filter(isRelevant).sort((a2, b2) => relevanceScore(a2) - relevanceScore(b2));
+      return res.json(scored.slice(0, 30));
+    }
     const [usda, fs2, cn, off, offBrand] = await Promise.all([
       searchUSDA(q2, isRestaurant ? 40 : 25, isRestaurant),
       searchFatSecret(q2, 20),
@@ -57203,31 +57242,7 @@ function registerRoutes(app2) {
     console.log(`[food/search] q="${q2}" isRestaurant=${isRestaurant} brandSlug="${brandSlug}" | usda=${usda.length} fs=${fs2.length} cn=${cn.length} off=${off.length} offBrand=${offBrand.length} local=${local.length}`);
     const allExternal = [...usda, ...cn, ...off, ...offBrand, ...fs2];
     const fused = fuseItems([...local, ...allExternal]);
-    const queryWords = wordSet(q2);
-    const relevant = queryWords.size >= 2 ? fused.filter((item) => {
-      const itemWords = /* @__PURE__ */ new Set([
-        ...wordSet(item.name || ""),
-        ...wordSet(item.brand || item.brandOwner || "")
-      ]);
-      for (const w2 of queryWords) if (itemWords.has(w2)) return true;
-      return false;
-    }) : fused;
-    function relevanceScore(item) {
-      const brandNorm = normName(item.brand || item.brandOwner || "");
-      const nameNorm = normName(item.name || "");
-      const qNorm = normName(q2);
-      const qWords = wordSet(qNorm);
-      const itemWords = /* @__PURE__ */ new Set([...wordSet(brandNorm), ...wordSet(nameNorm)]);
-      let matches = 0;
-      for (const w2 of qWords) if (itemWords.has(w2)) matches++;
-      const ratio = qWords.size > 0 ? matches / qWords.size : 0;
-      const sim = nameSimilarity(brandNorm + " " + nameNorm, qNorm);
-      if (ratio >= 1) return 0 + (1 - sim) * 0.9;
-      if (ratio >= 0.67) return 1 + (1 - sim) * 0.9;
-      if (ratio >= 0.5) return 2 + (1 - sim) * 0.9;
-      return 3 + (1 - ratio) - nutritionScore(item) * 0.01;
-    }
-    relevant.sort((a2, b2) => relevanceScore(a2) - relevanceScore(b2));
+    const relevant = fused.filter(isRelevant).sort((a2, b2) => relevanceScore(a2) - relevanceScore(b2));
     res.json(relevant.slice(0, 30));
   });
   app2.get("/api/food/barcode/:code", async (req, res) => {
