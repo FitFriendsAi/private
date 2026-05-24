@@ -425,10 +425,10 @@ export default function WorkoutSessionScreen() {
                         placeholder={pSet ? String(gramsToLbs(pSet.weightGrams)) : "0"}
                         placeholderTextColor="rgba(255,255,255,0.2)"
                         style={{
-                          flex: 1, backgroundColor: s.done ? "rgba(34,197,94,0.07)" : "#111111",
+                          flex: 1, backgroundColor: s.done ? "rgba(200,232,76,0.07)" : "#111111",
                           borderRadius: 10, paddingVertical: 10, paddingHorizontal: 4,
                           textAlign: "center", fontFamily: "Manrope-Bold", fontSize: 14, color: text,
-                          borderWidth: 1, borderColor: s.done ? "rgba(34,197,94,0.25)" : border,
+                          borderWidth: 1, borderColor: s.done ? "rgba(200,232,76,0.3)" : border,
                         }}
                       />
 
@@ -440,10 +440,10 @@ export default function WorkoutSessionScreen() {
                         placeholder={pSet ? String(pSet.reps) : "0"}
                         placeholderTextColor="rgba(255,255,255,0.2)"
                         style={{
-                          flex: 1, backgroundColor: s.done ? "rgba(34,197,94,0.07)" : "#111111",
+                          flex: 1, backgroundColor: s.done ? "rgba(200,232,76,0.07)" : "#111111",
                           borderRadius: 10, paddingVertical: 10, paddingHorizontal: 4,
                           textAlign: "center", fontFamily: "Manrope-Bold", fontSize: 14, color: text,
-                          borderWidth: 1, borderColor: s.done ? "rgba(34,197,94,0.25)" : border,
+                          borderWidth: 1, borderColor: s.done ? "rgba(200,232,76,0.3)" : border,
                         }}
                       />
 
