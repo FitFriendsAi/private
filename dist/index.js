@@ -57218,29 +57218,53 @@ async function enrichMissingNutrition(item) {
   }
   if (!donor) {
     const query = [item.name, item.brand].filter(Boolean).join(" ");
-    const hits = await searchOFF(query, 10);
+    const hits = await searchOFF(query, 15);
     if (hits.length) {
-      const nameWords = new Set(
-        item.name.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter((w2) => w2.length > 2)
-      );
+      const toWords = (s2) => s2.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter((w2) => w2.length > 2);
+      const itemWords = /* @__PURE__ */ new Set([
+        ...toWords(item.name),
+        ...toWords(item.brand ?? "")
+      ]);
       let bestScore = 0;
       for (const h2 of hits) {
-        const hWords = new Set(h2.name.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter((w2) => w2.length > 2));
+        const hWords = /* @__PURE__ */ new Set([
+          ...toWords(h2.name),
+          ...toWords(h2.brand ?? "")
+        ]);
         let common = 0;
-        for (const w2 of nameWords) if (hWords.has(w2)) common++;
-        const score = nameWords.size ? common / Math.max(nameWords.size, hWords.size) : 0;
+        for (const w2 of itemWords) if (hWords.has(w2)) common++;
+        const score = itemWords.size ? common / Math.max(itemWords.size, hWords.size) : 0;
         if (score > bestScore) {
           bestScore = score;
           donor = h2;
         }
       }
-      if (bestScore < 0.6) donor = null;
+      if (bestScore < 0.5) donor = null;
     }
   }
   if (!donor) return {};
+  let scaledDonor = donor;
+  if (item.servingSizeG && donor.servingSizeG && Math.abs(donor.servingSizeG - item.servingSizeG) / item.servingSizeG > 0.15) {
+    const ratio = item.servingSizeG / donor.servingSizeG;
+    const rescale = (v2) => v2 != null ? Math.round(v2 * ratio * 10) / 10 : void 0;
+    scaledDonor = {
+      ...donor,
+      fiberG: rescale(donor.fiberG),
+      sodiumMg: donor.sodiumMg != null ? Math.round(donor.sodiumMg * ratio) : void 0,
+      sugarG: rescale(donor.sugarG),
+      saturatedFatG: rescale(donor.saturatedFatG),
+      transFatG: rescale(donor.transFatG),
+      cholesterolMg: donor.cholesterolMg != null ? Math.round(donor.cholesterolMg * ratio) : void 0,
+      potassiumMg: donor.potassiumMg != null ? Math.round(donor.potassiumMg * ratio) : void 0,
+      calciumMg: donor.calciumMg != null ? Math.round(donor.calciumMg * ratio) : void 0,
+      ironMg: rescale(donor.ironMg),
+      vitaminDMcg: rescale(donor.vitaminDMcg),
+      vitaminCMg: rescale(donor.vitaminCMg)
+    };
+  }
   const patch = {};
   for (const f3 of missing) {
-    const val = donor[f3];
+    const val = scaledDonor[f3];
     if (val != null) patch[f3] = val;
   }
   return patch;

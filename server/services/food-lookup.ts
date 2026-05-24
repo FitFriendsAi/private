@@ -531,6 +531,7 @@ export async function enrichMissingNutrition(item: {
   name: string;
   brand?: string | null;
   barcode?: string | null;
+  servingSizeG?: number | null;
 } & Partial<Record<typeof ENRICHABLE_FIELDS[number], number | null>>): Promise<NutritionPatch> {
   // Check if anything is actually missing
   const missing = ENRICHABLE_FIELDS.filter(f => item[f] == null);
@@ -546,30 +547,69 @@ export async function enrichMissingNutrition(item: {
   // ② Text search — find the best-matching OFF product by name + brand
   if (!donor) {
     const query = [item.name, item.brand].filter(Boolean).join(" ");
-    const hits  = await searchOFF(query, 10);
+    const hits  = await searchOFF(query, 15);
     if (hits.length) {
-      const nameWords = new Set(
-        item.name.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w.length > 2)
-      );
+      // Include BOTH name and brand words so "Vanilla Iced Coffee" + brand "Chick-fil-A"
+      // correctly matches "Chick-Fil-A, Cold Brew Iced Coffee, Vanilla, Large" from OFF.
+      // Without brand, overlap = 3/8 = 37% (fails). With brand = 5/8 = 62% (passes).
+      const toWords = (s: string) =>
+        s.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w.length > 2);
+      const itemWords = new Set([
+        ...toWords(item.name),
+        ...toWords(item.brand ?? ""),
+      ]);
+
       let bestScore = 0;
       for (const h of hits) {
-        const hWords = new Set(h.name.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w.length > 2));
+        // Compare against OFF hit name + brand combined
+        const hWords = new Set([
+          ...toWords(h.name),
+          ...toWords(h.brand ?? ""),
+        ]);
         let common = 0;
-        for (const w of nameWords) if (hWords.has(w)) common++;
-        const score = nameWords.size ? common / Math.max(nameWords.size, hWords.size) : 0;
+        for (const w of itemWords) if (hWords.has(w)) common++;
+        const score = itemWords.size ? common / Math.max(itemWords.size, hWords.size) : 0;
         if (score > bestScore) { bestScore = score; donor = h; }
       }
-      // Require ≥60% word overlap — don't patch with an unrelated food
-      if (bestScore < 0.6) donor = null;
+      // Require ≥50% word overlap (relaxed slightly from 60% since brand words
+      // are now included on both sides, making the denominator larger)
+      if (bestScore < 0.5) donor = null;
     }
   }
 
   if (!donor) return {};
 
+  // If the donor's serving size doesn't match our item's (e.g. OFF returned per-100g
+  // values and our item has a real serving like 360g), rescale the donor's nutrient
+  // values so they correspond to our item's serving size before patching.
+  let scaledDonor = donor;
+  if (
+    item.servingSizeG &&
+    donor.servingSizeG &&
+    Math.abs(donor.servingSizeG - item.servingSizeG) / item.servingSizeG > 0.15
+  ) {
+    const ratio = item.servingSizeG / donor.servingSizeG;
+    const rescale = (v: number | undefined) => v != null ? Math.round(v * ratio * 10) / 10 : undefined;
+    scaledDonor = {
+      ...donor,
+      fiberG:        rescale(donor.fiberG),
+      sodiumMg:      donor.sodiumMg != null ? Math.round(donor.sodiumMg * ratio) : undefined,
+      sugarG:        rescale(donor.sugarG),
+      saturatedFatG: rescale(donor.saturatedFatG),
+      transFatG:     rescale(donor.transFatG),
+      cholesterolMg: donor.cholesterolMg != null ? Math.round(donor.cholesterolMg * ratio) : undefined,
+      potassiumMg:   donor.potassiumMg   != null ? Math.round(donor.potassiumMg   * ratio) : undefined,
+      calciumMg:     donor.calciumMg     != null ? Math.round(donor.calciumMg     * ratio) : undefined,
+      ironMg:        rescale(donor.ironMg),
+      vitaminDMcg:   rescale(donor.vitaminDMcg),
+      vitaminCMg:    rescale(donor.vitaminCMg),
+    };
+  }
+
   // Build patch: only fill fields that were null in the cached item
   const patch: NutritionPatch = {};
   for (const f of missing) {
-    const val = donor[f];
+    const val = (scaledDonor as any)[f];
     if (val != null) (patch as any)[f] = val;
   }
   return patch;
