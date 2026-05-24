@@ -56509,11 +56509,12 @@ function parseServingSize(serving) {
   if (ozMatch) return parseFloat(ozMatch[1]) * 28.35;
   return null;
 }
-var FS_CLIENT_ID = process.env.FATSECRET_CLIENT_ID?.trim();
-var FS_CLIENT_SECRET = process.env.FATSECRET_CLIENT_SECRET?.trim();
 var _fsToken = null;
 var _fsTokenExpiry = 0;
 async function getFatSecretToken() {
+  const FS_CLIENT_ID = process.env.FATSECRET_CLIENT_ID?.trim();
+  const FS_CLIENT_SECRET = process.env.FATSECRET_CLIENT_SECRET?.trim();
+  console.log(`[FatSecret] credentials check: id=${FS_CLIENT_ID ? "SET(" + FS_CLIENT_ID.slice(0, 6) + "...)" : "MISSING"} secret=${FS_CLIENT_SECRET ? "SET" : "MISSING"}`);
   if (!FS_CLIENT_ID || !FS_CLIENT_SECRET) {
     console.warn("[FatSecret] credentials missing \u2014 set FATSECRET_CLIENT_ID and FATSECRET_CLIENT_SECRET");
     return null;
@@ -56587,8 +56588,8 @@ async function searchFatSecret(query, limit = 25) {
     return [];
   }
 }
-var CN_KEY = process.env.CALORIENINJA_API_KEY;
 async function searchCalorieNinjas(query, limit = 20) {
+  const CN_KEY = process.env.CALORIENINJA_API_KEY?.trim();
   if (!CN_KEY) return [];
   try {
     const res = await fetchWithTimeout(
@@ -56650,7 +56651,9 @@ async function searchBrandOFF(brandQuery, limit = 25) {
     return [];
   }
 }
-var USDA_KEY = process.env.USDA_API_KEY || "DEMO_KEY";
+function getUsdaKey() {
+  return process.env.USDA_API_KEY?.trim() || "DEMO_KEY";
+}
 function apostropheVariant(q2) {
   if (q2.includes("'") || q2.includes("\u2019")) return null;
   const variant = q2.replace(/([a-zA-Z]+)s\b/g, "$1's");
@@ -56659,7 +56662,7 @@ function apostropheVariant(q2) {
 async function fetchUSDA(query, limit, brandedOnly = false) {
   try {
     const dataType = brandedOnly ? "Branded" : "Branded,Survey%20(FNDDS)";
-    const url = `https://api.nal.usda.gov/fdc/v1/foods/search?query=${encodeURIComponent(query)}&pageSize=${limit}&api_key=${USDA_KEY}&dataType=${dataType}`;
+    const url = `https://api.nal.usda.gov/fdc/v1/foods/search?query=${encodeURIComponent(query)}&pageSize=${limit}&api_key=${getUsdaKey()}&dataType=${dataType}`;
     const res = await fetchWithTimeout(url, { headers: { "Accept": "application/json" } });
     if (!res.ok) return [];
     const data = await res.json();

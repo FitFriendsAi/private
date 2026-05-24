@@ -89,13 +89,16 @@ function parseServingSize(serving: string | undefined): number | null {
 // ── FatSecret ─────────────────────────────────────────────────────────────────
 // Comprehensive food + restaurant database. Free tier at platform.fatsecret.com
 // OAuth 2.0 client credentials — token cached in memory, auto-refreshed.
-const FS_CLIENT_ID     = process.env.FATSECRET_CLIENT_ID?.trim();
-const FS_CLIENT_SECRET = process.env.FATSECRET_CLIENT_SECRET?.trim();
+// NOTE: read from process.env at call time (not module init) so Render env vars
+// are always available regardless of ESM bundle initialization order.
 
 let _fsToken: string | null = null;
 let _fsTokenExpiry = 0;
 
 async function getFatSecretToken(): Promise<string | null> {
+  const FS_CLIENT_ID     = process.env.FATSECRET_CLIENT_ID?.trim();
+  const FS_CLIENT_SECRET = process.env.FATSECRET_CLIENT_SECRET?.trim();
+  console.log(`[FatSecret] credentials check: id=${FS_CLIENT_ID ? "SET(" + FS_CLIENT_ID.slice(0,6) + "...)" : "MISSING"} secret=${FS_CLIENT_SECRET ? "SET" : "MISSING"}`);
   if (!FS_CLIENT_ID || !FS_CLIENT_SECRET) {
     console.warn("[FatSecret] credentials missing — set FATSECRET_CLIENT_ID and FATSECRET_CLIENT_SECRET");
     return null;
@@ -181,9 +184,8 @@ export async function searchFatSecret(query: string, limit = 25): Promise<Nutrit
 // Good coverage of restaurant / branded foods via natural-language queries.
 // Free tier: 10,000 calls/month — sign up at https://calorieninjas.com/api
 // Set CALORIENINJA_API_KEY in your .env to enable.
-const CN_KEY = process.env.CALORIENINJA_API_KEY;
-
 export async function searchCalorieNinjas(query: string, limit = 20): Promise<NutritionFacts[]> {
+  const CN_KEY = process.env.CALORIENINJA_API_KEY?.trim();
   if (!CN_KEY) return [];
   try {
     const res = await fetchWithTimeout(
@@ -262,7 +264,8 @@ export async function searchBrandOFF(brandQuery: string, limit = 25): Promise<Nu
 // ── USDA FoodData Central ─────────────────────────────────────────────────────
 // Free, no-auth key needed (DEMO_KEY = 1000 req/hr per IP).
 // Branded Foods dataset covers McDonald's, Chipotle, Starbucks, etc.
-const USDA_KEY = process.env.USDA_API_KEY || "DEMO_KEY";
+// Read at call time — see note above re: module init order
+function getUsdaKey() { return process.env.USDA_API_KEY?.trim() || "DEMO_KEY"; }
 
 /** Build a variant of the query with apostrophes injected before trailing 's'
  *  so "McDonalds" also searches "McDonald's", "Wendys" → "Wendy's", etc. */
@@ -276,7 +279,7 @@ async function fetchUSDA(query: string, limit: number, brandedOnly = false): Pro
   try {
     const dataType = brandedOnly ? "Branded" : "Branded,Survey%20(FNDDS)";
     const url = `https://api.nal.usda.gov/fdc/v1/foods/search` +
-      `?query=${encodeURIComponent(query)}&pageSize=${limit}&api_key=${USDA_KEY}` +
+      `?query=${encodeURIComponent(query)}&pageSize=${limit}&api_key=${getUsdaKey()}` +
       `&dataType=${dataType}`;
     const res = await fetchWithTimeout(url, { headers: { "Accept": "application/json" } });
     if (!res.ok) return [];
