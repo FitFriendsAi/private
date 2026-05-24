@@ -24,7 +24,30 @@ import { apiRequest } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
 import { useHealth } from "@/hooks/use-health";
 import { gramsToLbs, lbsToGrams } from "@/lib/utils";
-import { ArrowLeft, Check, Plus, X, Search, Timer } from "lucide-react-native";
+import { ArrowLeft, Check, Plus, X, Search, Timer, ChevronDown, Maximize2 } from "lucide-react-native";
+import Svg, { Circle, Line, G } from "react-native-svg";
+
+// ── Rest timer ring constants ──────────────────────────────────────
+const SVG_SIZE  = 210;
+const CX        = SVG_SIZE / 2;
+const CY        = SVG_SIZE / 2;
+const RING_R    = 82;
+const RING_CIRC = 2 * Math.PI * RING_R;   // ≈ 515
+const LIME      = "#84cc16";
+// Pre-compute static tick-mark endpoints (60 ticks, like a clock face)
+const TICKS = Array.from({ length: 60 }, (_, i) => {
+  const ang      = (i / 60) * Math.PI * 2 - Math.PI / 2;
+  const isLong   = i % 5 === 0;
+  const outerR   = 99;
+  const innerR   = isLong ? 93 : 96;
+  return {
+    x1: CX + Math.cos(ang) * innerR,
+    y1: CY + Math.sin(ang) * innerR,
+    x2: CX + Math.cos(ang) * outerR,
+    y2: CY + Math.sin(ang) * outerR,
+    isLong,
+  };
+});
 
 // ── Types ─────────────────────────────────────────────────────────
 interface Exercise { id: number; name: string; primaryMuscle: string; category: string; }
@@ -65,6 +88,7 @@ export default function WorkoutSessionScreen() {
   const [saving,       setSaving]       = useState(false);
   const [prevPerf,     setPrevPerf]     = useState<Record<number, PrevPerf>>({});
   const [confirm,      setConfirm]      = useState<{ title: string; body: string; onOk: () => void } | null>(null);
+  const [restMinimized, setRestMinimized] = useState(false);
 
   // ── Workout meta ──
   const { data: workout } = useQuery<any>({
@@ -149,7 +173,7 @@ export default function WorkoutSessionScreen() {
         }
       );
       const wasNotDone = !prev[ei].sets[si].done;
-      if (wasNotDone) setRestSecs(restDefault);
+      if (wasNotDone) { setRestSecs(restDefault); setRestMinimized(false); }
       return copy;
     });
   };
@@ -311,7 +335,7 @@ export default function WorkoutSessionScreen() {
         keyboardVerticalOffset={0}
       >
         <ScrollView
-          contentContainerStyle={{ padding: 16, paddingBottom: restSecs !== null ? 160 : 48 }}
+          contentContainerStyle={{ padding: 16, paddingBottom: restSecs !== null && !restMinimized ? 380 : 48 }}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
@@ -487,85 +511,194 @@ export default function WorkoutSessionScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* ── Rest Timer Overlay ── */}
-      {restSecs !== null && (
-        <View style={{
-          position: "absolute", bottom: 0, left: 0, right: 0,
-          backgroundColor: "#111111",
-          borderTopLeftRadius: 22, borderTopRightRadius: 22,
-          borderTopWidth: 1, borderColor: "#2a2a2a",
-          paddingTop: 8, paddingBottom: Platform.OS === "ios" ? 34 : 20,
-          paddingHorizontal: 24, alignItems: "center",
-        }}>
-          {/* Drag handle */}
-          <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: "#333333", marginBottom: 12 }} />
-
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
-            <Timer size={13} color={muted} />
-            <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: muted, letterSpacing: 0.8 }}>
-              REST TIME
-            </Text>
-          </View>
-
-          {/* Big countdown */}
+      {/* ── Rest Timer — minimized floating pill ── */}
+      {restSecs !== null && restMinimized && (
+        <Pressable
+          onPress={() => setRestMinimized(false)}
+          style={({ pressed }) => ({
+            position: "absolute", bottom: 24, right: 20,
+            width: 76, height: 76, borderRadius: 38,
+            backgroundColor: "#111111",
+            borderWidth: 2.5, borderColor: restSecs <= 10 ? "#ef4444" : LIME,
+            alignItems: "center", justifyContent: "center",
+            opacity: pressed ? 0.8 : 1,
+            // simple glow via shadow (iOS/Android) — web ignores this gracefully
+            shadowColor: restSecs <= 10 ? "#ef4444" : LIME,
+            shadowOffset: { width: 0, height: 0 },
+            shadowOpacity: 0.7,
+            shadowRadius: 12,
+          })}
+        >
           <Text style={{
-            fontFamily: "Doto", fontSize: 60,
-            color: restSecs <= 10 ? "#ef4444" : "#ffffff",
-            lineHeight: 66,
+            fontFamily: "Doto", fontSize: 13, letterSpacing: 0.5,
+            color: restSecs <= 10 ? "#ef4444" : LIME,
           }}>
             {fmtRest(restSecs)}
           </Text>
-
-          {/* Controls */}
-          <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
-            {[
-              { label: "−15s", onPress: () => setRestSecs(s => Math.max(0, (s ?? 0) - 15)) },
-              { label: "Skip",  onPress: () => setRestSecs(null),  primary: true },
-              { label: "+15s", onPress: () => setRestSecs(s => (s ?? 0) + 15) },
-            ].map((btn: any) => (
-              <Pressable
-                key={btn.label}
-                onPress={btn.onPress}
-                style={({ pressed }) => ({
-                  backgroundColor: btn.primary ? "#222222" : "#1a1a1a",
-                  borderRadius: 14, paddingHorizontal: btn.primary ? 28 : 18, paddingVertical: 10,
-                  borderWidth: 1, borderColor: "#2a2a2a",
-                  opacity: pressed ? 0.7 : 1,
-                })}
-              >
-                <Text style={{
-                  fontFamily: "Manrope-Bold", fontSize: 14,
-                  color: btn.primary ? "#ffffff" : "#999999",
-                }}>
-                  {btn.label}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-
-          {/* Rest duration presets */}
-          <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
-            {[60, 90, 120, 180].map(d => (
-              <Pressable
-                key={d}
-                onPress={() => { setRestDefault(d); setRestSecs(d); }}
-                style={({ pressed }) => ({
-                  paddingHorizontal: 12, paddingVertical: 5, borderRadius: 12,
-                  backgroundColor: restDefault === d ? "rgba(255,255,255,0.1)" : "transparent",
-                  opacity: pressed ? 0.7 : 1,
-                })}
-              >
-                <Text style={{
-                  fontFamily: "Manrope-SemiBold", fontSize: 12,
-                  color: restDefault === d ? "#cccccc" : muted,
-                }}>
-                  {d < 60 ? `${d}s` : `${d / 60}m`}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
+          <Maximize2 size={10} color={muted} style={{ marginTop: 3 }} />
+        </Pressable>
       )}
+
+      {/* ── Rest Timer — full ring overlay ── */}
+      {restSecs !== null && !restMinimized && (() => {
+        const progress    = restDefault > 0 ? Math.max(0, Math.min(1, restSecs / restDefault)) : 0;
+        const dashOffset  = RING_CIRC * (1 - progress);
+        const urgent      = restSecs <= 10;
+        const ringColor   = urgent ? "#ef4444" : LIME;
+
+        return (
+          <View style={{
+            position: "absolute", bottom: 0, left: 0, right: 0,
+            backgroundColor: "#0f0f0f",
+            borderTopLeftRadius: 26, borderTopRightRadius: 26,
+            borderTopWidth: 1, borderColor: "#222222",
+            paddingTop: 10, paddingBottom: Platform.OS === "ios" ? 34 : 20,
+            paddingHorizontal: 20, alignItems: "center",
+          }}>
+            {/* Header row: drag handle + minimize */}
+            <View style={{ width: "100%", flexDirection: "row", alignItems: "center", marginBottom: 10 }}>
+              <View style={{ flex: 1 }} />
+              <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: "#2d2d2d" }} />
+              <View style={{ flex: 1, alignItems: "flex-end" }}>
+                <Pressable onPress={() => setRestMinimized(true)} style={{ padding: 4 }}>
+                  <ChevronDown size={18} color={muted} />
+                </Pressable>
+              </View>
+            </View>
+
+            {/* Label */}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 8 }}>
+              <Timer size={12} color={muted} />
+              <Text style={{ fontFamily: "Manrope-Bold", fontSize: 10, color: muted, letterSpacing: 1.2 }}>
+                REST TIME
+              </Text>
+            </View>
+
+            {/* ── SVG Ring ── */}
+            <View style={{ width: SVG_SIZE, height: SVG_SIZE, alignItems: "center", justifyContent: "center" }}>
+              <Svg width={SVG_SIZE} height={SVG_SIZE}>
+                {/* Tick marks */}
+                {TICKS.map((t, i) => (
+                  <Line
+                    key={i}
+                    x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2}
+                    stroke={t.isLong ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.10)"}
+                    strokeWidth={t.isLong ? 2 : 1}
+                    strokeLinecap="round"
+                  />
+                ))}
+
+                {/* Background track */}
+                <Circle
+                  cx={CX} cy={CY} r={RING_R}
+                  fill="none"
+                  stroke="rgba(255,255,255,0.06)"
+                  strokeWidth={3}
+                />
+
+                {/* Glow layers (outer → inner) */}
+                <G rotation="-90" origin={`${CX},${CY}`}>
+                  {/* outer haze */}
+                  <Circle cx={CX} cy={CY} r={RING_R} fill="none"
+                    stroke={ringColor + "18"} strokeWidth={22}
+                    strokeDasharray={`${RING_CIRC} ${RING_CIRC}`}
+                    strokeDashoffset={dashOffset}
+                    strokeLinecap="round"
+                  />
+                  {/* mid bloom */}
+                  <Circle cx={CX} cy={CY} r={RING_R} fill="none"
+                    stroke={ringColor + "45"} strokeWidth={10}
+                    strokeDasharray={`${RING_CIRC} ${RING_CIRC}`}
+                    strokeDashoffset={dashOffset}
+                    strokeLinecap="round"
+                  />
+                  {/* inner glow */}
+                  <Circle cx={CX} cy={CY} r={RING_R} fill="none"
+                    stroke={ringColor + "aa"} strokeWidth={4}
+                    strokeDasharray={`${RING_CIRC} ${RING_CIRC}`}
+                    strokeDashoffset={dashOffset}
+                    strokeLinecap="round"
+                  />
+                  {/* core */}
+                  <Circle cx={CX} cy={CY} r={RING_R} fill="none"
+                    stroke={ringColor} strokeWidth={2}
+                    strokeDasharray={`${RING_CIRC} ${RING_CIRC}`}
+                    strokeDashoffset={dashOffset}
+                    strokeLinecap="round"
+                  />
+                </G>
+              </Svg>
+
+              {/* Time overlay — centered on top of SVG */}
+              <View style={{
+                position: "absolute", alignItems: "center", justifyContent: "center",
+              }}>
+                <Text style={{
+                  fontFamily: "Doto", fontSize: 52, lineHeight: 56,
+                  color: urgent ? "#ef4444" : "#ffffff",
+                  letterSpacing: 2,
+                }}>
+                  {fmtRest(restSecs)}
+                </Text>
+                <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 11, color: muted, letterSpacing: 0.5, marginTop: 2 }}>
+                  {Math.round(progress * 100)}%
+                </Text>
+              </View>
+            </View>
+
+            {/* Controls */}
+            <View style={{ flexDirection: "row", gap: 10, marginTop: 4 }}>
+              {[
+                { label: "−15s", onPress: () => setRestSecs(s => Math.max(0, (s ?? 0) - 15)) },
+                { label: "Skip",  onPress: () => setRestSecs(null), primary: true },
+                { label: "+15s", onPress: () => setRestSecs(s => (s ?? 0) + 15) },
+              ].map((btn: any) => (
+                <Pressable
+                  key={btn.label}
+                  onPress={btn.onPress}
+                  style={({ pressed }) => ({
+                    backgroundColor: btn.primary ? "#1e1e1e" : "#161616",
+                    borderRadius: 14, paddingHorizontal: btn.primary ? 28 : 18, paddingVertical: 10,
+                    borderWidth: 1, borderColor: btn.primary ? "#333333" : "#242424",
+                    opacity: pressed ? 0.7 : 1,
+                  })}
+                >
+                  <Text style={{
+                    fontFamily: "Manrope-Bold", fontSize: 14,
+                    color: btn.primary ? "#ffffff" : "#888888",
+                  }}>
+                    {btn.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            {/* Duration presets */}
+            <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
+              {[60, 90, 120, 180].map(d => (
+                <Pressable
+                  key={d}
+                  onPress={() => { setRestDefault(d); setRestSecs(d); }}
+                  style={({ pressed }) => ({
+                    paddingHorizontal: 14, paddingVertical: 6, borderRadius: 12,
+                    backgroundColor: restDefault === d ? "rgba(132,204,22,0.12)" : "transparent",
+                    borderWidth: 1,
+                    borderColor: restDefault === d ? LIME + "44" : "transparent",
+                    opacity: pressed ? 0.7 : 1,
+                  })}
+                >
+                  <Text style={{
+                    fontFamily: "Manrope-SemiBold", fontSize: 12,
+                    color: restDefault === d ? LIME : muted,
+                  }}>
+                    {d / 60 < 1 ? `${d}s` : `${d / 60}m`}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        );
+      })()}
 
       {/* ── Confirm Dialog ── */}
       <Modal visible={!!confirm} transparent animationType="fade">
