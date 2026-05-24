@@ -57162,36 +57162,46 @@ function registerRoutes(app2) {
       return results;
     }
     const RESTAURANT_BRANDS = [
-      [/chick-fil-a/i, "chick-fil-a"],
+      [/chick[\s-]*fil[\s-]*a/i, "chick-fil-a"],
       [/mcdonald/i, "mcdonalds"],
-      [/burger king/i, "burger-king"],
+      [/burger\s*king/i, "burger-king"],
       [/wendy/i, "wendys"],
-      [/taco bell/i, "taco-bell"],
-      [/subway/i, "subway"],
+      [/taco\s*bell/i, "taco-bell"],
+      [/\bsubway\b/i, "subway"],
       [/chipotle/i, "chipotle"],
       [/panera/i, "panera"],
       [/starbucks/i, "starbucks"],
       [/dunkin/i, "dunkin-donuts"],
       [/domino/i, "dominos-pizza"],
-      [/pizza hut/i, "pizza-hut"],
+      [/pizza\s*hut/i, "pizza-hut"],
       [/\bkfc\b/i, "kfc"],
       [/popeyes/i, "popeyes"],
-      [/five guys/i, "five-guys"],
-      [/shake shack/i, "shake-shack"],
+      [/five\s*guys/i, "five-guys"],
+      [/shake\s*shack/i, "shake-shack"],
       [/whataburger/i, "whataburger"],
-      [/in-n-out/i, "in-n-out-burger"],
+      [/in[\s-]*n[\s-]*out/i, "in-n-out-burger"],
       [/\bsonic\b/i, "sonic"],
       [/\barby/i, "arbys"],
-      [/dairy queen/i, "dairy-queen"],
-      [/chilis/i, "chilis"],
-      [/applebees/i, "applebees"],
-      [/olive garden/i, "olive-garden"],
-      [/red lobster/i, "red-lobster"]
+      [/dairy\s*queen/i, "dairy-queen"],
+      [/chili'?s/i, "chilis"],
+      [/applebee'?s/i, "applebees"],
+      [/olive\s*garden/i, "olive-garden"],
+      [/red\s*lobster/i, "red-lobster"],
+      [/raising\s*cane/i, "raising-canes"],
+      [/\bcanes\b/i, "raising-canes"],
+      [/wingstop/i, "wingstop"],
+      [/panda\s*express/i, "panda-express"],
+      [/\bpanerabread\b/i, "panera"],
+      [/jimmy\s*john/i, "jimmy-johns"],
+      [/jersey\s*mike/i, "jersey-mikes"],
+      [/firehouse/i, "firehouse-subs"],
+      [/\bchilis\b/i, "chilis"]
     ];
     const matchedBrand = RESTAURANT_BRANDS.find(([rx]) => rx.test(q2));
     const isRestaurant = typeFilter === "restaurant" || !!matchedBrand;
     const brandSlug = matchedBrand?.[1] ?? q2;
     const matchedBrandNorm = matchedBrand ? normName(matchedBrand[1]) : null;
+    const foodOnlyQuery = matchedBrand ? q2.replace(matchedBrand[0], "").replace(/\s+/g, " ").trim() || q2 : q2;
     const queryWords = wordSet(q2);
     function relevanceScore(item) {
       const brandNorm = normName(item.brand || item.brandOwner || "");
@@ -57232,10 +57242,12 @@ function registerRoutes(app2) {
       const scored = local.filter(isRelevant).sort((a2, b2) => relevanceScore(a2) - relevanceScore(b2));
       return res.json(scored.slice(0, 30));
     }
+    const apiQuery = isRestaurant ? foodOnlyQuery : q2;
     const [usda, fs2, cn, off, offBrand] = await Promise.all([
-      searchUSDA(q2, isRestaurant ? 40 : 25, isRestaurant),
+      searchUSDA(apiQuery, isRestaurant ? 40 : 25, isRestaurant),
       searchFatSecret(q2, 20),
-      searchCalorieNinjas(q2, 15),
+      // FatSecret handles brand names well, keep full query
+      searchCalorieNinjas(apiQuery, 15),
       !isRestaurant && local.length < 3 ? searchFoodByName(q2, 10) : Promise.resolve([]),
       isRestaurant ? searchBrandOFF(brandSlug, 30) : Promise.resolve([])
     ]);

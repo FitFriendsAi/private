@@ -324,37 +324,53 @@ export function registerRoutes(app: Express) {
 
     // ── Restaurant brand detection (needed for scoring + API selection) ─────────
     const RESTAURANT_BRANDS: [RegExp, string][] = [
-      [/chick-fil-a/i,   "chick-fil-a"],
-      [/mcdonald/i,      "mcdonalds"],
-      [/burger king/i,   "burger-king"],
-      [/wendy/i,         "wendys"],
-      [/taco bell/i,     "taco-bell"],
-      [/subway/i,        "subway"],
-      [/chipotle/i,      "chipotle"],
-      [/panera/i,        "panera"],
-      [/starbucks/i,     "starbucks"],
-      [/dunkin/i,        "dunkin-donuts"],
-      [/domino/i,        "dominos-pizza"],
-      [/pizza hut/i,     "pizza-hut"],
-      [/\bkfc\b/i,       "kfc"],
-      [/popeyes/i,       "popeyes"],
-      [/five guys/i,     "five-guys"],
-      [/shake shack/i,   "shake-shack"],
-      [/whataburger/i,   "whataburger"],
-      [/in-n-out/i,      "in-n-out-burger"],
-      [/\bsonic\b/i,     "sonic"],
-      [/\barby/i,        "arbys"],
-      [/dairy queen/i,   "dairy-queen"],
-      [/chilis/i,        "chilis"],
-      [/applebees/i,     "applebees"],
-      [/olive garden/i,  "olive-garden"],
-      [/red lobster/i,   "red-lobster"],
+      [/chick[\s-]*fil[\s-]*a/i,   "chick-fil-a"],
+      [/mcdonald/i,                "mcdonalds"],
+      [/burger\s*king/i,           "burger-king"],
+      [/wendy/i,                   "wendys"],
+      [/taco\s*bell/i,             "taco-bell"],
+      [/\bsubway\b/i,              "subway"],
+      [/chipotle/i,                "chipotle"],
+      [/panera/i,                  "panera"],
+      [/starbucks/i,               "starbucks"],
+      [/dunkin/i,                  "dunkin-donuts"],
+      [/domino/i,                  "dominos-pizza"],
+      [/pizza\s*hut/i,             "pizza-hut"],
+      [/\bkfc\b/i,                 "kfc"],
+      [/popeyes/i,                 "popeyes"],
+      [/five\s*guys/i,             "five-guys"],
+      [/shake\s*shack/i,           "shake-shack"],
+      [/whataburger/i,             "whataburger"],
+      [/in[\s-]*n[\s-]*out/i,      "in-n-out-burger"],
+      [/\bsonic\b/i,               "sonic"],
+      [/\barby/i,                  "arbys"],
+      [/dairy\s*queen/i,           "dairy-queen"],
+      [/chili'?s/i,                "chilis"],
+      [/applebee'?s/i,             "applebees"],
+      [/olive\s*garden/i,          "olive-garden"],
+      [/red\s*lobster/i,           "red-lobster"],
+      [/raising\s*cane/i,          "raising-canes"],
+      [/\bcanes\b/i,               "raising-canes"],
+      [/wingstop/i,                "wingstop"],
+      [/panda\s*express/i,         "panda-express"],
+      [/\bpanerabread\b/i,         "panera"],
+      [/jimmy\s*john/i,            "jimmy-johns"],
+      [/jersey\s*mike/i,           "jersey-mikes"],
+      [/firehouse/i,               "firehouse-subs"],
+      [/\bchilis\b/i,              "chilis"],
     ];
     const matchedBrand    = RESTAURANT_BRANDS.find(([rx]) => rx.test(q));
     const isRestaurant    = typeFilter === "restaurant" || !!matchedBrand;
     const brandSlug       = matchedBrand?.[1] ?? q;
     // Normalized brand slug for item-level brand matching (e.g. "chickfila")
     const matchedBrandNorm = matchedBrand ? normName(matchedBrand[1]) : null;
+
+    // For restaurant queries, strip the brand name from the USDA/FatSecret query
+    // so "chick-fil-a spicy chicken sandwich" → searches for "spicy chicken sandwich"
+    // This prevents USDA tokenizing "chick" and returning "Chick Peas" etc.
+    const foodOnlyQuery = matchedBrand
+      ? q.replace(matchedBrand[0], "").replace(/\s+/g, " ").trim() || q
+      : q;
 
     // ── Scoring helpers (defined early so they can also rank local-cache results) ─
     const queryWords = wordSet(q);
@@ -427,10 +443,13 @@ export function registerRoutes(app: Express) {
     }
 
     // 2. All external APIs in parallel
+    // For restaurant queries use foodOnlyQuery (brand name stripped) for USDA/FatSecret
+    // to avoid noise like "Chick Peas" when searching "chick-fil-a chicken sandwich"
+    const apiQuery = isRestaurant ? foodOnlyQuery : q;
     const [usda, fs, cn, off, offBrand] = await Promise.all([
-      searchUSDA(q, isRestaurant ? 40 : 25, isRestaurant),
-      searchFatSecret(q, 20),
-      searchCalorieNinjas(q, 15),
+      searchUSDA(apiQuery, isRestaurant ? 40 : 25, isRestaurant),
+      searchFatSecret(q, 20),          // FatSecret handles brand names well, keep full query
+      searchCalorieNinjas(apiQuery, 15),
       (!isRestaurant && local.length < 3) ? searchFoodByName(q, 10) : Promise.resolve([]),
       isRestaurant ? searchBrandOFF(brandSlug, 30) : Promise.resolve([]),
     ]);
