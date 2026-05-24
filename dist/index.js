@@ -57988,6 +57988,8 @@ app.use((err, _req, res, _next) => {
 });
 app.listen(PORT, async () => {
   console.log(`FitCore server running on port ${PORT}`);
+  fetch("https://api.ipify.org?format=json").then((r2) => r2.json()).then((d2) => console.log(`[server] outbound IP: ${d2.ip}  \u2190 add this to FatSecret IP whitelist`)).catch(() => {
+  });
   try {
     const count = await storage.countExercises();
     if (count === 0) {
