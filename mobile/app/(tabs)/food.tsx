@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { BrowserMultiFormatReader } from "@zxing/browser";
 import {
   View, Text, ScrollView, Pressable, TextInput,
   Modal, ActivityIndicator, Alert, Platform,
@@ -436,6 +437,23 @@ export default function FoodScreen() {
     }
   }
 
+  /** Resize a blob/file URL to max maxPx on its longest side and return a data URL. */
+  function resizeImageForDecode(objectUrl: string, maxPx = 1400): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
+        const canvas = document.createElement("canvas");
+        canvas.width  = Math.round(img.width  * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", 0.92));
+      };
+      img.onerror = reject;
+      img.src = objectUrl;
+    });
+  }
+
   // ── Open camera to photograph a barcode (web only) ────────────────────────
   function openBarcodeCapture() {
     if (Platform.OS !== "web") return;
@@ -448,22 +466,36 @@ export default function FoodScreen() {
       if (!file) return;
       setBarcodeLoading(true);
       setBarcodeError("");
+      const objectUrl = URL.createObjectURL(file);
       try {
+        // ① Native BarcodeDetector — fastest, available in Chrome & iOS 17.4+
         if ("BarcodeDetector" in window) {
-          // Native browser BarcodeDetector API (Chrome 88+, Android)
-          const detector = new (window as any).BarcodeDetector();
+          const detector = new (window as any).BarcodeDetector({
+            formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39", "code_93", "qr_code", "data_matrix", "itf"],
+          });
           const bitmap = await createImageBitmap(file);
           const barcodes = await detector.detect(bitmap);
           if (barcodes.length > 0) {
+            URL.revokeObjectURL(objectUrl);
             await lookupBarcodeCode(barcodes[0].rawValue);
             return;
           }
-          setBarcodeError("No barcode found in photo. Try a closer shot or type the number below.");
+          // No result from native detector — fall through to ZXing
+        }
+
+        // ② ZXing — works on iOS Safari, Firefox, and older Chrome
+        // Resize the image first: full-res iPhone photos (12MP+) can crash canvas decode
+        const resizedUrl = await resizeImageForDecode(objectUrl, 1400);
+        URL.revokeObjectURL(objectUrl);
+        const reader = new BrowserMultiFormatReader();
+        const result = await (reader as any).decodeFromImageUrl(resizedUrl);
+        if (result) {
+          await lookupBarcodeCode(result.getText());
         } else {
-          // iOS Safari / Firefox — BarcodeDetector not available
-          setBarcodeError("Auto-detect isn't supported in this browser. Please type the barcode number below.");
+          setBarcodeError("No barcode found. Try a closer shot or type the number below.");
         }
       } catch {
+        URL.revokeObjectURL(objectUrl);
         setBarcodeError("Couldn't read barcode. Try a different angle or type the number below.");
       } finally {
         setBarcodeLoading(false);

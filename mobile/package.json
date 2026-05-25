@@ -10,6 +10,7 @@
     "build:preview": "eas build --platform ios --profile preview"
   },
   "dependencies": {
+    "@zxing/browser": "^0.1.5",
     "@expo-google-fonts/doto": "^0.4.1",
     "@expo-google-fonts/manrope": "^0.4.2",
     "@expo/metro-runtime": "~4.0.1",
