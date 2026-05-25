@@ -437,17 +437,19 @@ export default function FoodScreen() {
     }
   }
 
-  /** Resize a blob/file URL to max maxPx on its longest side and return a data URL. */
-  function resizeImageForDecode(objectUrl: string, maxPx = 1400): Promise<string> {
+  /** Resize a blob/file URL to max maxPx on its longest side and return a canvas.
+   *  Returning the canvas lets us call decodeFromCanvas() directly, which is
+   *  synchronous and avoids ZXing's unreliable image-reload path. */
+  function resizeImageToCanvas(objectUrl: string, maxPx = 1400): Promise<HTMLCanvasElement> {
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => {
-        const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
+        const scale = Math.min(1, maxPx / Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height));
         const canvas = document.createElement("canvas");
-        canvas.width  = Math.round(img.width  * scale);
-        canvas.height = Math.round(img.height * scale);
+        canvas.width  = Math.round((img.naturalWidth  || img.width)  * scale);
+        canvas.height = Math.round((img.naturalHeight || img.height) * scale);
         canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/jpeg", 0.92));
+        resolve(canvas);
       };
       img.onerror = reject;
       img.src = objectUrl;
@@ -483,20 +485,22 @@ export default function FoodScreen() {
           // No result from native detector — fall through to ZXing
         }
 
-        // ② ZXing — works on iOS Safari, Firefox, and older Chrome
-        // Resize the image first: full-res iPhone photos (12MP+) can crash canvas decode
-        const resizedUrl = await resizeImageForDecode(objectUrl, 1400);
+        // ② ZXing — works on iOS Safari, Firefox, and older Chrome.
+        // We decode from a canvas directly (synchronous, no image-reload step).
+        // Resize first: full-res iPhone photos (12MP+) can crash the canvas decode.
+        const canvas = await resizeImageToCanvas(objectUrl, 1400);
         URL.revokeObjectURL(objectUrl);
         const reader = new BrowserMultiFormatReader();
-        const result = await (reader as any).decodeFromImageUrl(resizedUrl);
-        if (result) {
-          await lookupBarcodeCode(result.getText());
-        } else {
-          setBarcodeError("No barcode found. Try a closer shot or type the number below.");
-        }
-      } catch {
+        const result = reader.decodeFromCanvas(canvas); // synchronous, throws NotFoundException on miss
+        await lookupBarcodeCode(result.getText());
+      } catch (err: any) {
         URL.revokeObjectURL(objectUrl);
-        setBarcodeError("Couldn't read barcode. Try a different angle or type the number below.");
+        const isNotFound = err?.name === "NotFoundException" || String(err).includes("No MultiFormat");
+        setBarcodeError(
+          isNotFound
+            ? "No barcode found. Try a clearer/closer photo or type the number below."
+            : "Couldn't read the photo. Try again or type the number below."
+        );
       } finally {
         setBarcodeLoading(false);
       }
