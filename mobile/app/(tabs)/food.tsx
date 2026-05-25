@@ -364,7 +364,13 @@ export default function FoodScreen() {
     if (!mealPickerItem) return;
     const sv = parseFloat(mealPickerServings) || 1;
     setNewMealIngredients(prev => [...prev, { foodItem: mealPickerItem!, servings: sv }]);
-    closeMealPicker();
+    // Stay on the search page (cleared) so the user can immediately add another ingredient.
+    // They tap "Done" in the header to return to the main form.
+    setMealPickerItem(null);
+    setMealPickerServings("1");
+    setMealPickerQuery("");
+    setMealPickerResults([]);
+    setMealPickerPage("search");
   }
 
   function addToLog() {
@@ -995,17 +1001,30 @@ export default function FoodScreen() {
 
           {/* Header — changes based on picker page */}
           <View style={{ padding: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderBottomWidth: 1, borderBottomColor: border }}>
-            {mealPickerPage ? (
-              <Pressable onPress={closeMealPicker} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            {mealPickerPage === "item" ? (
+              // Item/servings page — "Back" goes to search
+              <Pressable onPress={() => { setMealPickerItem(null); setMealPickerServings("1"); setMealPickerPage("search"); }} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                 <ChevronDown size={16} color={muted} style={{ transform: [{ rotate: "90deg" }] }} />
                 <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 14, color: muted }}>Back</Text>
               </Pressable>
+            ) : mealPickerPage === "search" ? (
+              // Search page — "Done" returns to the main form
+              <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 18, color: text }}>Add Ingredients</Text>
             ) : (
               <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 18, color: text }}>New Saved Meal</Text>
             )}
-            <Pressable onPress={() => { setShowCreateMeal(false); closeMealPicker(); setNewMealName(""); setNewMealDesc(""); setNewMealIngredients([]); }}>
-              <X size={22} color={text} />
-            </Pressable>
+            {mealPickerPage === "search" ? (
+              // Done button — finishes ingredient adding and returns to main form
+              <Pressable onPress={closeMealPicker} style={{ paddingHorizontal: 14, paddingVertical: 6, backgroundColor: accentActive, borderRadius: 20 }}>
+                <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: isWhite ? "#fff" : palette.accentText }}>
+                  Done{newMealIngredients.length > 0 ? ` (${newMealIngredients.length})` : ""}
+                </Text>
+              </Pressable>
+            ) : (
+              <Pressable onPress={() => { setShowCreateMeal(false); closeMealPicker(); setNewMealName(""); setNewMealDesc(""); setNewMealIngredients([]); }}>
+                <X size={22} color={text} />
+              </Pressable>
+            )}
           </View>
 
           {/* ── PAGE: Meal form ── */}
