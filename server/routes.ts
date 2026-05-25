@@ -4,7 +4,7 @@ import jwt from "jsonwebtoken";
 import { storage } from "./storage.js";
 import { hashPassword, verifyPassword } from "./auth.js";
 import { passport } from "./auth.js";
-import { lookupBarcode, searchFoodByName, searchOFF, searchUSDA, searchFatSecret, searchCalorieNinjas, searchBrandOFF, enrichMissingNutrition } from "./services/food-lookup.js";
+import { lookupBarcode, lookupBarcodeFS, autocompleteFatSecret, searchFoodByName, searchOFF, searchUSDA, searchFatSecret, searchCalorieNinjas, searchBrandOFF, enrichMissingNutrition } from "./services/food-lookup.js";
 import { parseNutritionLabel } from "./services/vision.js";
 import { calculateMacroTargets, getAgeFromBirthDate } from "./services/goal-engine.js";
 import { fetchExerciseGif } from "./services/exercise-gif.js";
@@ -481,6 +481,15 @@ export function registerRoutes(app: Express) {
     res.json(relevant.slice(0, 30));
   });
 
+  // FatSecret Premier autocomplete — returns up to 8 name suggestions for the search bar
+  app.get("/api/food/autocomplete", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const q = String(req.query.q ?? "").trim();
+    if (q.length < 2) return res.json([]);
+    const suggestions = await autocompleteFatSecret(q, 8);
+    res.json(suggestions);
+  });
+
   app.get("/api/food/barcode/:code", async (req, res) => {
     if (!requireAuth(req, res)) return;
     const code = req.params.code;
@@ -489,8 +498,13 @@ export function registerRoutes(app: Express) {
     const cached = await storage.getFoodItemByBarcode(code);
     if (cached) return res.json(cached);
 
-    // Fetch from Open Food Facts
-    const data = await lookupBarcode(code);
+    // Try Open Food Facts first, then FatSecret Premier as fallback
+    let data = await lookupBarcode(code);
+    let source = "openfoodfacts";
+    if (!data) {
+      data = await lookupBarcodeFS(code);
+      source = "fatsecret";
+    }
     if (!data) return res.status(404).json({ message: "Product not found" });
 
     // Cache it
@@ -507,7 +521,7 @@ export function registerRoutes(app: Express) {
       fiberG: data.fiberG,
       sodiumMg: data.sodiumMg,
       sugarG: data.sugarG,
-      source: "openfoodfacts",
+      source,
     });
     res.json(item);
   });

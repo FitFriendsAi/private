@@ -56589,12 +56589,12 @@ function parseServingSize(serving) {
   if (ozMatch) return parseFloat(ozMatch[1]) * 28.35;
   return null;
 }
+var FS_API = "https://platform.fatsecret.com/rest/server.api";
 var _fsToken = null;
 var _fsTokenExpiry = 0;
 async function getFatSecretToken() {
   const FS_CLIENT_ID = process.env.FATSECRET_CLIENT_ID?.trim();
   const FS_CLIENT_SECRET = process.env.FATSECRET_CLIENT_SECRET?.trim();
-  console.log(`[FatSecret] credentials check: id=${FS_CLIENT_ID ? "SET(" + FS_CLIENT_ID.slice(0, 6) + "...)" : "MISSING"} secret=${FS_CLIENT_SECRET ? "SET" : "MISSING"}`);
   if (!FS_CLIENT_ID || !FS_CLIENT_SECRET) {
     console.warn("[FatSecret] credentials missing \u2014 set FATSECRET_CLIENT_ID and FATSECRET_CLIENT_SECRET");
     return null;
@@ -56608,7 +56608,8 @@ async function getFatSecretToken() {
         "Authorization": `Basic ${creds}`,
         "Content-Type": "application/x-www-form-urlencoded"
       },
-      body: "grant_type=client_credentials&scope=basic"
+      // Premier Free scope — unlocks barcode, autocomplete, and food.get.v4
+      body: "grant_type=client_credentials&scope=premier"
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
@@ -56622,18 +56623,109 @@ async function getFatSecretToken() {
     }
     _fsToken = data.access_token;
     _fsTokenExpiry = Date.now() + (data.expires_in - 120) * 1e3;
-    console.log(`[FatSecret] token acquired, expires in ${data.expires_in}s`);
+    console.log(`[FatSecret] premier token acquired, expires in ${data.expires_in}s`);
     return _fsToken;
   } catch (err) {
     console.error("[FatSecret] token fetch threw:", err?.message ?? err);
     return null;
   }
 }
+function parseFSServing(foodName, brandName, servings) {
+  const list = Array.isArray(servings?.serving) ? servings.serving : servings?.serving ? [servings.serving] : [];
+  if (list.length === 0) return null;
+  const serving = list.find((s2) => s2.serving_description?.toLowerCase() !== "100g") ?? list[0];
+  const servingG = parseFloat(serving.metric_serving_amount ?? serving.serving_description?.match(/([\d.]+)g/i)?.[1] ?? "100");
+  const servingUnit = serving.serving_description ?? `${servingG}g`;
+  const n2 = (key) => {
+    const v2 = parseFloat(serving[key]);
+    return isNaN(v2) ? void 0 : v2;
+  };
+  const calories = n2("calories");
+  if (!calories) return null;
+  return {
+    name: foodName,
+    brand: brandName || void 0,
+    servingSizeG: servingG || 100,
+    servingUnit,
+    calories: Math.round(calories),
+    proteinG: Math.round((n2("protein") ?? 0) * 10) / 10,
+    carbsG: Math.round((n2("carbohydrate") ?? 0) * 10) / 10,
+    fatG: Math.round((n2("fat") ?? 0) * 10) / 10,
+    fiberG: n2("fiber") != null ? Math.round(n2("fiber") * 10) / 10 : void 0,
+    sugarG: n2("sugar") != null ? Math.round(n2("sugar") * 10) / 10 : void 0,
+    saturatedFatG: n2("saturated_fat") != null ? Math.round(n2("saturated_fat") * 10) / 10 : void 0,
+    transFatG: n2("trans_fat") != null ? Math.round(n2("trans_fat") * 10) / 10 : void 0,
+    sodiumMg: n2("sodium") != null ? Math.round(n2("sodium")) : void 0,
+    cholesterolMg: n2("cholesterol") != null ? Math.round(n2("cholesterol")) : void 0,
+    potassiumMg: n2("potassium") != null ? Math.round(n2("potassium")) : void 0,
+    calciumMg: n2("calcium") != null ? Math.round(n2("calcium")) : void 0,
+    ironMg: n2("iron") != null ? Math.round(n2("iron") * 100) / 100 : void 0,
+    vitaminDMcg: n2("vitamin_d") != null ? Math.round(n2("vitamin_d") * 10) / 10 : void 0,
+    vitaminCMg: n2("vitamin_c") != null ? Math.round(n2("vitamin_c") * 10) / 10 : void 0
+  };
+}
+async function getFSFoodById(token, foodId) {
+  try {
+    const url = `${FS_API}?method=food.get.v4&food_id=${encodeURIComponent(foodId)}&format=json`;
+    const res = await fetchWithTimeout(url, {
+      headers: { "Authorization": `Bearer ${token}`, "Accept": "application/json" }
+    });
+    if (!res.ok) {
+      console.error(`[FatSecret] food.get.v4 failed: HTTP ${res.status}`);
+      return null;
+    }
+    const data = await res.json();
+    const food = data.food;
+    if (!food) return null;
+    return parseFSServing(food.food_name, food.brand_name, food.servings);
+  } catch {
+    return null;
+  }
+}
+async function lookupBarcodeFS(barcode) {
+  const token = await getFatSecretToken();
+  if (!token) return null;
+  try {
+    const url = `${FS_API}?method=food.find_id_for_barcode&barcode=${encodeURIComponent(barcode)}&format=json`;
+    const res = await fetchWithTimeout(url, {
+      headers: { "Authorization": `Bearer ${token}`, "Accept": "application/json" }
+    });
+    if (!res.ok) {
+      console.error(`[FatSecret] barcode lookup failed: HTTP ${res.status}`);
+      return null;
+    }
+    const data = await res.json();
+    const foodId = data.food_id?.value ?? data.food_id;
+    if (!foodId) return null;
+    const facts = await getFSFoodById(token, String(foodId));
+    if (facts) console.log(`[FatSecret] barcode ${barcode} \u2192 food_id ${foodId} \u2192 "${facts.name}"`);
+    return facts;
+  } catch {
+    return null;
+  }
+}
+async function autocompleteFatSecret(query, maxResults = 8) {
+  const token = await getFatSecretToken();
+  if (!token) return [];
+  try {
+    const url = `${FS_API}?method=foods.autocomplete&expression=${encodeURIComponent(query)}&max_results=${maxResults}&format=json`;
+    const res = await fetchWithTimeout(url, {
+      headers: { "Authorization": `Bearer ${token}`, "Accept": "application/json" }
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const raw = data.suggestions?.suggestion;
+    if (!raw) return [];
+    return Array.isArray(raw) ? raw : [raw];
+  } catch {
+    return [];
+  }
+}
 async function searchFatSecret(query, limit = 25) {
   const token = await getFatSecretToken();
   if (!token) return [];
   try {
-    const url = `https://platform.fatsecret.com/rest/server.api?method=foods.search&search_expression=${encodeURIComponent(query)}&format=json&max_results=${limit}&page_number=0`;
+    const url = `${FS_API}?method=foods.search&search_expression=${encodeURIComponent(query)}&format=json&max_results=${limit}&page_number=0`;
     const res = await fetchWithTimeout(url, {
       headers: { "Authorization": `Bearer ${token}`, "Accept": "application/json" }
     });
@@ -56645,28 +56737,41 @@ async function searchFatSecret(query, limit = 25) {
     const raw = data.foods?.food;
     if (!raw) return [];
     const foods = Array.isArray(raw) ? raw : [raw];
-    return foods.filter((f3) => f3.food_description).map((f3) => {
-      const desc2 = f3.food_description;
-      const calories = parseFloat(desc2.match(/Calories:\s*([\d.]+)/i)?.[1] ?? "0");
-      const fat = parseFloat(desc2.match(/Fat:\s*([\d.]+)/i)?.[1] ?? "0");
-      const carbs = parseFloat(desc2.match(/Carbs:\s*([\d.]+)/i)?.[1] ?? "0");
-      const protein = parseFloat(desc2.match(/Protein:\s*([\d.]+)/i)?.[1] ?? "0");
-      const servingG = parseFloat(desc2.match(/\(([\d.]+)g\)/i)?.[1] ?? "100");
-      const servingLabel = desc2.match(/^Per (.+?) -/i)?.[1] ?? "1 serving";
-      return {
-        name: f3.food_name,
-        brand: f3.brand_name || void 0,
-        servingSizeG: servingG || 100,
-        servingUnit: servingLabel,
-        calories: Math.round(calories),
-        proteinG: Math.round(protein * 10) / 10,
-        carbsG: Math.round(carbs * 10) / 10,
-        fatG: Math.round(fat * 10) / 10
-      };
-    });
+    const TOP = Math.min(foods.length, 10);
+    const enriched = await Promise.all(
+      foods.slice(0, TOP).map(async (f3) => {
+        if (!f3.food_id) return fallbackFSItem(f3);
+        const full = await getFSFoodById(token, String(f3.food_id));
+        if (full) return full;
+        return fallbackFSItem(f3);
+      })
+    );
+    const rest = foods.slice(TOP).map(fallbackFSItem);
+    return [...enriched, ...rest].filter((x2) => x2 !== null);
   } catch {
     return [];
   }
+}
+function fallbackFSItem(f3) {
+  if (!f3.food_description) return null;
+  const desc2 = f3.food_description;
+  const calories = parseFloat(desc2.match(/Calories:\s*([\d.]+)/i)?.[1] ?? "0");
+  const fat = parseFloat(desc2.match(/Fat:\s*([\d.]+)/i)?.[1] ?? "0");
+  const carbs = parseFloat(desc2.match(/Carbs:\s*([\d.]+)/i)?.[1] ?? "0");
+  const protein = parseFloat(desc2.match(/Protein:\s*([\d.]+)/i)?.[1] ?? "0");
+  const servingG = parseFloat(desc2.match(/\(([\d.]+)g\)/i)?.[1] ?? "100");
+  const servingLabel = desc2.match(/^Per (.+?) -/i)?.[1] ?? "1 serving";
+  if (!calories) return null;
+  return {
+    name: f3.food_name,
+    brand: f3.brand_name || void 0,
+    servingSizeG: servingG || 100,
+    servingUnit: servingLabel,
+    calories: Math.round(calories),
+    proteinG: Math.round(protein * 10) / 10,
+    carbsG: Math.round(carbs * 10) / 10,
+    fatG: Math.round(fat * 10) / 10
+  };
 }
 async function searchCalorieNinjas(query, limit = 20) {
   const CN_KEY = process.env.CALORIENINJA_API_KEY?.trim();
@@ -57444,12 +57549,24 @@ function registerRoutes(app2) {
     const relevant = fused.filter(isRelevant).sort((a2, b2) => relevanceScore(a2) - relevanceScore(b2));
     res.json(relevant.slice(0, 30));
   });
+  app2.get("/api/food/autocomplete", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const q2 = String(req.query.q ?? "").trim();
+    if (q2.length < 2) return res.json([]);
+    const suggestions = await autocompleteFatSecret(q2, 8);
+    res.json(suggestions);
+  });
   app2.get("/api/food/barcode/:code", async (req, res) => {
     if (!requireAuth(req, res)) return;
     const code = req.params.code;
     const cached = await storage.getFoodItemByBarcode(code);
     if (cached) return res.json(cached);
-    const data = await lookupBarcode(code);
+    let data = await lookupBarcode(code);
+    let source = "openfoodfacts";
+    if (!data) {
+      data = await lookupBarcodeFS(code);
+      source = "fatsecret";
+    }
     if (!data) return res.status(404).json({ message: "Product not found" });
     const item = await storage.createFoodItem({
       barcode: code,
@@ -57464,7 +57581,7 @@ function registerRoutes(app2) {
       fiberG: data.fiberG,
       sodiumMg: data.sodiumMg,
       sugarG: data.sugarG,
-      source: "openfoodfacts"
+      source
     });
     res.json(item);
   });

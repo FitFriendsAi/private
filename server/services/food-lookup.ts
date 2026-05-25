@@ -125,11 +125,15 @@ function parseServingSize(serving: string | undefined): number | null {
   return null;
 }
 
-// ── FatSecret ─────────────────────────────────────────────────────────────────
-// Comprehensive food + restaurant database. Free tier at platform.fatsecret.com
+// ── FatSecret Premier ─────────────────────────────────────────────────────────
+// Comprehensive food + restaurant database with Premier Free access.
+// Premier Free unlocks: food.find_id_for_barcode, foods.autocomplete,
+// food.get.v4 (full nutrition panels), and food categories.
 // OAuth 2.0 client credentials — token cached in memory, auto-refreshed.
 // NOTE: read from process.env at call time (not module init) so Render env vars
 // are always available regardless of ESM bundle initialization order.
+
+const FS_API = "https://platform.fatsecret.com/rest/server.api";
 
 let _fsToken: string | null = null;
 let _fsTokenExpiry = 0;
@@ -137,7 +141,6 @@ let _fsTokenExpiry = 0;
 async function getFatSecretToken(): Promise<string | null> {
   const FS_CLIENT_ID     = process.env.FATSECRET_CLIENT_ID?.trim();
   const FS_CLIENT_SECRET = process.env.FATSECRET_CLIENT_SECRET?.trim();
-  console.log(`[FatSecret] credentials check: id=${FS_CLIENT_ID ? "SET(" + FS_CLIENT_ID.slice(0,6) + "...)" : "MISSING"} secret=${FS_CLIENT_SECRET ? "SET" : "MISSING"}`);
   if (!FS_CLIENT_ID || !FS_CLIENT_SECRET) {
     console.warn("[FatSecret] credentials missing — set FATSECRET_CLIENT_ID and FATSECRET_CLIENT_SECRET");
     return null;
@@ -151,7 +154,8 @@ async function getFatSecretToken(): Promise<string | null> {
         "Authorization":  `Basic ${creds}`,
         "Content-Type":   "application/x-www-form-urlencoded",
       },
-      body: "grant_type=client_credentials&scope=basic",
+      // Premier Free scope — unlocks barcode, autocomplete, and food.get.v4
+      body: "grant_type=client_credentials&scope=premier",
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
@@ -165,7 +169,7 @@ async function getFatSecretToken(): Promise<string | null> {
     }
     _fsToken = data.access_token;
     _fsTokenExpiry = Date.now() + (data.expires_in - 120) * 1000; // refresh 2 min early
-    console.log(`[FatSecret] token acquired, expires in ${data.expires_in}s`);
+    console.log(`[FatSecret] premier token acquired, expires in ${data.expires_in}s`);
     return _fsToken;
   } catch (err: any) {
     console.error("[FatSecret] token fetch threw:", err?.message ?? err);
@@ -173,11 +177,122 @@ async function getFatSecretToken(): Promise<string | null> {
   }
 }
 
+/** Parse a single FatSecret serving object (from food.get.v4) into NutritionFacts.
+ *  Returns the first "normal" serving (non-100g generic) when available. */
+function parseFSServing(foodName: string, brandName: string | undefined, servings: any): NutritionFacts | null {
+  const list: any[] = Array.isArray(servings?.serving) ? servings.serving : servings?.serving ? [servings.serving] : [];
+  if (list.length === 0) return null;
+
+  // Prefer a real measured serving over the generic "100g" entry
+  const serving = list.find(s => s.serving_description?.toLowerCase() !== "100g") ?? list[0];
+
+  const servingG = parseFloat(serving.metric_serving_amount ?? serving.serving_description?.match(/([\d.]+)g/i)?.[1] ?? "100");
+  const servingUnit = serving.serving_description ?? `${servingG}g`;
+
+  const n = (key: string) => {
+    const v = parseFloat(serving[key]);
+    return isNaN(v) ? undefined : v;
+  };
+  const calories = n("calories");
+  if (!calories) return null;
+
+  return {
+    name:          foodName,
+    brand:         brandName || undefined,
+    servingSizeG:  servingG || 100,
+    servingUnit,
+    calories:      Math.round(calories),
+    proteinG:      Math.round((n("protein")         ?? 0) * 10) / 10,
+    carbsG:        Math.round((n("carbohydrate")     ?? 0) * 10) / 10,
+    fatG:          Math.round((n("fat")              ?? 0) * 10) / 10,
+    fiberG:        n("fiber") != null            ? Math.round(n("fiber")!         * 10) / 10  : undefined,
+    sugarG:        n("sugar") != null            ? Math.round(n("sugar")!         * 10) / 10  : undefined,
+    saturatedFatG: n("saturated_fat") != null    ? Math.round(n("saturated_fat")! * 10) / 10  : undefined,
+    transFatG:     n("trans_fat") != null        ? Math.round(n("trans_fat")!     * 10) / 10  : undefined,
+    sodiumMg:      n("sodium") != null           ? Math.round(n("sodium")!)                   : undefined,
+    cholesterolMg: n("cholesterol") != null      ? Math.round(n("cholesterol")!)               : undefined,
+    potassiumMg:   n("potassium") != null        ? Math.round(n("potassium")!)                 : undefined,
+    calciumMg:     n("calcium") != null          ? Math.round(n("calcium")!)                   : undefined,
+    ironMg:        n("iron") != null             ? Math.round(n("iron")!     * 100) / 100      : undefined,
+    vitaminDMcg:   n("vitamin_d") != null        ? Math.round(n("vitamin_d")!     * 10)  / 10  : undefined,
+    vitaminCMg:    n("vitamin_c") != null        ? Math.round(n("vitamin_c")!     * 10)  / 10  : undefined,
+  };
+}
+
+/** Fetch full nutrition for a FatSecret food ID using food.get.v4 (Premier). */
+async function getFSFoodById(token: string, foodId: string): Promise<NutritionFacts | null> {
+  try {
+    const url = `${FS_API}?method=food.get.v4&food_id=${encodeURIComponent(foodId)}&format=json`;
+    const res = await fetchWithTimeout(url, {
+      headers: { "Authorization": `Bearer ${token}`, "Accept": "application/json" },
+    });
+    if (!res.ok) {
+      console.error(`[FatSecret] food.get.v4 failed: HTTP ${res.status}`);
+      return null;
+    }
+    const data = await res.json() as any;
+    const food = data.food;
+    if (!food) return null;
+    return parseFSServing(food.food_name, food.brand_name, food.servings);
+  } catch {
+    return null;
+  }
+}
+
+/** Look up a barcode using FatSecret Premier's food.find_id_for_barcode endpoint.
+ *  Returns full NutritionFacts or null if not found. */
+export async function lookupBarcodeFS(barcode: string): Promise<NutritionFacts | null> {
+  const token = await getFatSecretToken();
+  if (!token) return null;
+  try {
+    // Step 1: Resolve barcode → food_id
+    const url = `${FS_API}?method=food.find_id_for_barcode&barcode=${encodeURIComponent(barcode)}&format=json`;
+    const res = await fetchWithTimeout(url, {
+      headers: { "Authorization": `Bearer ${token}`, "Accept": "application/json" },
+    });
+    if (!res.ok) {
+      console.error(`[FatSecret] barcode lookup failed: HTTP ${res.status}`);
+      return null;
+    }
+    const data = await res.json() as any;
+    const foodId = data.food_id?.value ?? data.food_id;
+    if (!foodId) return null;
+
+    // Step 2: Fetch full nutrition panel for that food_id
+    const facts = await getFSFoodById(token, String(foodId));
+    if (facts) console.log(`[FatSecret] barcode ${barcode} → food_id ${foodId} → "${facts.name}"`);
+    return facts;
+  } catch {
+    return null;
+  }
+}
+
+/** Autocomplete suggestions for the search bar (Premier feature). */
+export async function autocompleteFatSecret(query: string, maxResults = 8): Promise<string[]> {
+  const token = await getFatSecretToken();
+  if (!token) return [];
+  try {
+    const url = `${FS_API}?method=foods.autocomplete` +
+      `&expression=${encodeURIComponent(query)}&max_results=${maxResults}&format=json`;
+    const res = await fetchWithTimeout(url, {
+      headers: { "Authorization": `Bearer ${token}`, "Accept": "application/json" },
+    });
+    if (!res.ok) return [];
+    const data = await res.json() as any;
+    const raw = data.suggestions?.suggestion;
+    if (!raw) return [];
+    return Array.isArray(raw) ? raw : [raw];
+  } catch {
+    return [];
+  }
+}
+
 export async function searchFatSecret(query: string, limit = 25): Promise<NutritionFacts[]> {
   const token = await getFatSecretToken();
   if (!token) return [];
   try {
-    const url = `https://platform.fatsecret.com/rest/server.api` +
+    // Use foods.search to get IDs + brief descriptions
+    const url = `${FS_API}` +
       `?method=foods.search&search_expression=${encodeURIComponent(query)}` +
       `&format=json&max_results=${limit}&page_number=0`;
     const res = await fetchWithTimeout(url, {
@@ -190,33 +305,51 @@ export async function searchFatSecret(query: string, limit = 25): Promise<Nutrit
     const data = await res.json() as any;
     const raw = data.foods?.food;
     if (!raw) return [];
-    const foods = Array.isArray(raw) ? raw : [raw];
+    const foods: any[] = Array.isArray(raw) ? raw : [raw];
 
-    return foods
-      .filter((f: any) => f.food_description)
-      .map((f: any): NutritionFacts => {
-        // food_description: "Per 1 burger (210g) - Calories: 563kcal | Fat: 33.00g | Carbs: 44.00g | Protein: 26.00g"
-        const desc     = f.food_description as string;
-        const calories = parseFloat(desc.match(/Calories:\s*([\d.]+)/i)?.[1] ?? "0");
-        const fat      = parseFloat(desc.match(/Fat:\s*([\d.]+)/i)?.[1] ?? "0");
-        const carbs    = parseFloat(desc.match(/Carbs:\s*([\d.]+)/i)?.[1] ?? "0");
-        const protein  = parseFloat(desc.match(/Protein:\s*([\d.]+)/i)?.[1] ?? "0");
-        const servingG = parseFloat(desc.match(/\(([\d.]+)g\)/i)?.[1] ?? "100");
-        const servingLabel = desc.match(/^Per (.+?) -/i)?.[1] ?? "1 serving";
-        return {
-          name:         f.food_name,
-          brand:        f.brand_name || undefined,
-          servingSizeG: servingG || 100,
-          servingUnit:  servingLabel,
-          calories:     Math.round(calories),
-          proteinG:     Math.round(protein * 10) / 10,
-          carbsG:       Math.round(carbs   * 10) / 10,
-          fatG:         Math.round(fat     * 10) / 10,
-        };
-      });
+    // For each search result fetch full nutrition via food.get.v4 in parallel
+    // (cap at 10 concurrent fetches to avoid rate limits)
+    const TOP = Math.min(foods.length, 10);
+    const enriched = await Promise.all(
+      foods.slice(0, TOP).map(async (f: any) => {
+        if (!f.food_id) return fallbackFSItem(f);
+        const full = await getFSFoodById(token, String(f.food_id));
+        if (full) return full;
+        return fallbackFSItem(f); // fall back to parsing the description string
+      })
+    );
+
+    // Append any remaining results using the fast description-parse fallback
+    const rest = foods.slice(TOP).map(fallbackFSItem);
+    return [...enriched, ...rest].filter((x): x is NutritionFacts => x !== null);
   } catch {
     return [];
   }
+}
+
+/** Quick parse of a foods.search result's food_description string (no extra API call).
+ *  Used as a fallback when food.get.v4 fails or for tail results. */
+function fallbackFSItem(f: any): NutritionFacts | null {
+  if (!f.food_description) return null;
+  // "Per 1 burger (210g) - Calories: 563kcal | Fat: 33.00g | Carbs: 44.00g | Protein: 26.00g"
+  const desc     = f.food_description as string;
+  const calories = parseFloat(desc.match(/Calories:\s*([\d.]+)/i)?.[1] ?? "0");
+  const fat      = parseFloat(desc.match(/Fat:\s*([\d.]+)/i)?.[1] ?? "0");
+  const carbs    = parseFloat(desc.match(/Carbs:\s*([\d.]+)/i)?.[1] ?? "0");
+  const protein  = parseFloat(desc.match(/Protein:\s*([\d.]+)/i)?.[1] ?? "0");
+  const servingG = parseFloat(desc.match(/\(([\d.]+)g\)/i)?.[1] ?? "100");
+  const servingLabel = desc.match(/^Per (.+?) -/i)?.[1] ?? "1 serving";
+  if (!calories) return null;
+  return {
+    name:         f.food_name,
+    brand:        f.brand_name || undefined,
+    servingSizeG: servingG || 100,
+    servingUnit:  servingLabel,
+    calories:     Math.round(calories),
+    proteinG:     Math.round(protein * 10) / 10,
+    carbsG:       Math.round(carbs   * 10) / 10,
+    fatG:         Math.round(fat     * 10) / 10,
+  };
 }
 
 // ── CalorieNinjas ─────────────────────────────────────────────────────────────
