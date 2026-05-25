@@ -456,14 +456,44 @@ export default function FoodScreen() {
     });
   }
 
+  /** Create a hidden file input, attach it to the DOM (required for iOS change event),
+   *  and trigger a click. Returns the input so the caller can set onchange. */
+  function createCameraInput(accept = "image/*"): HTMLInputElement {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = accept;
+    input.setAttribute("capture", "environment");
+    input.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0;";
+    document.body.appendChild(input); // must be in DOM or iOS won't fire change event
+    return input;
+  }
+
+  /** Resize a File to max maxPx JPEG and return { base64, mediaType }. */
+  function resizeFileForUpload(file: File, maxPx = 1600, quality = 0.85): Promise<{ base64: string; mediaType: string }> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const scale = Math.min(1, maxPx / Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height));
+        const canvas = document.createElement("canvas");
+        canvas.width  = Math.round((img.naturalWidth  || img.width)  * scale);
+        canvas.height = Math.round((img.naturalHeight || img.height) * scale);
+        canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL("image/jpeg", quality);
+        resolve({ base64: dataUrl.split(",")[1], mediaType: "image/jpeg" });
+      };
+      img.onerror = reject;
+      img.src = url;
+    });
+  }
+
   // ── Open camera to photograph a barcode (web only) ────────────────────────
   function openBarcodeCapture() {
     if (Platform.OS !== "web") return;
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = "image/*";
-    (input as any).capture = "environment";
+    const input = createCameraInput();
     input.onchange = async (e: Event) => {
+      document.body.removeChild(input);
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) return;
       setBarcodeLoading(true);
@@ -477,21 +507,21 @@ export default function FoodScreen() {
           });
           const bitmap = await createImageBitmap(file);
           const barcodes = await detector.detect(bitmap);
+          URL.revokeObjectURL(objectUrl);
           if (barcodes.length > 0) {
-            URL.revokeObjectURL(objectUrl);
             await lookupBarcodeCode(barcodes[0].rawValue);
             return;
           }
-          // No result from native detector — fall through to ZXing
+          // Native detector found nothing — fall through to ZXing
         }
 
         // ② ZXing — works on iOS Safari, Firefox, and older Chrome.
-        // We decode from a canvas directly (synchronous, no image-reload step).
-        // Resize first: full-res iPhone photos (12MP+) can crash the canvas decode.
+        // Resize first: full-res iPhone photos (12MP+) crash the canvas decode.
+        // decodeFromCanvas is synchronous and skips ZXing's image-reload path.
         const canvas = await resizeImageToCanvas(objectUrl, 1400);
         URL.revokeObjectURL(objectUrl);
         const reader = new BrowserMultiFormatReader();
-        const result = reader.decodeFromCanvas(canvas); // synchronous, throws NotFoundException on miss
+        const result = reader.decodeFromCanvas(canvas);
         await lookupBarcodeCode(result.getText());
       } catch (err: any) {
         URL.revokeObjectURL(objectUrl);
@@ -511,46 +541,39 @@ export default function FoodScreen() {
   // ── Open camera to photograph a nutrition label (web only) ────────────────
   function openScanLabel() {
     if (Platform.OS !== "web") return;
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = "image/*";
-    (input as any).capture = "environment";
-    input.onchange = (e: Event) => {
+    const input = createCameraInput();
+    input.onchange = async (e: Event) => {
+      document.body.removeChild(input);
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) return;
       setScanLabelLoading(true);
       setScanLabelError("");
-      const fr = new FileReader();
-      fr.onload = async (ev) => {
-        const dataUrl = ev.target?.result as string;
-        const [header, base64] = dataUrl.split(",");
-        const mediaType = header.match(/data:([^;]+)/)?.[1] || "image/jpeg";
-        try {
-          // Claude Vision extracts nutrition facts
-          const data = await apiRequest<any>("POST", "/api/food/scan-label", { imageBase64: base64, mediaType });
-          // Persist as a food item so the log entry has a real id
-          const item = await apiRequest<FoodItem>("POST", "/api/food/items", {
-            name: data.name || "Scanned Food",
-            brand: data.brand || undefined,
-            servingSizeG: data.servingSizeG || 100,
-            servingUnit: data.servingUnit || "serving",
-            calories: data.calories || 0,
-            proteinG: data.proteinG || 0,
-            carbsG: data.carbsG || 0,
-            fatG: data.fatG || 0,
-            fiberG: data.fiberG || undefined,
-            sodiumMg: data.sodiumMg || undefined,
-            sugarG: data.sugarG || undefined,
-            source: "custom",
-          });
-          setSelectedItem(item); // → serving selector
-        } catch {
-          setScanLabelError("Couldn't read the label. Try a clearer, well-lit photo.");
-        } finally {
-          setScanLabelLoading(false);
-        }
-      };
-      fr.readAsDataURL(file);
+      try {
+        // Resize before sending — full-res iPhone photos (8–15 MB) exceed Claude's limit
+        const { base64, mediaType } = await resizeFileForUpload(file, 1600, 0.85);
+        // Claude Vision extracts nutrition facts
+        const data = await apiRequest<any>("POST", "/api/food/scan-label", { imageBase64: base64, mediaType });
+        // Persist as a food item so the log entry has a real id
+        const item = await apiRequest<FoodItem>("POST", "/api/food/items", {
+          name: data.name || "Scanned Food",
+          brand: data.brand || undefined,
+          servingSizeG: data.servingSizeG || 100,
+          servingUnit: data.servingUnit || "serving",
+          calories: data.calories || 0,
+          proteinG: data.proteinG || 0,
+          carbsG: data.carbsG || 0,
+          fatG: data.fatG || 0,
+          fiberG: data.fiberG || undefined,
+          sodiumMg: data.sodiumMg || undefined,
+          sugarG: data.sugarG || undefined,
+          source: "custom",
+        });
+        setSelectedItem(item);
+      } catch {
+        setScanLabelError("Couldn't read the label. Try a clearer, well-lit photo.");
+      } finally {
+        setScanLabelLoading(false);
+      }
     };
     input.click();
   }
