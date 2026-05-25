@@ -57068,7 +57068,7 @@ Convert all units to the specified units (g, mg, kcal).`;
 async function parseNutritionLabel(imageBase64, mediaType) {
   try {
     const response = await client.messages.create({
-      model: "claude-opus-4-7",
+      model: "claude-opus-4-5",
       max_tokens: 512,
       messages: [
         {

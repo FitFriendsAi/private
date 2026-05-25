@@ -19,6 +19,29 @@ function isIOS() {
 
 type Mode = "photo" | "live" | "manual";
 
+/** Resize a File to a canvas with max side ≤ maxPx and return a data URL.
+ *  Also applies any EXIF rotation by relying on CSS image-orientation (Safari handles it). */
+function fileToResizedDataUrl(file: File, maxPx = 1400): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      const scale = Math.min(1, maxPx / Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height));
+      const w = Math.round((img.naturalWidth || img.width) * scale);
+      const h = Math.round((img.naturalHeight || img.height) * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL("image/jpeg", 0.92));
+    };
+    img.onerror = reject;
+    img.src = objectUrl;
+  });
+}
+
 export function BarcodeScanner({ open, onClose, onScan }: BarcodeScannerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -58,7 +81,7 @@ export function BarcodeScanner({ open, onClose, onScan }: BarcodeScannerProps) {
     return () => { controls?.stop(); };
   }, [open, mode]);
 
-  // ── Photo-capture mode (iOS + universal fallback) ────────────────────────────
+  // ── Photo-capture mode ────────────────────────────────────────────────────
   async function handleFileCapture(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -67,17 +90,26 @@ export function BarcodeScanner({ open, onClose, onScan }: BarcodeScannerProps) {
     setError("");
 
     try {
-      const objectUrl = URL.createObjectURL(file);
-      const img = new Image();
-      img.src = objectUrl;
-      await new Promise<void>((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = () => reject(new Error("Image load failed"));
-      });
+      // ① Native BarcodeDetector (Safari 17+, Chrome) — fastest path
+      if ("BarcodeDetector" in window) {
+        const detector = new (window as any).BarcodeDetector({
+          formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39", "code_93", "qr_code", "data_matrix", "itf"],
+        });
+        const bitmap = await createImageBitmap(file);
+        const results: any[] = await detector.detect(bitmap);
+        if (results.length > 0) {
+          onScan(results[0].rawValue);
+          onClose();
+          return;
+        }
+        // BarcodeDetector found nothing — fall through to ZXing
+      }
 
+      // ② ZXing — resize image first so iOS 12MP photos don't blow up the canvas
+      const dataUrl = await fileToResizedDataUrl(file, 1400);
       const reader = new BrowserMultiFormatReader();
-      const result = await (reader as any).decodeFromImageElement(img);
-      URL.revokeObjectURL(objectUrl);
+      // decodeFromImageUrl creates a new <img>, sets src, waits for load, then decodes
+      const result = await (reader as any).decodeFromImageUrl(dataUrl);
 
       if (result) {
         onScan(result.getText());
@@ -89,7 +121,6 @@ export function BarcodeScanner({ open, onClose, onScan }: BarcodeScannerProps) {
       setError("Couldn't read barcode. Try a clearer photo or enter the number manually.");
     } finally {
       setScanning(false);
-      // Reset the file input so the same file can be re-selected if needed
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
@@ -141,7 +172,6 @@ export function BarcodeScanner({ open, onClose, onScan }: BarcodeScannerProps) {
         {/* ── Photo capture ── */}
         {mode === "photo" && (
           <div className="space-y-3">
-            {/* Hidden file input — capture="environment" opens rear camera on mobile */}
             <input
               ref={fileInputRef}
               type="file"
@@ -150,7 +180,6 @@ export function BarcodeScanner({ open, onClose, onScan }: BarcodeScannerProps) {
               className="hidden"
               onChange={handleFileCapture}
             />
-
             <Button
               className="w-full"
               onClick={() => fileInputRef.current?.click()}
@@ -162,9 +191,7 @@ export function BarcodeScanner({ open, onClose, onScan }: BarcodeScannerProps) {
                 <><Camera className="w-4 h-4 mr-2" /> Take Photo of Barcode</>
               )}
             </Button>
-
             {error && <p className="text-destructive text-sm text-center">{error}</p>}
-
             <p className="text-xs text-muted-foreground text-center">
               Point your camera at the barcode and take a photo
             </p>
