@@ -18,11 +18,21 @@ import {
   type Friendship,
 } from "../shared/schema.js";
 
+// Strip conflicting SSL URL params so the pool's ssl option is the sole SSL config
+const _rawDbUrl = process.env.DATABASE_URL ?? '';
+const _isSupabase = _rawDbUrl.includes('supabase');
+const _cleanDbUrl = _rawDbUrl
+  .replace(/[?&](sslmode|uselibpqcompat)=[^&]*/g, '')
+  .replace(/\?&/, '?')
+  .replace(/&&/g, '&')
+  .replace(/[?&]$/, '');
+
 const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: _cleanDbUrl || _rawDbUrl,
   keepAlive: true,
   idleTimeoutMillis: 60_000,
   connectionTimeoutMillis: 5_000,
+  ssl: _isSupabase ? { rejectUnauthorized: false } : undefined,
 });
 const db = drizzle(pool);
 
