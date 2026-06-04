@@ -1,99 +1,54 @@
 import { useState } from "react";
 import {
-  View, Text, ScrollView, Pressable, Alert,
+  View, Text, ScrollView, Pressable, Alert, TextInput, Modal, ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import { useTheme } from "@/hooks/use-theme";
 import { useAuth } from "@/hooks/use-auth";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/api";
 import {
   Plus, Heart, MessageCircle, Flame, Dumbbell,
-  Target, Zap, Check, UserPlus, Trophy,
+  Target, Zap, Check, UserPlus, Trophy, X,
 } from "lucide-react-native";
 
 const LIME  = "#c8e84c";
 const DOT: object = { fontFamily: "Doto" };
 
-// ── Mock data ──────────────────────────────────────────────────────
-const FRIENDS = [
-  { id: 1, initials: "A",  firstName: "Alex",   lastName: "M.", streak: 18, pts: 4820, color: "#f8c8dc" },
-  { id: 2, initials: "S",  firstName: "Sam",    lastName: "K.", streak: 14, pts: 4310, color: "#c8e84c" },
-  { id: 3, initials: "R",  firstName: "Riley",  lastName: "T.", streak: 11, pts: 3990, color: "#ffb88c" },
-  { id: 4, initials: "J",  firstName: "Jordan", lastName: "L.", streak:  7, pts: 3420, color: "#9bd1ff" },
-  { id: 5, initials: "C",  firstName: "Casey",  lastName: "R.", streak:  5, pts: 2980, color: "#d3a8ff" },
-];
-
+// ── Mock feed posts (kept until real social posts are built) ────────
 const FEED_POSTS = [
   {
-    id: 1, friend: FRIENDS[0], timeAgo: "2h ago",
+    id: 1, timeAgo: "2h ago",
     title: "Push Day PR! 🔥",
     body: "Finally hit 225 on bench. Months of work paying off!",
     stat: { label: "BENCH PRESS", value: "225", unit: "lbs", bg: "#ffffff", labelColor: "#555", valueColor: "#0a0a0a" },
     likes: 12, comments: 3, reactions: ["🔥", "💪", "🤩"],
   },
   {
-    id: 2, friend: FRIENDS[1], timeAgo: "5h ago",
+    id: 2, timeAgo: "5h ago",
     title: "Meal prepped for the week",
     body: "Hit 185g protein every single day this week. Clean eating is a superpower.",
     stat: { label: "WEEKLY PROTEIN", value: "185", unit: "g avg", bg: LIME, labelColor: "rgba(0,0,0,0.55)", valueColor: "#0a0a0a" },
     likes: 8, comments: 1, reactions: ["💚", "🥗"],
   },
   {
-    id: 3, friend: FRIENDS[3], timeAgo: "1d ago",
+    id: 3, timeAgo: "1d ago",
     title: "Rest day but still hitting steps 🚶",
     body: "12,000 steps, mobility work, and actually got 8 hours of sleep. Recovery is training.",
     stat: null,
     likes: 5, comments: 0, reactions: ["😴", "👣"],
   },
-  {
-    id: 4, friend: FRIENDS[2], timeAgo: "2d ago",
-    title: "New squat PB 🏋️",
-    body: "315 lbs for 3 reps. Lower body is catching up finally.",
-    stat: { label: "BACK SQUAT", value: "315", unit: "lbs", bg: "#ffffff", labelColor: "#555", valueColor: "#0a0a0a" },
-    likes: 19, comments: 6, reactions: ["🔥", "💪"],
-  },
-];
-
-const CHALLENGES = [
-  {
-    id: 1,
-    icon: "flame", iconColor: "#f97316", iconBg: "rgba(249,115,22,0.15)",
-    title: "30-Day Streak",
-    desc: "Log a workout every day for 30 days",
-    progress: 9, goal: 30,
-    accentColor: "#ffffff",
-    participants: [FRIENDS[0], FRIENDS[1], FRIENDS[3]],
-    daysLeft: 21, joined: true,
-  },
-  {
-    id: 2,
-    icon: "target", iconColor: LIME, iconBg: "rgba(200,232,76,0.15)",
-    title: "Protein King",
-    desc: "Hit your protein target 20 days this month",
-    progress: 12, goal: 20,
-    accentColor: LIME,
-    participants: [FRIENDS[1], FRIENDS[4]],
-    daysLeft: 8, joined: true,
-  },
-  {
-    id: 3,
-    icon: "dumbbell", iconColor: "#9bd1ff", iconBg: "rgba(155,209,255,0.15)",
-    title: "100k Volume Club",
-    desc: "Lift 100,000 lbs total this month",
-    progress: 0, goal: 100,
-    accentColor: "#9bd1ff",
-    participants: [FRIENDS[0], FRIENDS[2], FRIENDS[3], FRIENDS[4]],
-    daysLeft: 13, joined: false,
-  },
 ];
 
 const HOW_POINTS = [
-  { icon: Dumbbell, label: "Log a workout",       pts: "+100" },
-  { icon: Target,   label: "Hit macro targets",    pts: "+50"  },
-  { icon: Flame,    label: "Daily streak bonus",   pts: "+25"  },
-  { icon: Zap,      label: "Set a personal record",pts: "+200" },
+  { icon: Dumbbell, label: "Log a workout",        pts: "+100" },
+  { icon: Target,   label: "Hit protein target",    pts: "+50"  },
+  { icon: Flame,    label: "Daily streak bonus",    pts: "+25"  },
+  { icon: Zap,      label: "Set a personal record", pts: "+200" },
 ];
 
-// ── Avatar circle ──────────────────────────────────────────────────
+// ── Avatar circle ───────────────────────────────────────────────────
 function Avatar({
   initials, color, size = 44, borderColor, borderWidth = 0,
 }: {
@@ -114,44 +69,76 @@ function Avatar({
   );
 }
 
-// ── Challenge icon helper ──────────────────────────────────────────
-function ChallengeIcon({ name, color, bg }: { name: string; color: string; bg: string }) {
-  const Icon = name === "flame" ? Flame : name === "target" ? Target : Dumbbell;
-  return (
-    <View style={{
-      width: 46, height: 46, borderRadius: 14,
-      backgroundColor: bg, alignItems: "center", justifyContent: "center",
-    }}>
-      <Icon size={22} color={color} />
-    </View>
-  );
-}
-
-// ── Main ──────────────────────────────────────────────────────────
+// ── Main ─────────────────────────────────────────────────────────────
 const TABS = ["Feed", "Leaderboard", "Challenges"] as const;
 type Tab = typeof TABS[number];
 
 export default function FriendsScreen() {
   const { palette } = useTheme();
   const { user }    = useAuth();
+  const router      = useRouter();
+  const qc          = useQueryClient();
   const { card, cardBorder: border, text, muted, bg } = palette;
-  const [tab, setTab] = useState<Tab>("Feed");
+  const [tab, setTab]               = useState<Tab>("Feed");
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addEmail, setAddEmail]     = useState("");
+  const [addError, setAddError]     = useState("");
 
   const myInitial = (user?.name?.[0] ?? "Y").toUpperCase();
+
+  // ── Data ──
+  const { data: friends = [], isLoading: loadingFriends } = useQuery<any[]>({
+    queryKey: ["/api/friends"],
+    queryFn:  () => apiRequest("GET", "/api/friends"),
+  });
+
+  const { data: pendingRequests = [] } = useQuery<any[]>({
+    queryKey: ["/api/friends/requests"],
+    queryFn:  () => apiRequest("GET", "/api/friends/requests"),
+  });
+
+  const sendRequestMutation = useMutation({
+    mutationFn: (email: string) => apiRequest("POST", "/api/friends/request", { email }),
+    onSuccess: () => {
+      setShowAddModal(false);
+      setAddEmail("");
+      setAddError("");
+      Alert.alert("Friend request sent!");
+    },
+    onError: (err: any) => {
+      setAddError(err?.message ?? "Could not send request");
+    },
+  });
+
+  const acceptMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("PATCH", `/api/friends/${id}/accept`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/friends"] }); qc.invalidateQueries({ queryKey: ["/api/friends/requests"] }); },
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: (friendId: number) => apiRequest("DELETE", `/api/friends/${friendId}`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/friends"] }); },
+  });
+
+  // My own computed points (sum of friends for leaderboard reference)
   const MY_PTS    = 3750;
   const MY_STREAK = 9;
 
-  // Full leaderboard including "me"
+  // Leaderboard: real friends + me
   const leaderboard = [
-    ...FRIENDS,
-    { id: 0, initials: myInitial, firstName: "You", lastName: "(you)", streak: MY_STREAK, pts: MY_PTS, color: "#ffffff", isMe: true },
-  ].sort((a, b) => b.pts - a.pts);
+    ...friends,
+    { id: user?.id ?? 0, name: user?.name ?? "You", initials: myInitial, color: "#ffffff", streak: MY_STREAK, points: MY_PTS, isMe: true },
+  ].sort((a: any, b: any) => (b.points ?? 0) - (a.points ?? 0));
 
-  const myRank   = leaderboard.findIndex((e: any) => e.isMe) + 1;
-  const above    = leaderboard[myRank - 2]; // person one rank above me
-  const ptsToNext = above ? above.pts - MY_PTS : 0;
-  const ptsProgress = above ? MY_PTS / above.pts : 1;
+  const myRank     = leaderboard.findIndex((e: any) => e.isMe) + 1;
+  const above      = leaderboard[myRank - 2];
+  const ptsToNext  = above ? (above.points ?? 0) - MY_PTS : 0;
+  const ptsProgress = above ? MY_PTS / (above.points ?? 1) : 1;
   const MEDAL = ["🥇", "🥈", "🥉"];
+
+  function goToProfile(friendId: number) {
+    router.push(`/friend/${friendId}` as any);
+  }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: bg }} edges={["top"]}>
@@ -169,7 +156,7 @@ export default function FriendsScreen() {
           </Text>
         </View>
         <Pressable
-          onPress={() => Alert.alert("Add Friends", "Coming soon!")}
+          onPress={() => setShowAddModal(true)}
           style={({ pressed }) => ({
             width: 40, height: 40, borderRadius: 20,
             backgroundColor: "#1e1e1e", borderWidth: 1, borderColor: border,
@@ -179,6 +166,25 @@ export default function FriendsScreen() {
           <UserPlus size={18} color={text} />
         </Pressable>
       </View>
+
+      {/* ── Pending requests banner ── */}
+      {pendingRequests.length > 0 && (
+        <View style={{ marginHorizontal: 16, marginBottom: 12, backgroundColor: "#1a1a1a", borderRadius: 14, borderWidth: 1, borderColor: LIME, padding: 12, gap: 8 }}>
+          <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: LIME, letterSpacing: 0.8 }}>
+            FRIEND REQUESTS ({pendingRequests.length})
+          </Text>
+          {pendingRequests.map((req: any) => (
+            <View key={req.id} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <Avatar initials={req.initials} color={req.color} size={36} />
+              <Text style={{ flex: 1, fontFamily: "Manrope-SemiBold", fontSize: 14, color: text }}>{req.senderName}</Text>
+              <Pressable onPress={() => acceptMutation.mutate(req.id)}
+                style={({ pressed }) => ({ backgroundColor: LIME, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 6, opacity: pressed ? 0.7 : 1 })}>
+                <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: "#0a0a0a" }}>Accept</Text>
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      )}
 
       {/* ── 3-tab toggle ── */}
       <View style={{
@@ -212,7 +218,7 @@ export default function FriendsScreen() {
         showsVerticalScrollIndicator={false}
       >
 
-        {/* ════════════════ FEED ════════════════ */}
+        {/* ════════════ FEED ════════════ */}
         {tab === "Feed" && (
           <View>
             {/* Stories row */}
@@ -221,7 +227,6 @@ export default function FriendsScreen() {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 20, gap: 14 }}
             >
-              {/* Share (you) */}
               <View style={{ alignItems: "center", gap: 6 }}>
                 <View style={{
                   width: 60, height: 60, borderRadius: 30,
@@ -233,112 +238,112 @@ export default function FriendsScreen() {
                 <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 11, color: muted }}>Share</Text>
               </View>
 
-              {/* Friend stories */}
-              {FRIENDS.map(f => (
-                <Pressable key={f.id} style={{ alignItems: "center", gap: 6 }}>
-                  <View style={{
-                    width: 64, height: 64, borderRadius: 32,
-                    borderWidth: 2.5, borderColor: f.color,
-                    padding: 2, alignItems: "center", justifyContent: "center",
-                  }}>
-                    <Avatar initials={f.initials} color={f.color} size={54} />
-                  </View>
-                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 11, color: text }}>
-                    {f.firstName}
-                  </Text>
-                </Pressable>
-              ))}
+              {loadingFriends ? (
+                <ActivityIndicator color={LIME} style={{ alignSelf: "center" }} />
+              ) : friends.length === 0 ? (
+                <View style={{ justifyContent: "center", paddingHorizontal: 16 }}>
+                  <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted }}>Add friends to see their activity</Text>
+                </View>
+              ) : (
+                friends.map((f: any) => (
+                  <Pressable key={f.id} onPress={() => goToProfile(f.id)} style={{ alignItems: "center", gap: 6 }}>
+                    <View style={{
+                      width: 64, height: 64, borderRadius: 32,
+                      borderWidth: 2.5, borderColor: f.color,
+                      padding: 2, alignItems: "center", justifyContent: "center",
+                    }}>
+                      <Avatar initials={f.initials} color={f.color} size={54} />
+                    </View>
+                    <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 11, color: text }}>
+                      {f.name.split(" ")[0]}
+                    </Text>
+                  </Pressable>
+                ))
+              )}
             </ScrollView>
 
             {/* Posts */}
             <View style={{ paddingHorizontal: 16, gap: 12 }}>
-              {FEED_POSTS.map(post => (
-                <View key={post.id} style={{
-                  backgroundColor: card, borderRadius: 20,
-                  borderWidth: 1, borderColor: border, padding: 16,
-                }}>
-                  {/* Post header */}
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                    <Avatar initials={post.friend.initials} color={post.friend.color} size={40} />
-                    <View>
-                      <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: text }}>
-                        {post.friend.firstName} {post.friend.lastName}
-                      </Text>
-                      <Text style={{ fontFamily: "Manrope", fontSize: 11, color: muted }}>{post.timeAgo}</Text>
-                    </View>
-                  </View>
-
-                  {/* Title + body */}
-                  <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 15, color: text, marginBottom: 4 }}>
-                    {post.title}
+              {friends.length === 0 && !loadingFriends ? (
+                <View style={{ backgroundColor: card, borderRadius: 20, borderWidth: 1, borderColor: border, padding: 32, alignItems: "center", gap: 10 }}>
+                  <UserPlus size={32} color={muted} strokeWidth={1.5} />
+                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 14, color: muted, textAlign: "center" }}>
+                    No friends yet{"\n"}Tap + to add friends by email
                   </Text>
-                  <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted, lineHeight: 19, marginBottom: 12 }}>
-                    {post.body}
-                  </Text>
-
-                  {/* Stat highlight card */}
-                  {post.stat && (
-                    <View style={{
-                      backgroundColor: post.stat.bg, borderRadius: 14,
-                      paddingHorizontal: 16, paddingVertical: 14,
-                      flexDirection: "row", alignItems: "center",
-                      justifyContent: "space-between", marginBottom: 14,
-                    }}>
-                      <Text style={{
-                        fontFamily: "Manrope-ExtraBold", fontSize: 10,
-                        color: post.stat.labelColor, letterSpacing: 0.8,
-                      }}>
-                        {post.stat.label}
-                      </Text>
-                      <View style={{ flexDirection: "row", alignItems: "baseline", gap: 4 }}>
-                        <Text style={{ ...(DOT as any), fontSize: 28, color: post.stat.valueColor }}>
-                          {post.stat.value}
-                        </Text>
-                        <Text style={{
-                          fontFamily: "Manrope-SemiBold", fontSize: 13, color: post.stat.labelColor,
-                        }}>
-                          {post.stat.unit}
-                        </Text>
-                      </View>
-                    </View>
-                  )}
-
-                  {/* Reactions row */}
-                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                    <View style={{ flexDirection: "row", gap: 16 }}>
-                      <Pressable style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-                        <Heart size={16} color={muted} />
-                        <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: muted }}>
-                          {post.likes}
-                        </Text>
-                      </Pressable>
-                      <Pressable style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-                        <MessageCircle size={16} color={muted} />
-                        <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: muted }}>
-                          {post.comments}
-                        </Text>
-                      </Pressable>
-                    </View>
-                    <View style={{ flexDirection: "row", gap: 4 }}>
-                      {post.reactions.map((r, i) => (
-                        <Text key={i} style={{ fontSize: 18 }}>{r}</Text>
-                      ))}
-                    </View>
-                  </View>
                 </View>
-              ))}
+              ) : (
+                FEED_POSTS.map((post, idx) => {
+                  const friend = friends[idx % Math.max(friends.length, 1)];
+                  if (!friend) return null;
+                  return (
+                    <Pressable key={post.id} onPress={() => goToProfile(friend.id)} style={{ backgroundColor: card, borderRadius: 20, borderWidth: 1, borderColor: border, padding: 16 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                        <Avatar initials={friend.initials} color={friend.color} size={40} />
+                        <View>
+                          <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: text }}>{friend.name}</Text>
+                          <Text style={{ fontFamily: "Manrope", fontSize: 11, color: muted }}>{post.timeAgo}</Text>
+                        </View>
+                      </View>
+
+                      <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 15, color: text, marginBottom: 4 }}>
+                        {post.title}
+                      </Text>
+                      <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted, lineHeight: 19, marginBottom: 12 }}>
+                        {post.body}
+                      </Text>
+
+                      {post.stat && (
+                        <View style={{
+                          backgroundColor: post.stat.bg, borderRadius: 14,
+                          paddingHorizontal: 16, paddingVertical: 14,
+                          flexDirection: "row", alignItems: "center",
+                          justifyContent: "space-between", marginBottom: 14,
+                        }}>
+                          <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 10, color: post.stat.labelColor, letterSpacing: 0.8 }}>
+                            {post.stat.label}
+                          </Text>
+                          <View style={{ flexDirection: "row", alignItems: "baseline", gap: 4 }}>
+                            <Text style={{ ...(DOT as any), fontSize: 28, color: post.stat.valueColor }}>
+                              {post.stat.value}
+                            </Text>
+                            <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: post.stat.labelColor }}>
+                              {post.stat.unit}
+                            </Text>
+                          </View>
+                        </View>
+                      )}
+
+                      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                        <View style={{ flexDirection: "row", gap: 16 }}>
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                            <Heart size={16} color={muted} />
+                            <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: muted }}>{post.likes}</Text>
+                          </View>
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                            <MessageCircle size={16} color={muted} />
+                            <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: muted }}>{post.comments}</Text>
+                          </View>
+                        </View>
+                        <View style={{ flexDirection: "row", gap: 4 }}>
+                          {post.reactions.map((r, i) => (
+                            <Text key={i} style={{ fontSize: 18 }}>{r}</Text>
+                          ))}
+                        </View>
+                      </View>
+                    </Pressable>
+                  );
+                })
+              )}
             </View>
           </View>
         )}
 
-        {/* ════════════════ LEADERBOARD ════════════════ */}
+        {/* ════════════ LEADERBOARD ════════════ */}
         {tab === "Leaderboard" && (
           <View style={{ paddingHorizontal: 16, gap: 12 }}>
 
-            {/* Your rank card (white) */}
-            <View style={{
-              backgroundColor: "#ffffff", borderRadius: 20, padding: 18,
-            }}>
+            {/* Your rank card */}
+            <View style={{ backgroundColor: "#ffffff", borderRadius: 20, padding: 18 }}>
               <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: "#666666", letterSpacing: 0.8 }}>
                 YOUR RANK
               </Text>
@@ -352,101 +357,88 @@ export default function FriendsScreen() {
                   </Text>
                 </View>
                 {ptsToNext > 0 && (
-                  <View style={{
-                    backgroundColor: "#eeeeee", borderRadius: 20,
-                    paddingHorizontal: 12, paddingVertical: 6,
-                  }}>
+                  <View style={{ backgroundColor: "#eeeeee", borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6 }}>
                     <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: "#444444" }}>
                       {ptsToNext.toLocaleString()} pts to #{myRank - 1}
                     </Text>
                   </View>
                 )}
               </View>
-
               <View style={{ flexDirection: "row", alignItems: "baseline", gap: 4, marginTop: 2 }}>
-                <Text style={{ ...(DOT as any), fontSize: 24, color: "#0a0a0a" }}>
-                  {MY_PTS.toLocaleString()}
-                </Text>
+                <Text style={{ ...(DOT as any), fontSize: 24, color: "#0a0a0a" }}>{MY_PTS.toLocaleString()}</Text>
                 <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: "#666666" }}>pts</Text>
               </View>
-
-              {/* Progress bar */}
               <View style={{ marginTop: 12 }}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 5 }}>
-                  <Text style={{ fontFamily: "Manrope", fontSize: 11, color: "#888888" }}>
-                    Progress to next rank
-                  </Text>
+                  <Text style={{ fontFamily: "Manrope", fontSize: 11, color: "#888888" }}>Progress to next rank</Text>
                   <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: "#333333" }}>
                     {Math.round(ptsProgress * 100)}%
                   </Text>
                 </View>
                 <View style={{ height: 6, backgroundColor: "#e0e0e0", borderRadius: 3 }}>
-                  <View style={{
-                    height: 6, borderRadius: 3, backgroundColor: "#0a0a0a",
-                    width: `${Math.min(ptsProgress * 100, 100)}%`,
-                  }} />
+                  <View style={{ height: 6, borderRadius: 3, backgroundColor: "#0a0a0a", width: `${Math.min(ptsProgress * 100, 100)}%` as any }} />
                 </View>
               </View>
             </View>
 
-            {/* Leaderboard list */}
-            <View style={{ backgroundColor: card, borderRadius: 20, borderWidth: 1, borderColor: border, overflow: "hidden" }}>
-              {leaderboard.map((entry: any, i) => (
-                <View key={entry.id} style={{
-                  flexDirection: "row", alignItems: "center", padding: 14, gap: 12,
-                  backgroundColor: entry.isMe ? "rgba(255,255,255,0.06)" : "transparent",
-                  borderBottomWidth: i < leaderboard.length - 1 ? 1 : 0,
-                  borderBottomColor: border,
-                }}>
-                  {/* Rank */}
-                  <View style={{ width: 28, alignItems: "center" }}>
-                    {i < 3 ? (
-                      <Text style={{ fontSize: 20 }}>{MEDAL[i]}</Text>
-                    ) : (
-                      <Text style={{
-                        fontFamily: "Manrope-ExtraBold", fontSize: 16,
-                        color: entry.isMe ? text : muted,
-                      }}>
-                        {i + 1}
-                      </Text>
-                    )}
-                  </View>
-
-                  {/* Avatar */}
-                  <Avatar
-                    initials={entry.initials}
-                    color={entry.color}
-                    size={44}
-                    borderWidth={entry.isMe ? 2 : 0}
-                    borderColor="#ffffff"
-                  />
-
-                  {/* Name + streak */}
-                  <View style={{ flex: 1 }}>
-                    <Text style={{
-                      fontFamily: entry.isMe ? "Manrope-ExtraBold" : "Manrope-SemiBold",
-                      fontSize: 15, color: text,
-                    }}>
-                      {entry.firstName} {entry.lastName}
-                    </Text>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: 2 }}>
-                      <Flame size={11} color="#f97316" />
-                      <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted }}>
-                        {entry.streak} day streak
-                      </Text>
+            {loadingFriends ? (
+              <ActivityIndicator color={LIME} style={{ paddingVertical: 40 }} />
+            ) : (
+              <View style={{ backgroundColor: card, borderRadius: 20, borderWidth: 1, borderColor: border, overflow: "hidden" }}>
+                {leaderboard.map((entry: any, i) => (
+                  <Pressable
+                    key={entry.id}
+                    onPress={() => !entry.isMe && goToProfile(entry.id)}
+                    style={({ pressed }) => ({
+                      flexDirection: "row", alignItems: "center", padding: 14, gap: 12,
+                      backgroundColor: entry.isMe ? "rgba(255,255,255,0.06)" : pressed ? "rgba(255,255,255,0.03)" : "transparent",
+                      borderBottomWidth: i < leaderboard.length - 1 ? 1 : 0,
+                      borderBottomColor: border,
+                    })}
+                  >
+                    <View style={{ width: 28, alignItems: "center" }}>
+                      {i < 3 ? (
+                        <Text style={{ fontSize: 20 }}>{MEDAL[i]}</Text>
+                      ) : (
+                        <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 16, color: entry.isMe ? text : muted }}>
+                          {i + 1}
+                        </Text>
+                      )}
                     </View>
-                  </View>
 
-                  {/* Points */}
-                  <View style={{ alignItems: "flex-end" }}>
-                    <Text style={{ ...(DOT as any), fontSize: 20, color: text }}>
-                      {entry.pts.toLocaleString()}
+                    <Avatar initials={entry.initials} color={entry.color} size={44}
+                      borderWidth={entry.isMe ? 2 : 0} borderColor="#ffffff" />
+
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontFamily: entry.isMe ? "Manrope-ExtraBold" : "Manrope-SemiBold", fontSize: 15, color: text }}>
+                        {entry.isMe ? `${entry.name} (you)` : entry.name}
+                      </Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: 2 }}>
+                        <Flame size={11} color="#f97316" />
+                        <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted }}>
+                          {entry.streak ?? 0} day streak
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={{ alignItems: "flex-end" }}>
+                      <Text style={{ ...(DOT as any), fontSize: 20, color: text }}>
+                        {(entry.points ?? 0).toLocaleString()}
+                      </Text>
+                      <Text style={{ fontFamily: "Manrope", fontSize: 10, color: muted }}>pts</Text>
+                    </View>
+                  </Pressable>
+                ))}
+                {leaderboard.length <= 1 && (
+                  <View style={{ padding: 32, alignItems: "center", gap: 8 }}>
+                    <Trophy size={28} color={muted} strokeWidth={1.5} />
+                    <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: muted, textAlign: "center" }}>
+                      Add friends to compete on the leaderboard
                     </Text>
-                    <Text style={{ fontFamily: "Manrope", fontSize: 10, color: muted }}>pts</Text>
                   </View>
-                </View>
-              ))}
-            </View>
+                )}
+              </View>
+            )}
 
             {/* How points work */}
             <View style={{ backgroundColor: card, borderRadius: 20, borderWidth: 1, borderColor: border, padding: 16 }}>
@@ -456,29 +448,22 @@ export default function FriendsScreen() {
               {HOW_POINTS.map((row, i) => (
                 <View key={i} style={{
                   flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-                  paddingVertical: 9,
-                  borderTopWidth: i > 0 ? 1 : 0, borderTopColor: border,
+                  paddingVertical: 9, borderTopWidth: i > 0 ? 1 : 0, borderTopColor: border,
                 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                     <row.icon size={15} color={muted} />
-                    <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: text }}>
-                      {row.label}
-                    </Text>
+                    <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: text }}>{row.label}</Text>
                   </View>
-                  <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 13, color: LIME }}>
-                    {row.pts} pts
-                  </Text>
+                  <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 13, color: LIME }}>{row.pts} pts</Text>
                 </View>
               ))}
             </View>
           </View>
         )}
 
-        {/* ════════════════ CHALLENGES ════════════════ */}
+        {/* ════════════ CHALLENGES ════════════ */}
         {tab === "Challenges" && (
           <View style={{ paddingHorizontal: 16, gap: 12 }}>
-
-            {/* Start a challenge CTA */}
             <Pressable
               onPress={() => Alert.alert("Start a Challenge", "Coming soon!")}
               style={({ pressed }) => ({
@@ -494,100 +479,71 @@ export default function FriendsScreen() {
               </Text>
             </Pressable>
 
-            {/* Challenge cards */}
-            {CHALLENGES.map(ch => {
-              const pct = ch.goal > 0 ? Math.round((ch.progress / ch.goal) * 100) : 0;
-              return (
-                <View key={ch.id} style={{
-                  backgroundColor: card, borderRadius: 20,
-                  borderWidth: 1, borderColor: border, padding: 16,
-                  borderTopWidth: 3, borderTopColor: ch.joined ? ch.accentColor : border,
-                }}>
-                  {/* Top row: icon + title */}
-                  <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 12 }}>
-                    <ChallengeIcon name={ch.icon} color={ch.iconColor} bg={ch.iconBg} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 16, color: text }}>
-                        {ch.title}
-                      </Text>
-                      <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted, marginTop: 2 }}>
-                        {ch.desc}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* Progress bar */}
-                  {ch.joined && (
-                    <View style={{ marginBottom: 12 }}>
-                      <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 5 }}>
-                        <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: muted }}>
-                          {ch.progress} / {ch.goal}
-                        </Text>
-                        <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 12, color: ch.accentColor }}>
-                          {pct}%
-                        </Text>
-                      </View>
-                      <View style={{ height: 6, backgroundColor: "#222222", borderRadius: 3 }}>
-                        <View style={{
-                          height: 6, borderRadius: 3,
-                          backgroundColor: ch.accentColor,
-                          width: `${pct}%`,
-                        }} />
-                      </View>
-                    </View>
-                  )}
-
-                  {/* Bottom row: participants + days left + join button */}
-                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                      {/* Stacked avatars */}
-                      <View style={{ flexDirection: "row" }}>
-                        {ch.participants.slice(0, 4).map((p, i) => (
-                          <View key={p.id} style={{
-                            marginLeft: i > 0 ? -8 : 0, zIndex: ch.participants.length - i,
-                          }}>
-                            <Avatar
-                              initials={p.initials} color={p.color} size={26}
-                              borderWidth={1.5} borderColor={card}
-                            />
-                          </View>
-                        ))}
-                      </View>
-                      <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted }}>
-                        {ch.participants.length} joined
-                      </Text>
-                      <Text style={{ color: muted, fontSize: 10 }}>·</Text>
-                      <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted }}>
-                        {ch.daysLeft}d left
-                      </Text>
-                    </View>
-
-                    {/* Join / Joined button */}
-                    <Pressable
-                      onPress={() => Alert.alert(ch.joined ? "Already joined!" : `Join "${ch.title}"?`)}
-                      style={({ pressed }) => ({
-                        flexDirection: "row", alignItems: "center", gap: 5,
-                        backgroundColor: ch.joined ? "rgba(255,255,255,0.07)" : ch.accentColor,
-                        borderRadius: 14, paddingHorizontal: 14, paddingVertical: 7,
-                        opacity: pressed ? 0.75 : 1,
-                      })}
-                    >
-                      {ch.joined && <Check size={13} color={ch.accentColor} />}
-                      <Text style={{
-                        fontFamily: "Manrope-Bold", fontSize: 13,
-                        color: ch.joined ? ch.accentColor : "#0a0a0a",
-                      }}>
-                        {ch.joined ? "Joined" : "Join"}
-                      </Text>
-                    </Pressable>
-                  </View>
-                </View>
-              );
-            })}
+            <View style={{ backgroundColor: card, borderRadius: 20, borderWidth: 1, borderColor: border, padding: 32, alignItems: "center", gap: 10 }}>
+              <Trophy size={32} color={muted} strokeWidth={1.5} />
+              <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 14, color: muted, textAlign: "center" }}>
+                Challenges coming soon!{"\n"}Add friends to get started.
+              </Text>
+            </View>
           </View>
         )}
 
       </ScrollView>
+
+      {/* ── Add Friend Modal ── */}
+      <Modal visible={showAddModal} transparent animationType="fade">
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "center", padding: 24 }}>
+          <View style={{ backgroundColor: "#1a1a1a", borderRadius: 24, padding: 24, borderWidth: 1, borderColor: border }}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 20, color: text }}>Add Friend</Text>
+              <Pressable onPress={() => { setShowAddModal(false); setAddEmail(""); setAddError(""); }}>
+                <X size={22} color={muted} />
+              </Pressable>
+            </View>
+
+            <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted, marginBottom: 12 }}>
+              Enter your friend's email address
+            </Text>
+
+            <TextInput
+              value={addEmail}
+              onChangeText={t => { setAddEmail(t); setAddError(""); }}
+              placeholder="friend@email.com"
+              placeholderTextColor="#555"
+              autoCapitalize="none"
+              keyboardType="email-address"
+              style={{
+                backgroundColor: "#111111", borderRadius: 14, padding: 14,
+                fontFamily: "Manrope", fontSize: 15, color: text,
+                borderWidth: 1, borderColor: addError ? "#ef4444" : border,
+                marginBottom: 8,
+              }}
+            />
+            {addError ? (
+              <Text style={{ fontFamily: "Manrope", fontSize: 12, color: "#ef4444", marginBottom: 12 }}>{addError}</Text>
+            ) : null}
+
+            <Pressable
+              onPress={() => {
+                if (!addEmail.trim()) { setAddError("Enter an email"); return; }
+                sendRequestMutation.mutate(addEmail.trim().toLowerCase());
+              }}
+              disabled={sendRequestMutation.isPending}
+              style={({ pressed }) => ({
+                backgroundColor: LIME, borderRadius: 14, padding: 16,
+                alignItems: "center", marginTop: 8,
+                opacity: pressed || sendRequestMutation.isPending ? 0.7 : 1,
+              })}
+            >
+              {sendRequestMutation.isPending
+                ? <ActivityIndicator color="#0a0a0a" />
+                : <Text style={{ fontFamily: "Manrope-Bold", fontSize: 15, color: "#0a0a0a" }}>Send Request</Text>
+              }
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
     </SafeAreaView>
   );
 }

@@ -280,6 +280,19 @@ export const insertMealIngredientSchema = createInsertSchema(mealIngredients).om
 export type MealIngredient = typeof mealIngredients.$inferSelect;
 export type InsertMealIngredient = z.infer<typeof insertMealIngredientSchema>;
 
+// ─── Friendships ──────────────────────────────────────────────────────────────
+export const friendships = pgTable("friendships", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  friendId: integer("friend_id").notNull().references(() => users.id),
+  status: text("status").notNull().default("pending"), // pending | accepted | blocked
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertFriendshipSchema = createInsertSchema(friendships).omit({ id: true, createdAt: true });
+export type Friendship = typeof friendships.$inferSelect;
+export type InsertFriendship = z.infer<typeof insertFriendshipSchema>;
+
 // ─── Workout Sets ─────────────────────────────────────────────────────────────
 export const workoutSets = pgTable("workout_sets", {
   id: serial("id").primaryKey(),

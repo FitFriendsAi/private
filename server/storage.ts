@@ -5,6 +5,7 @@ import {
   users, userProfiles, goals, bodyMeasurements, foodItems, foodLog,
   nutritionTargets, waterLog, supplementLog, exercises, workoutTemplates,
   templateExercises, workouts, workoutSets, heartRateLog, savedMeals, mealIngredients,
+  friendships,
   type User, type UserProfile, type Goal, type BodyMeasurement, type FoodItem,
   type FoodLogEntry, type NutritionTarget, type WaterLogEntry, type SupplementLogEntry,
   type Exercise, type WorkoutTemplate, type TemplateExercise, type Workout, type WorkoutSet,
@@ -14,6 +15,7 @@ import {
   type InsertFoodItem, type InsertFoodLogEntry, type InsertNutritionTarget,
   type InsertWaterLogEntry, type InsertSupplementLogEntry, type InsertExercise,
   type InsertWorkoutTemplate, type InsertTemplateExercise, type InsertWorkout, type InsertWorkoutSet,
+  type Friendship,
 } from "../shared/schema.js";
 
 const pool = new pg.Pool({
@@ -746,5 +748,138 @@ export const storage = {
       })))
       .returning();
     return entries;
+  },
+
+  // ── Friendships ────────────────────────────────────────────────────────────
+  /** Return the friendship row (either direction) between two users, if any */
+  async getFriendship(userId: number, friendId: number): Promise<Friendship | undefined> {
+    const [row] = await db.select().from(friendships).where(
+      or(
+        and(eq(friendships.userId, userId), eq(friendships.friendId, friendId)),
+        and(eq(friendships.userId, friendId), eq(friendships.friendId, userId)),
+      )
+    );
+    return row;
+  },
+
+  /** Create a pending friend request (userId → friendId) */
+  async sendFriendRequest(userId: number, friendId: number): Promise<Friendship> {
+    const [row] = await db.insert(friendships).values({ userId, friendId, status: "pending" }).returning();
+    return row;
+  },
+
+  /** Accept a friend request — only the recipient (friendId) may accept */
+  async acceptFriendRequest(id: number, recipientUserId: number): Promise<Friendship | undefined> {
+    const [row] = await db.update(friendships)
+      .set({ status: "accepted" })
+      .where(and(eq(friendships.id, id), eq(friendships.friendId, recipientUserId)))
+      .returning();
+    return row;
+  },
+
+  /** Remove a friendship (either direction) */
+  async removeFriendship(userId: number, friendId: number): Promise<void> {
+    await db.delete(friendships).where(
+      or(
+        and(eq(friendships.userId, userId), eq(friendships.friendId, friendId)),
+        and(eq(friendships.userId, friendId), eq(friendships.friendId, userId)),
+      )
+    );
+  },
+
+  /** Get all accepted friends for a user, joined with their user record */
+  async getFriends(userId: number): Promise<{ friendship: Friendship; friend: User }[]> {
+    const rows = await db.select().from(friendships)
+      .where(and(
+        or(eq(friendships.userId, userId), eq(friendships.friendId, userId)),
+        eq(friendships.status, "accepted"),
+      ));
+    const result: { friendship: Friendship; friend: User }[] = [];
+    for (const f of rows) {
+      const friendUserId = f.userId === userId ? f.friendId : f.userId;
+      const [friend] = await db.select().from(users).where(eq(users.id, friendUserId));
+      if (friend) result.push({ friendship: f, friend });
+    }
+    return result;
+  },
+
+  /** Pending requests incoming to this user */
+  async getPendingRequests(userId: number): Promise<{ friendship: Friendship; sender: User }[]> {
+    const rows = await db.select().from(friendships)
+      .where(and(eq(friendships.friendId, userId), eq(friendships.status, "pending")));
+    const result: { friendship: Friendship; sender: User }[] = [];
+    for (const f of rows) {
+      const [sender] = await db.select().from(users).where(eq(users.id, f.userId));
+      if (sender) result.push({ friendship: f, sender });
+    }
+    return result;
+  },
+
+  /** Check if two users are accepted friends */
+  async areFriends(userId: number, friendId: number): Promise<boolean> {
+    const row = await this.getFriendship(userId, friendId);
+    return row?.status === "accepted";
+  },
+
+  /**
+   * Compute workout streak for a user: count consecutive days ending today
+   * where at least one workout was logged.
+   */
+  async computeStreak(userId: number): Promise<number> {
+    const sessions = await db.select({ date: workouts.date })
+      .from(workouts)
+      .where(eq(workouts.userId, userId))
+      .orderBy(desc(workouts.date))
+      .limit(400);
+    if (sessions.length === 0) return 0;
+
+    const dateSet = new Set(sessions.map(s => {
+      const d = s.date;
+      return (d instanceof Date) ? d.toISOString().slice(0, 10) : String(d).slice(0, 10);
+    }));
+
+    let streak = 0;
+    const today = new Date();
+    for (let i = 0; i <= 365; i++) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const ds = d.toISOString().slice(0, 10);
+      if (dateSet.has(ds)) {
+        streak++;
+      } else if (i > 0) {
+        // Allow today to be a rest day (check if yesterday was logged)
+        if (i === 1 && !dateSet.has(ds)) {
+          // Today hasn't been logged yet — that's OK, count from yesterday
+          continue;
+        }
+        break;
+      }
+    }
+    return streak;
+  },
+
+  /**
+   * Compute total points for a user:
+   * 100 pts per workout logged, 50 pts per day hitting protein ≥ 90% of target
+   */
+  async computePoints(userId: number): Promise<number> {
+    const workoutCount = await db.select({ count: sql<number>`count(*)` })
+      .from(workouts).where(eq(workouts.userId, userId));
+    const wPts = Number(workoutCount[0]?.count ?? 0) * 100;
+
+    // Days where protein ≥ 90% of target
+    const target = await db.select().from(nutritionTargets)
+      .where(eq(nutritionTargets.userId, userId))
+      .orderBy(desc(nutritionTargets.effectiveDate)).limit(1);
+    const proteinTarget = target[0]?.proteinG ?? 150;
+
+    const proteinDays = await db.select({ date: foodLog.date })
+      .from(foodLog)
+      .where(eq(foodLog.userId, userId))
+      .groupBy(foodLog.date)
+      .having(sql`coalesce(sum(${foodLog.proteinActual}), 0) >= ${proteinTarget * 0.9}`);
+    const mPts = proteinDays.length * 50;
+
+    return wPts + mPts;
   },
 };

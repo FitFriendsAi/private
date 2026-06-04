@@ -52656,6 +52656,15 @@ var mealIngredients = pgTable("meal_ingredients", {
   fatActual: real("fat_actual").notNull().default(0)
 });
 var insertMealIngredientSchema = c(mealIngredients).omit({ id: true });
+var friendships = pgTable("friendships", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  friendId: integer("friend_id").notNull().references(() => users.id),
+  status: text("status").notNull().default("pending"),
+  // pending | accepted | blocked
+  createdAt: timestamp("created_at").defaultNow()
+});
+var insertFriendshipSchema = c(friendships).omit({ id: true, createdAt: true });
 var workoutSets = pgTable("workout_sets", {
   id: serial("id").primaryKey(),
   workoutId: integer("workout_id").notNull().references(() => workouts.id, { onDelete: "cascade" }),
@@ -53242,6 +53251,106 @@ var storage = {
       fatActual: ing.fatActual
     }))).returning();
     return entries;
+  },
+  // ── Friendships ────────────────────────────────────────────────────────────
+  /** Return the friendship row (either direction) between two users, if any */
+  async getFriendship(userId, friendId) {
+    const [row] = await db.select().from(friendships).where(
+      or(
+        and(eq(friendships.userId, userId), eq(friendships.friendId, friendId)),
+        and(eq(friendships.userId, friendId), eq(friendships.friendId, userId))
+      )
+    );
+    return row;
+  },
+  /** Create a pending friend request (userId → friendId) */
+  async sendFriendRequest(userId, friendId) {
+    const [row] = await db.insert(friendships).values({ userId, friendId, status: "pending" }).returning();
+    return row;
+  },
+  /** Accept a friend request — only the recipient (friendId) may accept */
+  async acceptFriendRequest(id, recipientUserId) {
+    const [row] = await db.update(friendships).set({ status: "accepted" }).where(and(eq(friendships.id, id), eq(friendships.friendId, recipientUserId))).returning();
+    return row;
+  },
+  /** Remove a friendship (either direction) */
+  async removeFriendship(userId, friendId) {
+    await db.delete(friendships).where(
+      or(
+        and(eq(friendships.userId, userId), eq(friendships.friendId, friendId)),
+        and(eq(friendships.userId, friendId), eq(friendships.friendId, userId))
+      )
+    );
+  },
+  /** Get all accepted friends for a user, joined with their user record */
+  async getFriends(userId) {
+    const rows = await db.select().from(friendships).where(and(
+      or(eq(friendships.userId, userId), eq(friendships.friendId, userId)),
+      eq(friendships.status, "accepted")
+    ));
+    const result = [];
+    for (const f3 of rows) {
+      const friendUserId = f3.userId === userId ? f3.friendId : f3.userId;
+      const [friend] = await db.select().from(users).where(eq(users.id, friendUserId));
+      if (friend) result.push({ friendship: f3, friend });
+    }
+    return result;
+  },
+  /** Pending requests incoming to this user */
+  async getPendingRequests(userId) {
+    const rows = await db.select().from(friendships).where(and(eq(friendships.friendId, userId), eq(friendships.status, "pending")));
+    const result = [];
+    for (const f3 of rows) {
+      const [sender] = await db.select().from(users).where(eq(users.id, f3.userId));
+      if (sender) result.push({ friendship: f3, sender });
+    }
+    return result;
+  },
+  /** Check if two users are accepted friends */
+  async areFriends(userId, friendId) {
+    const row = await this.getFriendship(userId, friendId);
+    return row?.status === "accepted";
+  },
+  /**
+   * Compute workout streak for a user: count consecutive days ending today
+   * where at least one workout was logged.
+   */
+  async computeStreak(userId) {
+    const sessions = await db.select({ date: workouts.date }).from(workouts).where(eq(workouts.userId, userId)).orderBy(desc(workouts.date)).limit(400);
+    if (sessions.length === 0) return 0;
+    const dateSet = new Set(sessions.map((s2) => {
+      const d2 = s2.date;
+      return d2 instanceof Date ? d2.toISOString().slice(0, 10) : String(d2).slice(0, 10);
+    }));
+    let streak = 0;
+    const today = /* @__PURE__ */ new Date();
+    for (let i2 = 0; i2 <= 365; i2++) {
+      const d2 = new Date(today);
+      d2.setDate(d2.getDate() - i2);
+      const ds = d2.toISOString().slice(0, 10);
+      if (dateSet.has(ds)) {
+        streak++;
+      } else if (i2 > 0) {
+        if (i2 === 1 && !dateSet.has(ds)) {
+          continue;
+        }
+        break;
+      }
+    }
+    return streak;
+  },
+  /**
+   * Compute total points for a user:
+   * 100 pts per workout logged, 50 pts per day hitting protein ≥ 90% of target
+   */
+  async computePoints(userId) {
+    const workoutCount = await db.select({ count: sql`count(*)` }).from(workouts).where(eq(workouts.userId, userId));
+    const wPts = Number(workoutCount[0]?.count ?? 0) * 100;
+    const target = await db.select().from(nutritionTargets).where(eq(nutritionTargets.userId, userId)).orderBy(desc(nutritionTargets.effectiveDate)).limit(1);
+    const proteinTarget = target[0]?.proteinG ?? 150;
+    const proteinDays = await db.select({ date: foodLog.date }).from(foodLog).where(eq(foodLog.userId, userId)).groupBy(foodLog.date).having(sql`coalesce(sum(${foodLog.proteinActual}), 0) >= ${proteinTarget * 0.9}`);
+    const mPts = proteinDays.length * 50;
+    return wPts + mPts;
   }
 };
 
@@ -58197,6 +58306,113 @@ Include 6-10 exercises. Use common gym exercise names. Return ONLY the JSON, no 
     const date2 = req.query.date || (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA");
     const summary = await storage.getHeartRateSummary(userId, date2);
     res.json(summary.map((r2) => ({ ts: r2.ts.getTime(), bpm: r2.bpm })));
+  });
+  function friendColor(id) {
+    const COLORS = ["#f8c8dc", "#c8e84c", "#ffb88c", "#9bd1ff", "#d3a8ff", "#a8f0c6", "#ffd6a5", "#b5ead7"];
+    return COLORS[id % COLORS.length];
+  }
+  async function buildFriendCard(friendUserId) {
+    const user = await storage.getUserById(friendUserId);
+    if (!user) return null;
+    const [streak, points] = await Promise.all([
+      storage.computeStreak(friendUserId),
+      storage.computePoints(friendUserId)
+    ]);
+    return {
+      id: user.id,
+      name: user.name,
+      initials: (user.name[0] ?? "?").toUpperCase(),
+      color: friendColor(user.id),
+      streak,
+      points
+    };
+  }
+  app2.get("/api/friends", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = req.user.id;
+    const friends = await storage.getFriends(userId);
+    const cards = await Promise.all(friends.map((f3) => buildFriendCard(f3.friend.id)));
+    res.json(cards.filter(Boolean));
+  });
+  app2.get("/api/friends/requests", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = req.user.id;
+    const pending = await storage.getPendingRequests(userId);
+    res.json(pending.map((p3) => ({
+      id: p3.friendship.id,
+      senderId: p3.sender.id,
+      senderName: p3.sender.name,
+      color: friendColor(p3.sender.id),
+      initials: (p3.sender.name[0] ?? "?").toUpperCase()
+    })));
+  });
+  app2.post("/api/friends/request", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = req.user.id;
+    const { email } = external_exports.object({ email: external_exports.string().email() }).parse(req.body);
+    const target = await storage.getUserByEmail(email);
+    if (!target) return res.status(404).json({ message: "No user with that email" });
+    if (target.id === userId) return res.status(400).json({ message: "Cannot add yourself" });
+    const existing = await storage.getFriendship(userId, target.id);
+    if (existing) return res.status(409).json({ message: "Friendship already exists" });
+    const f3 = await storage.sendFriendRequest(userId, target.id);
+    res.status(201).json(f3);
+  });
+  app2.patch("/api/friends/:id/accept", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = req.user.id;
+    const f3 = await storage.acceptFriendRequest(Number(req.params.id), userId);
+    if (!f3) return res.status(404).json({ message: "Request not found" });
+    res.json(f3);
+  });
+  app2.delete("/api/friends/:friendId", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = req.user.id;
+    await storage.removeFriendship(userId, Number(req.params.friendId));
+    res.sendStatus(204);
+  });
+  app2.get("/api/friends/:id", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = req.user.id;
+    const friendId = Number(req.params.id);
+    if (userId !== friendId && !await storage.areFriends(userId, friendId)) {
+      return res.status(403).json({ message: "Not friends" });
+    }
+    const card = await buildFriendCard(friendId);
+    if (!card) return res.sendStatus(404);
+    res.json(card);
+  });
+  app2.get("/api/friends/:id/measurements", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = req.user.id;
+    const friendId = Number(req.params.id);
+    if (userId !== friendId && !await storage.areFriends(userId, friendId)) {
+      return res.status(403).json({ message: "Not friends" });
+    }
+    const data = await storage.getMeasurements(friendId, 90);
+    res.json(data);
+  });
+  app2.get("/api/friends/:id/food-log/summary", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = req.user.id;
+    const friendId = Number(req.params.id);
+    if (userId !== friendId && !await storage.areFriends(userId, friendId)) {
+      return res.status(403).json({ message: "Not friends" });
+    }
+    const period = req.query.period || "1M";
+    const data = await storage.getFoodLogSummary(friendId, period);
+    res.json(data);
+  });
+  app2.get("/api/friends/:id/exercises/:exerciseId/history", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = req.user.id;
+    const friendId = Number(req.params.id);
+    const exerciseId = Number(req.params.exerciseId);
+    if (userId !== friendId && !await storage.areFriends(userId, friendId)) {
+      return res.status(403).json({ message: "Not friends" });
+    }
+    const data = await storage.getExerciseHistory(exerciseId, friendId);
+    res.json(data);
   });
 }
 

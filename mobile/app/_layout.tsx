@@ -60,6 +60,10 @@ export default function RootLayout() {
               name="workout-detail/[workoutId]"
               options={{ headerShown: false, animation: "slide_from_right" }}
             />
+            <Stack.Screen
+              name="friend/[userId]"
+              options={{ headerShown: false, animation: "slide_from_right" }}
+            />
           </Stack>
         </QueryClientProvider>
       </SafeAreaProvider>
