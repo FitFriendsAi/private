@@ -18,21 +18,31 @@ import {
   type Friendship,
 } from "../shared/schema.js";
 
-// Strip conflicting SSL URL params so the pool's ssl option is the sole SSL config
+// For Supabase connections, parse the URL ourselves and pass explicit params to pg
+// so that pg's URL parser never touches sslmode/uselibpqcompat (which break the pooler).
 const _rawDbUrl = process.env.DATABASE_URL ?? '';
 const _isSupabase = _rawDbUrl.includes('supabase');
-const _cleanDbUrl = _rawDbUrl
-  .replace(/[?&](sslmode|uselibpqcompat)=[^&]*/g, '')
-  .replace(/\?&/, '?')
-  .replace(/&&/g, '&')
-  .replace(/[?&]$/, '');
+
+let _poolConfig: pg.PoolConfig;
+if (_isSupabase) {
+  const u = new URL(_rawDbUrl);
+  _poolConfig = {
+    host: u.hostname,
+    port: u.port ? parseInt(u.port, 10) : 5432,
+    database: u.pathname.replace(/^\//, ''),
+    user: decodeURIComponent(u.username),
+    password: decodeURIComponent(u.password),
+    ssl: { rejectUnauthorized: false },
+  };
+} else {
+  _poolConfig = { connectionString: _rawDbUrl };
+}
 
 const pool = new pg.Pool({
-  connectionString: _cleanDbUrl || _rawDbUrl,
+  ..._poolConfig,
   keepAlive: true,
   idleTimeoutMillis: 60_000,
   connectionTimeoutMillis: 5_000,
-  ssl: _isSupabase ? { rejectUnauthorized: false } : undefined,
 });
 const db = drizzle(pool);
 
