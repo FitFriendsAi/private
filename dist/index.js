@@ -1,4 +1,4 @@
-import { createRequire } from 'module'; const require = createRequire(import.meta.url);
+import { createRequire } from 'module'; import { fileURLToPath } from 'url'; import { dirname } from 'path'; const require = createRequire(import.meta.url); const __filename = fileURLToPath(import.meta.url); const __dirname = dirname(__filename);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -52680,8 +52680,24 @@ var workoutSets = pgTable("workout_sets", {
 var insertWorkoutSetSchema = c(workoutSets).omit({ id: true });
 
 // server/storage.ts
+var _rawDbUrl = process.env.DATABASE_URL ?? "";
+var _isSupabase = _rawDbUrl.includes("supabase");
+var _poolConfig;
+if (_isSupabase) {
+  const u2 = new URL(_rawDbUrl);
+  _poolConfig = {
+    host: u2.hostname,
+    port: u2.port ? parseInt(u2.port, 10) : 5432,
+    database: u2.pathname.replace(/^\//, ""),
+    user: decodeURIComponent(u2.username),
+    password: decodeURIComponent(u2.password),
+    ssl: { rejectUnauthorized: false }
+  };
+} else {
+  _poolConfig = { connectionString: _rawDbUrl };
+}
 var pool = new esm_default.Pool({
-  connectionString: process.env.DATABASE_URL,
+  ..._poolConfig,
   keepAlive: true,
   idleTimeoutMillis: 6e4,
   connectionTimeoutMillis: 5e3
