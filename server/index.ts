@@ -33,11 +33,21 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: "10mb" })); // larger limit for base64 images
 
 const PgSession = connectPgSimple(session);
+
+// Parse the DB URL into explicit params so pg never processes sslmode from the URL
+// (same approach as storage.ts — prevents SSL conflicts on Neon/Supabase poolers)
+const _sessionRawUrl = process.env.DATABASE_URL ?? '';
+const _sessionUrl = new URL(_sessionRawUrl);
 const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL,
+  host:     _sessionUrl.hostname,
+  port:     _sessionUrl.port ? parseInt(_sessionUrl.port, 10) : 5432,
+  database: _sessionUrl.pathname.replace(/^\//, ''),
+  user:     decodeURIComponent(_sessionUrl.username),
+  password: decodeURIComponent(_sessionUrl.password),
+  ssl:      { rejectUnauthorized: false },
   // Keep connections alive so Neon's serverless DB doesn't drop them after inactivity
   keepAlive: true,
-  idleTimeoutMillis: 60_000,   // release idle clients after 60 s
+  idleTimeoutMillis: 60_000,
   connectionTimeoutMillis: 5_000,
 });
 

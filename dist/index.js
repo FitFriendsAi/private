@@ -58520,12 +58520,18 @@ app.use((req, res, next) => {
 });
 app.use(import_express.default.json({ limit: "10mb" }));
 var PgSession2 = (0, import_connect_pg_simple.default)(import_express_session.default);
+var _sessionRawUrl = process.env.DATABASE_URL ?? "";
+var _sessionUrl = new URL(_sessionRawUrl);
 var pool2 = new esm_default.Pool({
-  connectionString: process.env.DATABASE_URL,
+  host: _sessionUrl.hostname,
+  port: _sessionUrl.port ? parseInt(_sessionUrl.port, 10) : 5432,
+  database: _sessionUrl.pathname.replace(/^\//, ""),
+  user: decodeURIComponent(_sessionUrl.username),
+  password: decodeURIComponent(_sessionUrl.password),
+  ssl: { rejectUnauthorized: false },
   // Keep connections alive so Neon's serverless DB doesn't drop them after inactivity
   keepAlive: true,
   idleTimeoutMillis: 6e4,
-  // release idle clients after 60 s
   connectionTimeoutMillis: 5e3
 });
 pool2.on("error", (err) => {
