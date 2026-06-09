@@ -26,7 +26,7 @@ Convert all units to the specified units (g, mg, kcal).`;
 export async function parseNutritionLabel(imageBase64: string, mediaType: string): Promise<NutritionFacts | null> {
   try {
     const response = await client.messages.create({
-      model: "claude-opus-4-5",
+      model: "claude-3-5-haiku-20241022",
       max_tokens: 512,
       messages: [
         {
