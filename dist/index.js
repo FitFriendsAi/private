@@ -245078,6 +245078,13 @@ var workoutSets = pgTable("workout_sets", {
   completedAt: timestamp("completed_at").defaultNow()
 });
 var insertWorkoutSetSchema = c(workoutSets).omit({ id: true });
+var aiCoachPlans = pgTable("ai_coach_plans", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  planJson: jsonb("plan_json").notNull().$type(),
+  createdAt: timestamp("created_at").defaultNow().notNull()
+});
+var insertAiCoachPlanSchema = c(aiCoachPlans).omit({ id: true, createdAt: true });
 
 // server/storage.ts
 var _rawDbUrl = process.env.DATABASE_URL ?? "";
@@ -245765,6 +245772,15 @@ var storage = {
       }
     }
     return streak;
+  },
+  // ── AI Coach Plans ─────────────────────────────────────────────────────────
+  async getAiCoachPlan(userId) {
+    const [row] = await db.select().from(aiCoachPlans).where(eq(aiCoachPlans.userId, userId)).orderBy(desc(aiCoachPlans.createdAt)).limit(1);
+    return row?.planJson ?? null;
+  },
+  async saveAiCoachPlan(userId, plan) {
+    await db.delete(aiCoachPlans).where(eq(aiCoachPlans.userId, userId));
+    await db.insert(aiCoachPlans).values({ userId, planJson: plan });
   },
   /**
    * Compute total points for a user:
@@ -254994,8 +255010,22 @@ function registerRoutes(app2) {
         // more history for trend detection
         storage.getNutritionTarget(userId),
         storage.getWorkouts(userId, 10),
-        storage.getFoodLogSummary(userId, "1W")
+        storage.getFoodLogSummary(userId, "1M")
       ]);
+      const loggedExerciseIds = await storage.getLoggedExerciseIds(userId);
+      const topExerciseIds = loggedExerciseIds.slice(0, 10);
+      const [lastWeights, allExercises] = await Promise.all([
+        storage.getLastWeightsForExercises(userId, topExerciseIds),
+        storage.getExercises(userId)
+      ]);
+      const exerciseNameMap = {};
+      for (const ex of allExercises) exerciseNameMap[ex.id] = ex.name;
+      const topLiftsLines = topExerciseIds.filter((id) => lastWeights[id] && lastWeights[id] > 0).map((id) => {
+        const lbs = Math.round(lastWeights[id] / 453.592);
+        return `  - ${exerciseNameMap[id] ?? `Exercise #${id}`}: ${lbs} lbs`;
+      });
+      const topLiftsContext = topLiftsLines.length > 0 ? `TOP LIFTS (current max weights):
+${topLiftsLines.join("\n")}` : "TOP LIFTS: No strength training data recorded yet.";
       const activeGoals = goals2.filter((g2) => g2.isActive);
       const latestWeight = measurements[0];
       const weightKg = latestWeight ? latestWeight.weightGrams / 1e3 : null;
@@ -255032,11 +255062,11 @@ function registerRoutes(app2) {
       const avgProtLogged = loggedCount > 0 ? Math.round(loggedDays.reduce((s2, d2) => s2 + d2.protein, 0) / loggedCount) : null;
       let dietLoggingStatus;
       if (loggedCount === 0) {
-        dietLoggingStatus = `No diet logs in the last ${totalDays} days. User has NOT been logging \u2014 do NOT assume they ate nothing. Base recommendations on goals and profile only.`;
+        dietLoggingStatus = `No diet logs in the last 30 days. User has NOT been logging \u2014 do NOT assume they ate nothing. Base recommendations on goals and profile only.`;
       } else if (loggedCount < totalDays * 0.5) {
-        dietLoggingStatus = `Inconsistent: logged ${loggedCount}/${totalDays} days. On logged days avg ${avgCalLogged} kcal, ${avgProtLogged}g protein. True intake is likely higher \u2014 acknowledge the gap.`;
+        dietLoggingStatus = `Inconsistent: logged ${loggedCount}/${totalDays} days over the last 30 days. On logged days avg ${avgCalLogged} kcal, ${avgProtLogged}g protein. True intake is likely higher \u2014 acknowledge the gap.`;
       } else {
-        dietLoggingStatus = `Consistent: logged ${loggedCount}/${totalDays} days. On logged days avg ${avgCalLogged} kcal, ${avgProtLogged}g protein. Reasonably reliable.`;
+        dietLoggingStatus = `Consistent: logged ${loggedCount}/${totalDays} days over the last 30 days. On logged days avg ${avgCalLogged} kcal, ${avgProtLogged}g protein. Reasonably reliable.`;
       }
       const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
       const userContext = `
@@ -255054,7 +255084,7 @@ WEIGHT HISTORY (newest first):
 ${recentMeasurementsText || "  No measurements recorded yet."}
 ${trendText}
 
-DIET LOGGING STATUS (last 7 days):
+DIET LOGGING STATUS (last 30 days):
 ${dietLoggingStatus}
 
 ACTIVE GOALS (include id in feasibility analysis):
@@ -255072,6 +255102,8 @@ CURRENT AUTO-CALCULATED TARGETS:
 - Carbs:    ${target ? Math.round(target.carbsG) : "not set"} g/day
 - Fat:      ${target ? Math.round(target.fatG) : "not set"} g/day
 - Water:    ${target ? Math.round((target.waterMl ?? 2500) / 29.57) : "not set"} oz/day
+
+${topLiftsContext}
 `.trim();
       const prompt = `You are an expert fitness and nutrition coach. Analyze the user's data below and produce a comprehensive, personalized plan.
 
@@ -255085,6 +255117,8 @@ IMPORTANT RULES:
 2. If weight trend data is available and the user is falling behind their required rate, generate a progressAdjustment with two concrete options (extend deadline OR adjust nutrition). Do NOT make this choice for them \u2014 present both options.
 3. For the "adjust_nutrition" option, provide specific updated macro numbers (not just "eat less") that would get them back on track, keeping protein \u2265 0.8 g per lb bodyweight and total calories \u2265 1400 kcal.
 4. Never assume zero food intake when logging is absent or inconsistent.
+5. For each strength or cardio training day in the schedule, provide 4-6 exercises with sets and rep ranges. Rest and active_recovery days get an empty exercises array []. Where the user has logged TOP LIFTS, prefer to include those exercises and reference their current weights when suggesting progressions.
+6. For the training schedule, use the TOP LIFTS data to make personalized recommendations \u2014 if the user has bench press at 185 lbs, suggest appropriate weight ranges in the assessment.
 
 Return ONLY valid JSON (no markdown, no explanation) with this exact structure:
 {
@@ -255107,13 +255141,13 @@ Return ONLY valid JSON (no markdown, no explanation) with this exact structure:
     "restDays": <integer>,
     "split": "e.g. Push/Pull/Legs",
     "schedule": [
-      { "day": "Monday",    "focus": "...", "type": "strength|cardio|rest|active_recovery" },
-      { "day": "Tuesday",   "focus": "...", "type": "..." },
-      { "day": "Wednesday", "focus": "...", "type": "..." },
-      { "day": "Thursday",  "focus": "...", "type": "..." },
-      { "day": "Friday",    "focus": "...", "type": "..." },
-      { "day": "Saturday",  "focus": "...", "type": "..." },
-      { "day": "Sunday",    "focus": "...", "type": "..." }
+      { "day": "Monday",    "focus": "...", "type": "strength|cardio|rest|active_recovery", "exercises": [{ "name": "...", "sets": 3, "reps": "8-10" }] },
+      { "day": "Tuesday",   "focus": "...", "type": "...", "exercises": [] },
+      { "day": "Wednesday", "focus": "...", "type": "...", "exercises": [] },
+      { "day": "Thursday",  "focus": "...", "type": "...", "exercises": [] },
+      { "day": "Friday",    "focus": "...", "type": "...", "exercises": [] },
+      { "day": "Saturday",  "focus": "...", "type": "...", "exercises": [] },
+      { "day": "Sunday",    "focus": "...", "type": "...", "exercises": [] }
     ],
     "reasoning": "1-2 sentences",
     "tips": ["tip1", "tip2", "tip3"]
@@ -255181,11 +255215,85 @@ If there are no active goals with deadlines, set goalFeasibility to [] and progr
         console.error("AI analysis JSON parse failed:", parseErr, "\nRaw slice:", jsonSlice.slice(0, 500));
         return res.status(500).json({ message: "AI response could not be parsed. Please try again." });
       }
+      await storage.saveAiCoachPlan(userId, plan);
       res.json(plan);
     } catch (err) {
       console.error("AI analysis error:", err?.message ?? err);
       const msg = err?.status === 401 ? "AI service authentication failed \u2014 check ANTHROPIC_API_KEY." : err?.status === 529 ? "AI service is overloaded. Please try again in a moment." : "Failed to generate AI analysis. Please try again.";
       res.status(500).json({ message: msg });
+    }
+  });
+  app2.get("/api/goals/ai-plan", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const plan = await storage.getAiCoachPlan(req.user.id);
+    res.json(plan);
+  });
+  app2.post("/api/goals/ai-checkin", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = req.user.id;
+    try {
+      const [goals2, measurements, foodSummary] = await Promise.all([
+        storage.getGoals(userId),
+        storage.getMeasurements(userId, 14),
+        storage.getFoodLogSummary(userId, "1W")
+      ]);
+      const activeGoals = goals2.filter((g2) => g2.isActive);
+      const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+      let trendText = "Insufficient data for trend.";
+      if (measurements.length >= 2) {
+        const newest = measurements[0];
+        const oldest = measurements[measurements.length - 1];
+        const days = (new Date(newest.date).getTime() - new Date(oldest.date).getTime()) / 864e5;
+        if (days >= 7) {
+          const changeLbs = (newest.weightGrams - oldest.weightGrams) / 453.592;
+          const rate = changeLbs / days * 7;
+          trendText = `Weight trend: ${rate >= 0 ? "+" : ""}${rate.toFixed(2)} lbs/week over ${Math.round(days)} days`;
+        }
+      }
+      const loggedDays = foodSummary.filter((d2) => d2.calories > 0);
+      const avgCal = loggedDays.length > 0 ? Math.round(loggedDays.reduce((s2, d2) => s2 + d2.calories, 0) / loggedDays.length) : null;
+      const goalsText = activeGoals.length === 0 ? "No active goals." : activeGoals.map((g2) => {
+        const targetLbs = g2.unit === "lbs" && g2.targetValue ? (g2.targetValue / 453.592).toFixed(1) : null;
+        const deadline = g2.deadline ? `deadline ${g2.deadline}` : "no deadline";
+        return `- "${g2.label}" (${g2.type}), target: ${targetLbs ? targetLbs + " lbs" : g2.targetValue + " " + g2.unit}, ${deadline}`;
+      }).join("\n");
+      const checkinPrompt = `You are a fitness coach giving a brief weekly check-in. Today is ${today}.
+
+ACTIVE GOALS:
+${goalsText}
+
+RECENT MEASUREMENTS:
+${measurements.slice(0, 5).map((m3) => `  ${m3.date}: ${(m3.weightGrams / 453.592).toFixed(1)} lbs`).join("\n") || "  None"}
+
+${trendText}
+
+DIET (last 7 days): logged ${loggedDays.length}/7 days${avgCal ? `, avg ${avgCal} kcal/day` : ", no data"}.
+
+Return ONLY valid JSON (no markdown):
+{
+  "status": "on_track|behind|ahead",
+  "headline": "1 sentence assessment",
+  "observations": ["observation1", "observation2", "observation3"],
+  "topAction": "Single most important thing to do this week"
+}`;
+      const client2 = new sdk_default({ apiKey: process.env.ANTHROPIC_API_KEY });
+      const msg = await client2.messages.create({
+        model: "claude-opus-4-5",
+        max_tokens: 512,
+        messages: [{ role: "user", content: checkinPrompt }]
+      });
+      const rawText = msg.content[0].text ?? "";
+      const stripped = rawText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      const jsonStart = stripped.indexOf("{");
+      const jsonEnd = stripped.lastIndexOf("}");
+      if (jsonStart === -1 || jsonEnd === -1) {
+        return res.status(500).json({ message: "AI returned an unexpected response format." });
+      }
+      const checkin = JSON.parse(stripped.slice(jsonStart, jsonEnd + 1));
+      res.json(checkin);
+    } catch (err) {
+      console.error("AI checkin error:", err?.message ?? err);
+      res.status(500).json({ message: "Failed to generate check-in. Please try again." });
     }
   });
   app2.get("/api/measurements", async (req, res) => {

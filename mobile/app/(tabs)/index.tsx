@@ -10,7 +10,7 @@ import { useHealth } from "@/hooks/use-health";
 import { todayStr, gramsToLbs, mlToOz, ozToMl, nowTimeStr, timeStrToISO, fmtTime } from "@/lib/utils";
 import {
   Droplets, Pill, Heart, Zap, TrendingDown, TrendingUp,
-  ChevronRight, Dumbbell, Flame, Plus, Minus,
+  ChevronRight, Dumbbell, Flame, Plus, Minus, Sparkles,
 } from "lucide-react-native";
 import Svg, { Circle, Polyline, Line as SvgLine } from "react-native-svg";
 const AnimatedPolyline = Animated.createAnimatedComponent(Polyline);
@@ -329,6 +329,62 @@ export default function DashboardScreen() {
   }
 
   const activeGoals = (goals as any[]).filter((g: any) => g.isActive);
+
+  // ── Off-track nudge computation ──────────────────────────────────
+  const offTrackNudge = useMemo(() => {
+    // Find active weight goals with deadlines
+    const weightGoals = activeGoals.filter((g: any) =>
+      (g.type === "weight_loss" || g.type === "weight_gain") && g.deadline
+    );
+    if (weightGoals.length === 0 || measurements.length < 2) return null;
+
+    // Find two measurements at least 7 days apart
+    const sorted = [...measurements].sort((a: any, b: any) =>
+      new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+    const newest = sorted[0];
+    const older = sorted.find((m: any) => {
+      const daysDiff = (new Date(newest.date).getTime() - new Date(m.date).getTime()) / 86400000;
+      return daysDiff >= 7;
+    });
+    if (!older) return null;
+
+    const daysDiff = (new Date(newest.date).getTime() - new Date(older.date).getTime()) / 86400000;
+    const changeLbs = (newest.weightGrams - older.weightGrams) / 453.592;
+    const actualRatePerWeek = (changeLbs / daysDiff) * 7;
+
+    for (const goal of weightGoals) {
+      const targetLbs = goal.targetValue / 453.592;
+      const startLbs = goal.startValue ? goal.startValue / 453.592 : null;
+      if (!startLbs) continue;
+
+      const daysLeft = (new Date(goal.deadline).getTime() - Date.now()) / 86400000;
+      if (daysLeft <= 0) continue;
+
+      const weeksLeft = daysLeft / 7;
+      const remainingLbs = targetLbs - (newest.weightGrams / 453.592);
+      if (weeksLeft <= 0) continue;
+
+      const requiredRatePerWeek = remainingLbs / weeksLeft;
+      if (Math.abs(requiredRatePerWeek) < 0.01) continue;
+
+      // Off-track: actual rate < 50% of required rate
+      const actualAbsolute = Math.abs(actualRatePerWeek);
+      const requiredAbsolute = Math.abs(requiredRatePerWeek);
+      const isBehind = goal.type === "weight_loss"
+        ? actualRatePerWeek > -requiredAbsolute * 0.5
+        : actualRatePerWeek < requiredAbsolute * 0.5;
+
+      if (isBehind) {
+        return {
+          actualRate: Math.abs(actualRatePerWeek).toFixed(1),
+          requiredRate: Math.abs(requiredRatePerWeek).toFixed(1),
+          goalType: goal.type as "weight_loss" | "weight_gain",
+        };
+      }
+    }
+    return null;
+  }, [activeGoals, measurements]);
   // Workout calendar dots always sit on a hardcoded white card,
   // so they need a dark fill regardless of which theme is active.
   const dotAccent   = "#1a1a1a";
@@ -610,6 +666,34 @@ export default function DashboardScreen() {
             </View>
           )}
         </View>
+
+        {/* ── AI Coach nudge banner (off-track) ─────────────────── */}
+        {offTrackNudge && (
+          <Pressable
+            onPress={() => router.push("/(tabs)/goals")}
+            style={({ pressed }) => ({
+              backgroundColor: "#1c1007", borderRadius: 16,
+              borderWidth: 1.5, borderColor: "#f59e0b",
+              padding: 14, marginBottom: 12,
+              opacity: pressed ? 0.85 : 1,
+              flexDirection: "row", alignItems: "center", gap: 12,
+            })}
+          >
+            <Sparkles size={18} color="#f59e0b" />
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: "#f59e0b", marginBottom: 3 }}>
+                AI Coach has a recommendation
+              </Text>
+              <Text style={{ fontSize: 12, fontFamily: "Manrope", color: "#fef3c7", lineHeight: 17 }}>
+                Your {offTrackNudge.goalType === "weight_loss" ? "weight loss" : "weight gain"} is tracking at {offTrackNudge.actualRate} lbs/week — your goal needs {offTrackNudge.requiredRate} lbs/week.
+              </Text>
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+              <Text style={{ fontSize: 12, fontFamily: "Manrope-Bold", color: "#f59e0b" }}>View Plan</Text>
+              <ChevronRight size={13} color="#f59e0b" />
+            </View>
+          </Pressable>
+        )}
 
         {/* ── Streak + Calories ───────────────────────────────────── */}
         <View style={{ flexDirection: "row", gap: 10, marginBottom: 10 }}>

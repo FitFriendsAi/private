@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   ScrollView, View, Text, Pressable, Modal, TextInput,
-  Alert, Platform, ActivityIndicator,
+  Alert, Platform, ActivityIndicator, LayoutAnimation,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -12,6 +12,7 @@ import {
   Target, TrendingDown, TrendingUp, Dumbbell, Activity,
   Plus, X, ChevronRight, CheckCircle2, Trash2,
   Sparkles, Utensils, Droplets, Calendar, Zap, ChevronDown, ChevronUp,
+  Clock, RefreshCw,
 } from "lucide-react-native";
 
 // ── Accent colours ────────────────────────────────────────────────
@@ -152,7 +153,12 @@ interface AiNutrition {
   reasoning: string; tips: string[];
 }
 interface AiHydration { dailyOz: number; reasoning: string; tips: string[]; }
-interface AiScheduleDay { day: string; focus: string; type: string; }
+interface AiScheduleDay {
+  day: string;
+  focus: string;
+  type: string;
+  exercises?: { name: string; sets: number; reps: string }[];
+}
 interface AiTraining {
   daysPerWeek: number; restDays: number; split: string;
   schedule: AiScheduleDay[]; reasoning: string; tips: string[];
@@ -195,6 +201,21 @@ interface AiPlan {
   progressAdjustment: AiProgressAdjustment;
   priorityActions: string[];
   goalNotes: string;
+}
+
+// ── Check-in result type ─────────────────────────────────────────
+interface CheckInResult {
+  status: "on_track" | "behind" | "ahead";
+  headline: string;
+  observations: string[];
+  topAction: string;
+}
+
+// ── Check-in status colors ───────────────────────────────────────
+function checkinStatusColor(status: CheckInResult["status"]): string {
+  if (status === "on_track") return "#22c55e";
+  if (status === "ahead") return "#c8e84c";
+  return "#f59e0b";
 }
 
 // ── Collapsible section helper ───────────────────────────────────
@@ -276,6 +297,10 @@ export default function GoalsScreen() {
   const { data: goals = [] }        = useQuery<any[]>({ queryKey: ["/api/goals"],        queryFn: () => apiRequest("GET", "/api/goals") });
   const { data: targets }           = useQuery<any>({   queryKey: ["/api/targets"],       queryFn: () => apiRequest("GET", "/api/targets") });
   const { data: measurements = [] } = useQuery<any[]>({ queryKey: ["/api/measurements"], queryFn: () => apiRequest("GET", "/api/measurements") });
+  const { data: storedPlan }        = useQuery<AiPlan | null>({
+    queryKey: ["/api/goals/ai-plan"],
+    queryFn: () => apiRequest("GET", "/api/goals/ai-plan"),
+  });
 
   const latestWeightGrams: number | null = measurements[0]?.weightGrams ?? null;
   const activeGoals  = (goals as any[]).filter((g: any) =>  g.isActive);
@@ -285,11 +310,29 @@ export default function GoalsScreen() {
   const [aiPlan, setAiPlan]           = useState<AiPlan | null>(null);
   const [aiError, setAiError]         = useState<string | null>(null);
   const [adjustChosen, setAdjustChosen] = useState<"extend_deadline" | "adjust_nutrition" | null>(null);
+  const [expandedDays, setExpandedDays] = useState<Record<number, boolean>>({});
+  const [checkIn, setCheckIn]           = useState<CheckInResult | null>(null);
+  const [checkInError, setCheckInError] = useState<string | null>(null);
+
+  // Effective plan: local state (just fetched) takes priority over stored plan
+  const effectivePlan: AiPlan | null = aiPlan ?? (storedPlan ?? null);
 
   const aiMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/goals/ai-analysis"),
-    onSuccess: (data: AiPlan) => { setAiPlan(data); setAiError(null); setAdjustChosen(null); },
+    onSuccess: (data: AiPlan) => {
+      setAiPlan(data);
+      setAiError(null);
+      setAdjustChosen(null);
+      setExpandedDays({});
+      qc.invalidateQueries({ queryKey: ["/api/goals/ai-plan"] });
+    },
     onError: (e: any) => setAiError(e?.message ?? "Failed to generate plan"),
+  });
+
+  const checkinMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/goals/ai-checkin"),
+    onSuccess: (data: CheckInResult) => { setCheckIn(data); setCheckInError(null); },
+    onError: (e: any) => setCheckInError(e?.message ?? "Failed to generate check-in"),
   });
 
   // Extend goal deadline
@@ -433,17 +476,84 @@ export default function GoalsScreen() {
             flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10,
             backgroundColor: "#1a1a2e", borderRadius: 18,
             borderWidth: 1.5, borderColor: "#7c3aed",
-            paddingVertical: 16, marginBottom: 20,
+            paddingVertical: 16, marginBottom: 10,
             opacity: (pressed || aiMutation.isPending) ? 0.7 : 1,
           })}
         >
           {aiMutation.isPending
             ? <ActivityIndicator size="small" color="#a78bfa" />
+            : effectivePlan
+            ? <RefreshCw size={18} color="#a78bfa" />
             : <Sparkles size={18} color="#a78bfa" />}
           <Text style={{ fontSize: 15, fontFamily: "Manrope-Bold", color: "#a78bfa" }}>
-            {aiMutation.isPending ? "Analyzing your goals…" : "Get AI Coach Plan"}
+            {aiMutation.isPending ? "Analyzing your goals…" : effectivePlan ? "Refresh Plan" : "Get AI Coach Plan"}
           </Text>
         </Pressable>
+
+        {/* ── Quick Check-In button ── */}
+        <Pressable
+          onPress={() => checkinMutation.mutate()}
+          disabled={checkinMutation.isPending}
+          style={({ pressed }) => ({
+            flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+            backgroundColor: "#111827", borderRadius: 16,
+            borderWidth: 1, borderColor: "#374151",
+            paddingVertical: 12, marginBottom: 20,
+            opacity: (pressed || checkinMutation.isPending) ? 0.7 : 1,
+          })}
+        >
+          {checkinMutation.isPending
+            ? <ActivityIndicator size="small" color="#9ca3af" />
+            : <Clock size={15} color="#9ca3af" />}
+          <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: "#9ca3af" }}>
+            {checkinMutation.isPending ? "Checking in…" : "Quick Check-In"}
+          </Text>
+        </Pressable>
+
+        {/* ── Check-in result ── */}
+        {checkInError && (
+          <View style={{
+            backgroundColor: "#2a0a0a", borderRadius: 14, padding: 14,
+            borderWidth: 1, borderColor: "#7f1d1d", marginBottom: 16,
+          }}>
+            <Text style={{ fontSize: 13, fontFamily: "Manrope", color: "#fca5a5" }}>{checkInError}</Text>
+          </View>
+        )}
+        {checkIn && (
+          <View style={{
+            backgroundColor: "#111827", borderRadius: 18, padding: 16,
+            borderWidth: 1.5, borderColor: checkinStatusColor(checkIn.status),
+            marginBottom: 20,
+          }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <Clock size={14} color={checkinStatusColor(checkIn.status)} />
+              <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: checkinStatusColor(checkIn.status), letterSpacing: 0.5 }}>
+                QUICK CHECK-IN
+              </Text>
+            </View>
+            <Text style={{ fontSize: 16, fontFamily: "Manrope-ExtraBold", color: "#e2e8f0", lineHeight: 22, marginBottom: 12 }}>
+              {checkIn.headline}
+            </Text>
+            {checkIn.observations.map((obs, i) => (
+              <View key={i} style={{ flexDirection: "row", gap: 8, marginBottom: 6 }}>
+                <Text style={{ fontSize: 12, color: checkinStatusColor(checkIn.status), marginTop: 1 }}>•</Text>
+                <Text style={{ fontSize: 12, fontFamily: "Manrope", color: "#e2e8f0", flex: 1, lineHeight: 18 }}>{obs}</Text>
+              </View>
+            ))}
+            <View style={{
+              backgroundColor: `${checkinStatusColor(checkIn.status)}18`,
+              borderRadius: 12, padding: 12, marginTop: 8,
+              borderWidth: 1, borderColor: `${checkinStatusColor(checkIn.status)}44`,
+            }}>
+              <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: checkinStatusColor(checkIn.status), letterSpacing: 0.5, marginBottom: 4 }}>
+                TOP ACTION THIS WEEK
+              </Text>
+              <Text style={{ fontSize: 13, fontFamily: "Manrope-SemiBold", color: "#e2e8f0", lineHeight: 18 }}>
+                {checkIn.topAction}
+              </Text>
+            </View>
+          </View>
+        )}
 
         {/* ── AI error ── */}
         {aiError && (
@@ -456,7 +566,7 @@ export default function GoalsScreen() {
         )}
 
         {/* ── AI Plan ── */}
-        {aiPlan && (
+        {effectivePlan && (
           <View style={{ marginBottom: 20 }}>
 
             {/* Summary banner */}
@@ -472,19 +582,19 @@ export default function GoalsScreen() {
                 </Text>
               </View>
               <Text style={{ fontSize: 14, fontFamily: "Manrope", color: "#e2e8f0", lineHeight: 20 }}>
-                {aiPlan.summary}
+                {effectivePlan.summary}
               </Text>
-              {aiPlan.goalNotes ? (
+              {effectivePlan.goalNotes ? (
                 <Text style={{ fontSize: 12, fontFamily: "Manrope", color: "#a78bfa", marginTop: 8, lineHeight: 18, fontStyle: "italic" }}>
-                  {aiPlan.goalNotes}
+                  {effectivePlan.goalNotes}
                 </Text>
               ) : null}
             </View>
 
             {/* Goal Feasibility section */}
-            {aiPlan.goalFeasibility && aiPlan.goalFeasibility.length > 0 && (
+            {effectivePlan.goalFeasibility && effectivePlan.goalFeasibility.length > 0 && (
               <Section icon={<Target size={16} color={PURPLE} />} title="Goal Feasibility" color={PURPLE} palette={palette}>
-                {aiPlan.goalFeasibility.map((f, i) => {
+                {effectivePlan.goalFeasibility.map((f, i) => {
                   const meta = feasibilityMeta(f.status);
                   return (
                     <View key={i} style={{
@@ -536,7 +646,7 @@ export default function GoalsScreen() {
             )}
 
             {/* Progress Adjustment section */}
-            {aiPlan.progressAdjustment?.needed && aiPlan.progressAdjustment.options.length > 0 && (
+            {effectivePlan.progressAdjustment?.needed && effectivePlan.progressAdjustment.options.length > 0 && (
               <View style={{
                 backgroundColor: "#1c1007", borderRadius: 18,
                 borderWidth: 1.5, borderColor: "#f59e0b",
@@ -549,7 +659,7 @@ export default function GoalsScreen() {
                   </Text>
                 </View>
                 <Text style={{ fontSize: 13, fontFamily: "Manrope", color: "#fef3c7", lineHeight: 19, marginBottom: 14 }}>
-                  {aiPlan.progressAdjustment.observation}
+                  {effectivePlan.progressAdjustment.observation}
                 </Text>
 
                 {adjustChosen ? (
@@ -572,7 +682,7 @@ export default function GoalsScreen() {
                   </Text>
                 )}
 
-                {!adjustChosen && aiPlan.progressAdjustment.options.map((opt, i) => {
+                {!adjustChosen && effectivePlan.progressAdjustment.options.map((opt, i) => {
                   const isDeadline  = opt.type === "extend_deadline";
                   const isPending   = isDeadline ? extendDeadline.isPending : adjustNutrition.isPending;
                   const optColor    = isDeadline ? "#9bd1ff" : "#f8c8dc";
@@ -626,10 +736,10 @@ export default function GoalsScreen() {
               {/* Macro row */}
               <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 12 }}>
                 {[
-                  { label: "Calories", value: aiPlan.nutrition.calories, unit: "kcal", color: text },
-                  { label: "Protein",  value: aiPlan.nutrition.proteinG, unit: "g",    color: LIME },
-                  { label: "Carbs",    value: aiPlan.nutrition.carbsG,   unit: "g",    color: BLUE },
-                  { label: "Fat",      value: aiPlan.nutrition.fatG,     unit: "g",    color: PURPLE },
+                  { label: "Calories", value: effectivePlan.nutrition.calories, unit: "kcal", color: text },
+                  { label: "Protein",  value: effectivePlan.nutrition.proteinG, unit: "g",    color: LIME },
+                  { label: "Carbs",    value: effectivePlan.nutrition.carbsG,   unit: "g",    color: BLUE },
+                  { label: "Fat",      value: effectivePlan.nutrition.fatG,     unit: "g",    color: PURPLE },
                 ].map(m => (
                   <View key={m.label} style={{ alignItems: "center" }}>
                     <Text style={{ ...(DOT as any), fontSize: 24, color: m.color, lineHeight: 28 }}>{m.value}</Text>
@@ -639,9 +749,9 @@ export default function GoalsScreen() {
                 ))}
               </View>
               <Text style={{ fontSize: 12, fontFamily: "Manrope", color: muted, lineHeight: 18, marginBottom: 10 }}>
-                {aiPlan.nutrition.reasoning}
+                {effectivePlan.nutrition.reasoning}
               </Text>
-              {aiPlan.nutrition.tips.map((tip, i) => (
+              {effectivePlan.nutrition.tips.map((tip, i) => (
                 <View key={i} style={{ flexDirection: "row", gap: 8, marginBottom: 4 }}>
                   <Text style={{ fontSize: 12, color: LIME }}>•</Text>
                   <Text style={{ fontSize: 12, fontFamily: "Manrope", color: text, flex: 1, lineHeight: 18 }}>{tip}</Text>
@@ -652,16 +762,16 @@ export default function GoalsScreen() {
             {/* Hydration section */}
             <Section icon={<Droplets size={16} color={BLUE} />} title="Hydration" color={BLUE} palette={palette}>
               <View style={{ flexDirection: "row", alignItems: "baseline", gap: 6, marginBottom: 8 }}>
-                <Text style={{ ...(DOT as any), fontSize: 32, color: BLUE }}>{aiPlan.hydration.dailyOz}</Text>
+                <Text style={{ ...(DOT as any), fontSize: 32, color: BLUE }}>{effectivePlan.hydration.dailyOz}</Text>
                 <Text style={{ fontSize: 14, fontFamily: "Manrope-Bold", color: muted }}>oz / day</Text>
                 <Text style={{ fontSize: 12, fontFamily: "Manrope", color: muted }}>
-                  ({Math.round(aiPlan.hydration.dailyOz * 29.57)} ml)
+                  ({Math.round(effectivePlan.hydration.dailyOz * 29.57)} ml)
                 </Text>
               </View>
               <Text style={{ fontSize: 12, fontFamily: "Manrope", color: muted, lineHeight: 18, marginBottom: 10 }}>
-                {aiPlan.hydration.reasoning}
+                {effectivePlan.hydration.reasoning}
               </Text>
-              {aiPlan.hydration.tips.map((tip, i) => (
+              {effectivePlan.hydration.tips.map((tip, i) => (
                 <View key={i} style={{ flexDirection: "row", gap: 8, marginBottom: 4 }}>
                   <Text style={{ fontSize: 12, color: BLUE }}>•</Text>
                   <Text style={{ fontSize: 12, fontFamily: "Manrope", color: text, flex: 1, lineHeight: 18 }}>{tip}</Text>
@@ -670,41 +780,85 @@ export default function GoalsScreen() {
             </Section>
 
             {/* Training schedule section */}
-            <Section icon={<Calendar size={16} color={PINK} />} title={`Training Schedule — ${aiPlan.training.split}`} color={PINK} palette={palette}>
+            <Section icon={<Calendar size={16} color={PINK} />} title={`Training Schedule — ${effectivePlan.training.split}`} color={PINK} palette={palette}>
               <View style={{ flexDirection: "row", gap: 16, marginBottom: 12 }}>
                 <View style={{ alignItems: "center" }}>
-                  <Text style={{ ...(DOT as any), fontSize: 28, color: PINK }}>{aiPlan.training.daysPerWeek}</Text>
+                  <Text style={{ ...(DOT as any), fontSize: 28, color: PINK }}>{effectivePlan.training.daysPerWeek}</Text>
                   <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted }}>training</Text>
                   <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted }}>days/wk</Text>
                 </View>
                 <View style={{ alignItems: "center" }}>
-                  <Text style={{ ...(DOT as any), fontSize: 28, color: "#6b7280" }}>{aiPlan.training.restDays}</Text>
+                  <Text style={{ ...(DOT as any), fontSize: 28, color: "#6b7280" }}>{effectivePlan.training.restDays}</Text>
                   <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted }}>rest</Text>
                   <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted }}>days/wk</Text>
                 </View>
               </View>
               {/* Weekly schedule */}
               <View style={{ gap: 5, marginBottom: 12 }}>
-                {aiPlan.training.schedule.map((d, i) => (
-                  <View key={i} style={{
-                    flexDirection: "row", alignItems: "center", gap: 10,
-                    backgroundColor: `${dayTypeColor(d.type)}11`,
-                    borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8,
-                    borderLeftWidth: 3, borderLeftColor: dayTypeColor(d.type),
-                  }}>
-                    <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: dayTypeColor(d.type), width: 32 }}>
-                      {d.day.slice(0, 3).toUpperCase()}
-                    </Text>
-                    <Text style={{ fontSize: 12, fontFamily: "Manrope", color: text, flex: 1, lineHeight: 16 }}>
-                      {d.focus}
-                    </Text>
-                  </View>
-                ))}
+                {effectivePlan.training.schedule.map((d, i) => {
+                  const hasExercises = d.exercises && d.exercises.length > 0;
+                  const isExpanded = expandedDays[i] ?? false;
+                  return (
+                    <View key={i}>
+                      <Pressable
+                        onPress={() => {
+                          if (!hasExercises) return;
+                          setExpandedDays(prev => ({ ...prev, [i]: !prev[i] }));
+                        }}
+                        style={({ pressed }) => ({
+                          flexDirection: "row", alignItems: "center", gap: 10,
+                          backgroundColor: `${dayTypeColor(d.type)}11`,
+                          borderRadius: isExpanded ? 0 : 10,
+                          borderTopLeftRadius: 10, borderTopRightRadius: 10,
+                          paddingHorizontal: 12, paddingVertical: 8,
+                          borderLeftWidth: 3, borderLeftColor: dayTypeColor(d.type),
+                          opacity: pressed ? 0.8 : 1,
+                        })}
+                      >
+                        <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: dayTypeColor(d.type), width: 32 }}>
+                          {d.day.slice(0, 3).toUpperCase()}
+                        </Text>
+                        <Text style={{ fontSize: 12, fontFamily: "Manrope", color: text, flex: 1, lineHeight: 16 }}>
+                          {d.focus}
+                        </Text>
+                        {hasExercises && (
+                          isExpanded
+                            ? <ChevronUp size={13} color={dayTypeColor(d.type)} />
+                            : <ChevronDown size={13} color={dayTypeColor(d.type)} />
+                        )}
+                      </Pressable>
+                      {hasExercises && isExpanded && (
+                        <View style={{
+                          backgroundColor: `${dayTypeColor(d.type)}08`,
+                          borderLeftWidth: 3, borderLeftColor: dayTypeColor(d.type),
+                          borderBottomLeftRadius: 10, borderBottomRightRadius: 10,
+                          paddingHorizontal: 12, paddingTop: 6, paddingBottom: 8,
+                          gap: 4,
+                        }}>
+                          {d.exercises!.map((ex, j) => (
+                            <View key={j} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                              <View style={{
+                                width: 4, height: 4, borderRadius: 2,
+                                backgroundColor: dayTypeColor(d.type), opacity: 0.7,
+                              }} />
+                              <Text style={{ fontSize: 12, fontFamily: "Manrope-SemiBold", color: text, flex: 1 }}>
+                                {ex.name}
+                              </Text>
+                              <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>
+                                {ex.sets}×{ex.reps}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
               </View>
               <Text style={{ fontSize: 12, fontFamily: "Manrope", color: muted, lineHeight: 18, marginBottom: 10 }}>
-                {aiPlan.training.reasoning}
+                {effectivePlan.training.reasoning}
               </Text>
-              {aiPlan.training.tips.map((tip, i) => (
+              {effectivePlan.training.tips.map((tip, i) => (
                 <View key={i} style={{ flexDirection: "row", gap: 8, marginBottom: 4 }}>
                   <Text style={{ fontSize: 12, color: PINK }}>•</Text>
                   <Text style={{ fontSize: 12, fontFamily: "Manrope", color: text, flex: 1, lineHeight: 18 }}>{tip}</Text>
@@ -714,7 +868,7 @@ export default function GoalsScreen() {
 
             {/* Priority actions section */}
             <Section icon={<Zap size={16} color={PURPLE} />} title="Priority Actions" color={PURPLE} palette={palette}>
-              {aiPlan.priorityActions.map((action, i) => (
+              {effectivePlan.priorityActions.map((action, i) => (
                 <View key={i} style={{
                   flexDirection: "row", gap: 12, marginBottom: 10,
                   alignItems: "flex-start",

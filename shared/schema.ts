@@ -311,3 +311,13 @@ export const workoutSets = pgTable("workout_sets", {
 export const insertWorkoutSetSchema = createInsertSchema(workoutSets).omit({ id: true });
 export type WorkoutSet = typeof workoutSets.$inferSelect;
 export type InsertWorkoutSet = z.infer<typeof insertWorkoutSetSchema>;
+
+// ─── AI Coach Plans ───────────────────────────────────────────────────────────
+export const aiCoachPlans = pgTable("ai_coach_plans", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  planJson: jsonb("plan_json").notNull().$type<any>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export const insertAiCoachPlanSchema = createInsertSchema(aiCoachPlans).omit({ id: true, createdAt: true });
+export type AiCoachPlan = typeof aiCoachPlans.$inferSelect;

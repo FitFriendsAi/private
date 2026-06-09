@@ -5,7 +5,7 @@ import {
   users, userProfiles, goals, bodyMeasurements, foodItems, foodLog,
   nutritionTargets, waterLog, supplementLog, exercises, workoutTemplates,
   templateExercises, workouts, workoutSets, heartRateLog, savedMeals, mealIngredients,
-  friendships,
+  friendships, aiCoachPlans,
   type User, type UserProfile, type Goal, type BodyMeasurement, type FoodItem,
   type FoodLogEntry, type NutritionTarget, type WaterLogEntry, type SupplementLogEntry,
   type Exercise, type WorkoutTemplate, type TemplateExercise, type Workout, type WorkoutSet,
@@ -893,6 +893,20 @@ export const storage = {
       }
     }
     return streak;
+  },
+
+  // ── AI Coach Plans ─────────────────────────────────────────────────────────
+  async getAiCoachPlan(userId: number): Promise<any | null> {
+    const [row] = await db.select().from(aiCoachPlans)
+      .where(eq(aiCoachPlans.userId, userId))
+      .orderBy(desc(aiCoachPlans.createdAt)).limit(1);
+    return row?.planJson ?? null;
+  },
+
+  async saveAiCoachPlan(userId: number, plan: any): Promise<void> {
+    // Delete old, insert new (simple upsert pattern)
+    await db.delete(aiCoachPlans).where(eq(aiCoachPlans.userId, userId));
+    await db.insert(aiCoachPlans).values({ userId, planJson: plan });
   },
 
   /**
