@@ -255162,16 +255162,30 @@ If there are no active goals with deadlines, set goalFeasibility to [] and progr
       const client2 = new sdk_default({ apiKey: process.env.ANTHROPIC_API_KEY });
       const msg = await client2.messages.create({
         model: "claude-opus-4-5",
-        max_tokens: 3e3,
+        max_tokens: 4096,
         messages: [{ role: "user", content: prompt }]
       });
       const rawText = msg.content[0].text ?? "";
-      const cleaned = rawText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-      const plan = JSON.parse(cleaned);
+      const stripped = rawText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      const jsonStart = stripped.indexOf("{");
+      const jsonEnd = stripped.lastIndexOf("}");
+      if (jsonStart === -1 || jsonEnd === -1) {
+        console.error("AI analysis: no JSON object found in response:", stripped.slice(0, 300));
+        return res.status(500).json({ message: "AI returned an unexpected response format. Please try again." });
+      }
+      const jsonSlice = stripped.slice(jsonStart, jsonEnd + 1);
+      let plan;
+      try {
+        plan = JSON.parse(jsonSlice);
+      } catch (parseErr) {
+        console.error("AI analysis JSON parse failed:", parseErr, "\nRaw slice:", jsonSlice.slice(0, 500));
+        return res.status(500).json({ message: "AI response could not be parsed. Please try again." });
+      }
       res.json(plan);
     } catch (err) {
-      console.error("AI analysis error:", err);
-      res.status(500).json({ message: "Failed to generate AI analysis" });
+      console.error("AI analysis error:", err?.message ?? err);
+      const msg = err?.status === 401 ? "AI service authentication failed \u2014 check ANTHROPIC_API_KEY." : err?.status === 529 ? "AI service is overloaded. Please try again in a moment." : "Failed to generate AI analysis. Please try again.";
+      res.status(500).json({ message: msg });
     }
   });
   app2.get("/api/measurements", async (req, res) => {
