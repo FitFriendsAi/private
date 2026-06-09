@@ -57523,12 +57523,14 @@ function registerRoutes(app2) {
     if (!requireAuth(req, res)) return;
     const userId = req.user.id;
     try {
-      const [profile, goals2, measurements, target, recentWorkouts] = await Promise.all([
+      const [profile, goals2, measurements, target, recentWorkouts, foodSummary] = await Promise.all([
         storage.getProfile(userId),
         storage.getGoals(userId),
         storage.getMeasurements(userId, 5),
         storage.getNutritionTarget(userId),
-        storage.getWorkouts(userId, 10)
+        storage.getWorkouts(userId, 10),
+        storage.getFoodLogSummary(userId, "1W")
+        // last 7 days — non-zero days = actively logging
       ]);
       const activeGoals = goals2.filter((g2) => g2.isActive);
       const latestWeight = measurements[0];
@@ -57541,6 +57543,19 @@ function registerRoutes(app2) {
       const activity = profile?.activityLevel ?? "moderate";
       const thirtyDaysAgo = new Date(Date.now() - 30 * 864e5);
       const recentCount = recentWorkouts.filter((w2) => new Date(w2.date) >= thirtyDaysAgo).length;
+      const loggedDays = foodSummary.filter((d2) => d2.calories > 0);
+      const totalDays = foodSummary.length;
+      const loggedCount = loggedDays.length;
+      const avgCalLogged = loggedCount > 0 ? Math.round(loggedDays.reduce((s2, d2) => s2 + d2.calories, 0) / loggedCount) : null;
+      const avgProtLogged = loggedCount > 0 ? Math.round(loggedDays.reduce((s2, d2) => s2 + d2.protein, 0) / loggedCount) : null;
+      let dietLoggingStatus;
+      if (loggedCount === 0) {
+        dietLoggingStatus = `No diet logs found in the last ${totalDays} days. The user has NOT been logging their food intake \u2014 do NOT assume they ate nothing. Base nutrition recommendations entirely on their goals and profile, not on any intake data.`;
+      } else if (loggedCount < totalDays * 0.5) {
+        dietLoggingStatus = `Inconsistent logging: user logged on ${loggedCount} of ${totalDays} days this week. On logged days: avg ${avgCalLogged} kcal, avg ${avgProtLogged}g protein. Treat these as partial data \u2014 the user's true intake is likely higher than what's recorded. Acknowledge the logging gap in your advice.`;
+      } else {
+        dietLoggingStatus = `Consistent logging: user logged on ${loggedCount} of ${totalDays} days this week. On logged days: avg ${avgCalLogged} kcal, avg ${avgProtLogged}g protein. This is reasonably reliable data.`;
+      }
       const userContext = `
 USER PROFILE:
 - Age: ${ageYears ?? "unknown"}
@@ -57549,6 +57564,9 @@ USER PROFILE:
 - Current weight: ${weightLbs ? `${weightLbs} lbs` : "unknown"} (${weightKg ? `${weightKg.toFixed(1)} kg` : "unknown"})
 - Activity level: ${activity}
 - Workouts in last 30 days: ${recentCount}
+
+DIET LOGGING STATUS (last 7 days):
+${dietLoggingStatus}
 
 ACTIVE GOALS:
 ${activeGoals.length === 0 ? "No active goals set." : activeGoals.map((g2) => {
