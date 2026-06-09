@@ -879,7 +879,7 @@ export default function FoodScreen() {
                           opacity: pressed || logMeal.isPending ? 0.6 : 1,
                         })}
                       >
-                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: accentActive }}>
+                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: "#ffffff" }}>
                           {MEAL_LABELS[m]}
                         </Text>
                       </Pressable>
