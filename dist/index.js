@@ -255251,7 +255251,7 @@ If there are no active goals with deadlines, set goalFeasibility to [] and progr
       const client2 = new sdk_default({ apiKey });
       const msg = await client2.messages.create({
         model: "claude-opus-4-5",
-        max_tokens: 4096,
+        max_tokens: 8192,
         messages: [{ role: "user", content: prompt }]
       });
       const rawText = msg.content[0].text ?? "";
@@ -255275,7 +255275,7 @@ If there are no active goals with deadlines, set goalFeasibility to [] and progr
       res.json(plan);
     } catch (err) {
       console.error("AI analysis error:", err?.status, err?.message ?? err);
-      const msg = err?.status === 401 ? "AI service authentication failed \u2014 check ANTHROPIC_API_KEY." : err?.status === 529 ? "AI service is overloaded. Please try again in a moment." : err?.status === 400 ? `AI request was invalid (${err?.message ?? "bad request"}). Please try again.` : err?.status === 404 ? "AI model not found. Please contact support." : err?.message?.includes("API key") ? "AI service is not configured \u2014 ANTHROPIC_API_KEY missing in environment." : `Failed to generate AI analysis: ${err?.message ?? "unknown error"}. Please try again.`;
+      const msg = err?.status === 401 ? "AI service authentication failed \u2014 check ANTHROPIC_API_KEY." : err?.status === 529 ? "AI service is overloaded. Please try again in a moment." : err?.status === 400 ? `AI request was invalid (${err?.message ?? "bad request"}). Please try again.` : err?.status === 404 ? "AI model not found. Please contact support." : err?.status === 429 ? "AI service rate limit reached. Please wait a moment and try again." : err?.message?.includes("API key") ? "AI service is not configured \u2014 ANTHROPIC_API_KEY missing in environment." : `Failed to generate AI analysis: ${err?.message ?? "unknown error"}. Please try again.`;
       res.status(500).json({ message: msg });
     }
   });

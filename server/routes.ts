@@ -477,7 +477,7 @@ If there are no active goals with deadlines, set goalFeasibility to [] and progr
       const client = new Anthropic({ apiKey });
       const msg = await client.messages.create({
         model: "claude-opus-4-5",
-        max_tokens: 4096,
+        max_tokens: 8192,
         messages: [{ role: "user", content: prompt }],
       });
 
@@ -519,6 +519,8 @@ If there are no active goals with deadlines, set goalFeasibility to [] and progr
         ? `AI request was invalid (${err?.message ?? "bad request"}). Please try again.`
         : err?.status === 404
         ? "AI model not found. Please contact support."
+        : err?.status === 429
+        ? "AI service rate limit reached. Please wait a moment and try again."
         : err?.message?.includes("API key")
         ? "AI service is not configured — ANTHROPIC_API_KEY missing in environment."
         : `Failed to generate AI analysis: ${err?.message ?? "unknown error"}. Please try again.`;
