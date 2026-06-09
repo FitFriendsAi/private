@@ -153,12 +153,17 @@ export default function FoodScreen() {
   >([]);
 
   // ── Ingredient picker embedded inside Create Meal modal ──
-  const [mealPickerPage, setMealPickerPage]         = useState<"search" | "item" | null>(null);
+  const [mealPickerPage, setMealPickerPage]         = useState<"search" | "item" | "barcode" | null>(null);
   const [mealPickerQuery, setMealPickerQuery]       = useState("");
   const [mealPickerResults, setMealPickerResults]   = useState<FoodItem[]>([]);
   const [mealPickerSearching, setMealPickerSearching] = useState(false);
   const [mealPickerItem, setMealPickerItem]         = useState<FoodItem | null>(null);
   const [mealPickerServings, setMealPickerServings] = useState("1");
+  const [mealPickerBarcodeLoading, setMealPickerBarcodeLoading]     = useState(false);
+  const [mealPickerBarcodeError, setMealPickerBarcodeError]         = useState("");
+  const [mealPickerBarcodeManualCode, setMealPickerBarcodeManualCode] = useState("");
+  const [mealPickerScanLabelLoading, setMealPickerScanLabelLoading] = useState(false);
+  const [mealPickerScanLabelError, setMealPickerScanLabelError]     = useState("");
 
   // ── Food detail modal ──
   const [detailEntry, setDetailEntry]     = useState<FoodLogEntry | null>(null);
@@ -368,6 +373,11 @@ export default function FoodScreen() {
     setMealPickerResults([]);
     setMealPickerItem(null);
     setMealPickerServings("1");
+    setMealPickerBarcodeLoading(false);
+    setMealPickerBarcodeError("");
+    setMealPickerBarcodeManualCode("");
+    setMealPickerScanLabelLoading(false);
+    setMealPickerScanLabelError("");
   }
 
   function closeMealModal() {
@@ -415,6 +425,99 @@ export default function FoodScreen() {
     setMealPickerQuery("");
     setMealPickerResults([]);
     setMealPickerPage("search");
+  }
+
+  // ── Meal picker barcode / scan-label variants ─────────────────────────────
+  async function mealLookupBarcodeCode(code: string) {
+    const trimmed = code.trim();
+    if (!trimmed) return;
+    setMealPickerBarcodeLoading(true);
+    setMealPickerBarcodeError("");
+    try {
+      const item = await apiRequest<FoodItem>("GET", `/api/food/barcode/${encodeURIComponent(trimmed)}`);
+      setMealPickerItem(item);
+      setMealPickerPage("item");
+    } catch {
+      setMealPickerBarcodeError("Product not found. Try a different barcode or search by name.");
+    } finally {
+      setMealPickerBarcodeLoading(false);
+    }
+  }
+
+  function mealOpenBarcodeCapture() {
+    if (Platform.OS !== "web") return;
+    const input = createCameraInput();
+    input.onchange = async (e: Event) => {
+      document.body.removeChild(input);
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      setMealPickerBarcodeLoading(true);
+      setMealPickerBarcodeError("");
+      const objectUrl = URL.createObjectURL(file);
+      try {
+        if ("BarcodeDetector" in window) {
+          const detector = new (window as any).BarcodeDetector({
+            formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39", "code_93", "qr_code", "data_matrix", "itf"],
+          });
+          const bitmap = await createImageBitmap(file);
+          const barcodes = await detector.detect(bitmap);
+          URL.revokeObjectURL(objectUrl);
+          if (barcodes.length > 0) { await mealLookupBarcodeCode(barcodes[0].rawValue); return; }
+        }
+        const canvas = await resizeImageToCanvas(objectUrl, 1400);
+        URL.revokeObjectURL(objectUrl);
+        const reader = new BrowserMultiFormatReader();
+        const result = reader.decodeFromCanvas(canvas);
+        await mealLookupBarcodeCode(result.getText());
+      } catch (err: any) {
+        URL.revokeObjectURL(objectUrl);
+        const isNotFound = err?.name === "NotFoundException" || String(err).includes("No MultiFormat");
+        setMealPickerBarcodeError(
+          isNotFound
+            ? "No barcode found. Try a clearer/closer photo or type the number below."
+            : "Couldn't read the photo. Try again or type the number below."
+        );
+        setMealPickerBarcodeLoading(false);
+      }
+    };
+    input.click();
+  }
+
+  function mealOpenScanLabel() {
+    if (Platform.OS !== "web") return;
+    const input = createCameraInput();
+    input.onchange = async (e: Event) => {
+      document.body.removeChild(input);
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      setMealPickerScanLabelLoading(true);
+      setMealPickerScanLabelError("");
+      try {
+        const { base64, mediaType } = await resizeFileForUpload(file, 1600, 0.85);
+        const data = await apiRequest<any>("POST", "/api/food/scan-label", { imageBase64: base64, mediaType });
+        const item = await apiRequest<FoodItem>("POST", "/api/food/items", {
+          name: data.name || "Scanned Food",
+          brand: data.brand || undefined,
+          servingSizeG: data.servingSizeG || 100,
+          servingUnit: data.servingUnit || "serving",
+          calories: data.calories || 0,
+          proteinG: data.proteinG || 0,
+          carbsG: data.carbsG || 0,
+          fatG: data.fatG || 0,
+          fiberG: data.fiberG || undefined,
+          sodiumMg: data.sodiumMg || undefined,
+          sugarG: data.sugarG || undefined,
+          source: "custom",
+        });
+        setMealPickerItem(item);
+        setMealPickerPage("item");
+      } catch {
+        setMealPickerScanLabelError("Couldn't read the label. Try a clearer, well-lit photo.");
+      } finally {
+        setMealPickerScanLabelLoading(false);
+      }
+    };
+    input.click();
   }
 
   function addToLog() {
@@ -1060,13 +1163,16 @@ export default function FoodScreen() {
           {/* Header — changes based on picker page */}
           <View style={{ padding: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderBottomWidth: 1, borderBottomColor: border }}>
             {mealPickerPage === "item" ? (
-              // Item/servings page — "Back" goes to search
               <Pressable onPress={() => { setMealPickerItem(null); setMealPickerServings("1"); setMealPickerPage("search"); }} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                 <ChevronDown size={16} color={muted} style={{ transform: [{ rotate: "90deg" }] }} />
                 <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 14, color: muted }}>Back</Text>
               </Pressable>
+            ) : mealPickerPage === "barcode" ? (
+              <Pressable onPress={() => { setMealPickerBarcodeError(""); setMealPickerBarcodeManualCode(""); setMealPickerPage("search"); }} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <ChevronDown size={16} color={muted} style={{ transform: [{ rotate: "90deg" }] }} />
+                <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 14, color: muted }}>Back</Text>
+              </Pressable>
             ) : mealPickerPage === "search" ? (
-              // Search page — "Done" returns to the main form
               <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 18, color: text }}>Add Ingredients</Text>
             ) : (
               <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 18, color: text }}>
@@ -1074,7 +1180,6 @@ export default function FoodScreen() {
               </Text>
             )}
             {mealPickerPage === "search" ? (
-              // Done button — finishes ingredient adding and returns to main form
               <Pressable onPress={closeMealPicker} style={{ paddingHorizontal: 14, paddingVertical: 6, backgroundColor: accentActive, borderRadius: 20 }}>
                 <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: isWhite ? "#fff" : palette.accentText }}>
                   Done{newMealIngredients.length > 0 ? ` (${newMealIngredients.length})` : ""}
@@ -1195,6 +1300,34 @@ export default function FoodScreen() {
           {/* ── PAGE: Ingredient search ── */}
           {mealPickerPage === "search" && (
             <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+
+              {/* Scan action buttons */}
+              <View style={{ flexDirection: "row", gap: 10, marginBottom: 14 }}>
+                <Pressable
+                  onPress={mealOpenBarcodeCapture}
+                  style={({ pressed }) => ({ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: card, borderRadius: 14, borderWidth: 1, borderColor: border, paddingVertical: 14, opacity: pressed ? 0.7 : 1 })}
+                >
+                  <ScanLine size={18} color={text} />
+                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: text }}>Scan Barcode</Text>
+                </Pressable>
+                <Pressable
+                  onPress={mealOpenScanLabel}
+                  disabled={mealPickerScanLabelLoading}
+                  style={({ pressed }) => ({ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: card, borderRadius: 14, borderWidth: 1, borderColor: border, paddingVertical: 14, opacity: (pressed || mealPickerScanLabelLoading) ? 0.7 : 1 })}
+                >
+                  {mealPickerScanLabelLoading
+                    ? <ActivityIndicator size="small" color={muted} />
+                    : <Camera size={18} color={text} />
+                  }
+                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: text }}>
+                    {mealPickerScanLabelLoading ? "Reading…" : "Scan Label"}
+                  </Text>
+                </Pressable>
+              </View>
+              {mealPickerScanLabelError ? (
+                <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: "#ef4444", marginBottom: 10 }}>{mealPickerScanLabelError}</Text>
+              ) : null}
+
               {/* Search bar */}
               <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: card, borderRadius: 14, borderWidth: 1, borderColor: border, paddingHorizontal: 12, paddingVertical: 10, gap: 8, marginBottom: 14 }}>
                 {mealPickerSearching
@@ -1250,6 +1383,70 @@ export default function FoodScreen() {
                   <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted, marginTop: 2 }}>{item.calories} kcal · P {item.proteinG}g · C {item.carbsG}g · F {item.fatG}g</Text>
                 </Pressable>
               ))}
+            </ScrollView>
+          )}
+
+          {/* ── PAGE: Barcode scanner ── */}
+          {mealPickerPage === "barcode" && (
+            <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+              {mealPickerBarcodeLoading ? (
+                <View style={{ alignItems: "center", paddingVertical: 48 }}>
+                  <ActivityIndicator size="large" color={accentActive} />
+                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 14, color: muted, marginTop: 14 }}>Looking up product…</Text>
+                </View>
+              ) : (
+                <>
+                  <Pressable
+                    onPress={mealOpenBarcodeCapture}
+                    style={({ pressed }) => ({
+                      backgroundColor: accentActive, borderRadius: 16, paddingVertical: 18,
+                      flexDirection: "row", alignItems: "center", justifyContent: "center",
+                      gap: 10, marginBottom: 10, opacity: pressed ? 0.8 : 1,
+                    })}
+                  >
+                    <ScanLine size={22} color={isWhite ? "#fff" : palette.accentText} />
+                    <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 15, color: isWhite ? "#fff" : palette.accentText }}>
+                      Take Photo of Barcode
+                    </Text>
+                  </Pressable>
+                  <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted, textAlign: "center", marginBottom: 24 }}>
+                    Point your camera at the barcode on the product
+                  </Text>
+                  {mealPickerBarcodeError ? (
+                    <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: "#ef4444", textAlign: "center", marginBottom: 16 }}>
+                      {mealPickerBarcodeError}
+                    </Text>
+                  ) : null}
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 16 }}>
+                    <View style={{ flex: 1, height: 1, backgroundColor: border }} />
+                    <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 11, color: muted, letterSpacing: 1 }}>OR ENTER CODE</Text>
+                    <View style={{ flex: 1, height: 1, backgroundColor: border }} />
+                  </View>
+                  <View style={{ flexDirection: "row", gap: 10 }}>
+                    <TextInput
+                      value={mealPickerBarcodeManualCode}
+                      onChangeText={setMealPickerBarcodeManualCode}
+                      placeholder="e.g. 0123456789012"
+                      placeholderTextColor={muted}
+                      keyboardType="number-pad"
+                      returnKeyType="search"
+                      onSubmitEditing={() => mealLookupBarcodeCode(mealPickerBarcodeManualCode)}
+                      style={{ flex: 1, backgroundColor: card, borderRadius: 12, padding: 13, borderWidth: 1, borderColor: border, fontFamily: "Manrope-SemiBold", fontSize: 15, color: text }}
+                    />
+                    <Pressable
+                      onPress={() => mealLookupBarcodeCode(mealPickerBarcodeManualCode)}
+                      disabled={!mealPickerBarcodeManualCode.trim()}
+                      style={({ pressed }) => ({
+                        backgroundColor: accentActive, borderRadius: 12, paddingHorizontal: 18,
+                        justifyContent: "center",
+                        opacity: (!mealPickerBarcodeManualCode.trim() || pressed) ? 0.4 : 1,
+                      })}
+                    >
+                      <Search size={20} color={isWhite ? "#fff" : palette.accentText} />
+                    </Pressable>
+                  </View>
+                </>
+              )}
             </ScrollView>
           )}
 
