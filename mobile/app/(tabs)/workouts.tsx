@@ -101,6 +101,8 @@ export default function WorkoutsScreen() {
   const [aiGoal,          setAiGoal]          = useState("Build Muscle");
   const [aiEquipment,     setAiEquipment]     = useState<"full_gym"|"dumbbells_cables"|"dumbbells_only"|"bodyweight">("full_gym");
   const [aiNotes,         setAiNotes]         = useState("");
+  const [coachFeedback,   setCoachFeedback]   = useState<string[]>([]);
+  const [pendingNavId,    setPendingNavId]     = useState<number | null>(null);
 
   // ── Data ──
   const { data: templates = [] } = useQuery<any[]>({
@@ -154,8 +156,11 @@ export default function WorkoutsScreen() {
       setShowAiModal(false);
       setAiNotes("");
       qc.invalidateQueries({ queryKey: ["/api/templates"] });
-      // Navigate straight to the new routine
-      if (data?.templateId) {
+      if (data?.coachFeedback?.length > 0) {
+        // Show feedback card first, then let user tap to open the routine
+        setCoachFeedback(data.coachFeedback);
+        setPendingNavId(data.templateId ?? null);
+      } else if (data?.templateId) {
         router.push({ pathname: "/routine/[templateId]", params: { templateId: String(data.templateId) } });
       }
     },
@@ -240,6 +245,49 @@ export default function WorkoutsScreen() {
               </Pressable>
             </View>
           </View>
+
+          {/* ── Coach Feedback card (shows after AI generation) ── */}
+          {coachFeedback.length > 0 && (
+            <View style={{
+              backgroundColor: "#1a1a2e", borderRadius: 18, padding: 16, marginBottom: 12,
+              borderWidth: 1.5, borderColor: PURPLE,
+            }}>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
+                  <Sparkles size={14} color={PURPLE} />
+                  <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: PURPLE }}>Coach Observations</Text>
+                </View>
+                <Pressable onPress={() => setCoachFeedback([])} hitSlop={8}>
+                  <X size={16} color="#555" />
+                </Pressable>
+              </View>
+              {coachFeedback.map((fb, i) => (
+                <View key={i} style={{ flexDirection: "row", gap: 8, marginBottom: i < coachFeedback.length - 1 ? 8 : 0 }}>
+                  <Text style={{ fontSize: 13, color: PURPLE, marginTop: 1 }}>•</Text>
+                  <Text style={{ fontFamily: "Manrope", fontSize: 13, color: "#d4c4ff", flex: 1, lineHeight: 19 }}>{fb}</Text>
+                </View>
+              ))}
+              {pendingNavId !== null && (
+                <Pressable
+                  onPress={() => {
+                    const id = pendingNavId;
+                    setPendingNavId(null);
+                    setCoachFeedback([]);
+                    router.push({ pathname: "/routine/[templateId]", params: { templateId: String(id) } });
+                  }}
+                  style={({ pressed }) => ({
+                    marginTop: 14, backgroundColor: PURPLE, borderRadius: 12,
+                    paddingVertical: 10, alignItems: "center",
+                    opacity: pressed ? 0.8 : 1,
+                  })}
+                >
+                  <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 13, color: "#fff" }}>
+                    View New Routine →
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+          )}
 
           {templates.length === 0 ? (
             <View style={{ backgroundColor: card, borderRadius: 18, padding: 28, alignItems: "center", borderWidth: 1, borderColor: border, marginBottom: 20 }}>

@@ -256094,32 +256094,76 @@ Return ONLY valid JSON (no markdown):
         bodyweight: "Bodyweight only"
       };
       const equipLabel = equipmentLabel[equipment] ?? equipment ?? "any equipment";
+      const [rawTemplates, recentWorkouts, loggedExerciseIds, allExercises] = await Promise.all([
+        storage.getTemplates(userId),
+        storage.getWorkouts(userId, 15),
+        storage.getLoggedExerciseIds(userId),
+        storage.getExercises(userId)
+      ]);
+      const templates = await Promise.all(rawTemplates.map(async (t2) => {
+        const tes = await storage.getTemplateExercisesWithDetails(t2.id);
+        return { name: t2.name, exercises: tes.map((e2) => e2.exerciseName ?? e2.name) };
+      }));
+      const topExerciseIds = loggedExerciseIds.slice(0, 12);
+      const lastWeights = topExerciseIds.length > 0 ? await storage.getLastWeightsForExercises(userId, topExerciseIds) : {};
+      const exerciseNameMap = {};
+      for (const ex of allExercises) exerciseNameMap[ex.id] = ex.name;
+      const topLiftsLines = topExerciseIds.filter((id) => lastWeights[id] && lastWeights[id] > 0).map((id) => {
+        const lbs = Math.round(lastWeights[id] / 453.592);
+        return `  - ${exerciseNameMap[id] ?? `Exercise #${id}`}: ${lbs} lbs most recent`;
+      });
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 864e5);
+      const recentCount = recentWorkouts.filter((w2) => new Date(w2.date) >= thirtyDaysAgo).length;
+      const recentNames = recentWorkouts.slice(0, 8).map((w2) => `  - ${w2.date}: ${w2.name}`).join("\n");
+      const existingRoutinesText = templates.length === 0 ? "No saved routines yet \u2014 this will be the user's first." : templates.map((t2) => `  \u2022 ${t2.name}: ${t2.exercises.length > 0 ? t2.exercises.join(", ") : "no exercises added yet"}`).join("\n");
+      const topLiftsText = topLiftsLines.length > 0 ? topLiftsLines.join("\n") : "  No lift history recorded yet \u2014 treat as a new trainee.";
       const client2 = new sdk_default({ apiKey: process.env.ANTHROPIC_API_KEY });
-      const prompt = `You are a personal trainer. Create a single workout routine (one session, not a full weekly plan).
+      const prompt = `You are an expert personal trainer reviewing a user's training history to build a new workout routine.
+
+\u2501\u2501\u2501 USER'S CURRENT TRAINING CONTEXT \u2501\u2501\u2501
+
+SAVED ROUTINES (what they already have):
+${existingRoutinesText}
+
+RECENT WORKOUTS (last ${recentCount} sessions in 30 days):
+${recentNames || "  None logged yet."}
+
+TOP LIFTS (most recent weights):
+${topLiftsText}
+
+\u2501\u2501\u2501 NEW ROUTINE REQUEST \u2501\u2501\u2501
 
 Goal: ${goal}
 Available equipment: ${equipLabel}
-${notes ? `Notes: ${notes}` : ""}
+${notes ? `Additional notes: ${notes}` : ""}
 
-IMPORTANT: Only include exercises achievable with the stated equipment. For "Bodyweight only" \u2014 no weights at all. For "Dumbbells only" \u2014 no barbell or cable exercises.
+\u2501\u2501\u2501 INSTRUCTIONS \u2501\u2501\u2501
 
-Return a JSON object with this exact structure:
+1. Study the user's existing routines. Identify any gaps: muscle groups that are undertrained, imbalances (e.g. lots of chest/push but no rear-delt or upper-back work), missing movement patterns (e.g. no hinge, no unilateral work), or exercises that overlap too much with what they already have.
+2. Design the new routine to COMPLEMENT what they already do \u2014 don't just duplicate their existing exercises unless specifically requested. If they have a Push Day with bench press, don't make another routine that also centers on bench press.
+3. Where the user has lift history, reference their actual weights to suggest appropriate starting weights or progressions in the weightNote field.
+4. Flag any specific observations about their current training in the "coachFeedback" array \u2014 these are honest, concrete notes like "Your existing Push Day has no rear-delt work \u2014 I've added face pulls here" or "You're squatting frequently but have no Romanian deadlift \u2014 added it for hamstring balance." Maximum 4 observations, minimum 0 if nothing notable.
+5. Only include exercises achievable with the stated equipment.
+
+Return ONLY valid JSON (no markdown, no explanation):
 {
-  "name": "Routine name (e.g. Push Day, Leg Day, Full Body A)",
+  "name": "Routine name",
   "exercises": [
     {
       "name": "Exercise name",
       "sets": 3,
       "reps": "8-12",
-      "muscle": "primary muscle group (chest/back/shoulders/biceps/triceps/quads/hamstrings/glutes/core/cardio)"
+      "muscle": "primary muscle group",
+      "weightNote": "e.g. 'Based on your 135 lb bench, start curls at 35 lbs' \u2014 or null"
     }
+  ],
+  "coachFeedback": [
+    "Specific observation about the user's existing training or this routine's purpose"
   ]
-}
-
-Include 5-8 exercises. Use common, well-known exercise names. Return ONLY valid JSON, no markdown, no explanation.`;
+}`;
       const msg = await client2.messages.create({
         model: "claude-opus-4-7",
-        max_tokens: 1200,
+        max_tokens: 1600,
         messages: [{ role: "user", content: prompt }]
       });
       const rawText = msg.content[0].text ?? "";
@@ -256136,13 +256180,10 @@ Include 5-8 exercises. Use common, well-known exercise names. Return ONLY valid 
         if (m3 === "cardio") return "cardio";
         return ["chest", "back", "quads", "hamstrings", "glutes"].includes(m3) ? "compound" : "isolation";
       };
-      const allExercises = await storage.getExercises(userId);
       const created = [];
       for (let i2 = 0; i2 < routine.exercises.length; i2++) {
         const ae2 = routine.exercises[i2];
-        let match = allExercises.find(
-          (e2) => e2.name.toLowerCase() === ae2.name.toLowerCase()
-        );
+        let match = allExercises.find((e2) => e2.name.toLowerCase() === ae2.name.toLowerCase());
         if (!match) {
           match = allExercises.find(
             (e2) => e2.name.toLowerCase().includes(ae2.name.toLowerCase().split(" ")[0])
@@ -256169,7 +256210,12 @@ Include 5-8 exercises. Use common, well-known exercise names. Return ONLY valid 
         });
         created.push({ ...ae2, exerciseId: match.id });
       }
-      res.json({ templateId: template.id, name: template.name, exercises: created });
+      res.json({
+        templateId: template.id,
+        name: template.name,
+        exercises: created,
+        coachFeedback: routine.coachFeedback ?? []
+      });
     } catch (err) {
       console.error("AI routine generation error:", err);
       res.status(500).json({ message: "Failed to generate routine. Please try again." });

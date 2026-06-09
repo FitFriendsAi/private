@@ -1592,34 +1592,98 @@ Return ONLY valid JSON (no markdown):
       };
       const equipLabel = equipmentLabel[equipment] ?? equipment ?? "any equipment";
 
+      // ── Gather user training context ────────────────────────────────────────
+      const [rawTemplates, recentWorkouts, loggedExerciseIds, allExercises] = await Promise.all([
+        storage.getTemplates(userId),
+        storage.getWorkouts(userId, 15),
+        storage.getLoggedExerciseIds(userId),
+        storage.getExercises(userId),
+      ]);
+
+      // Enrich templates with their exercises
+      const templates = await Promise.all(rawTemplates.map(async t => {
+        const tes = await storage.getTemplateExercisesWithDetails(t.id);
+        return { name: t.name, exercises: tes.map((e: any) => e.exerciseName ?? e.name) };
+      }));
+
+      // Top lifts: last weight for up to 12 most-logged exercises
+      const topExerciseIds = loggedExerciseIds.slice(0, 12);
+      const lastWeights = topExerciseIds.length > 0
+        ? await storage.getLastWeightsForExercises(userId, topExerciseIds)
+        : {};
+      const exerciseNameMap: Record<number, string> = {};
+      for (const ex of allExercises) exerciseNameMap[ex.id] = ex.name;
+
+      const topLiftsLines = topExerciseIds
+        .filter(id => lastWeights[id] && lastWeights[id] > 0)
+        .map(id => {
+          const lbs = Math.round(lastWeights[id] / 453.592);
+          return `  - ${exerciseNameMap[id] ?? `Exercise #${id}`}: ${lbs} lbs most recent`;
+        });
+
+      // Recent workout frequency
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000);
+      const recentCount = recentWorkouts.filter((w: any) => new Date(w.date) >= thirtyDaysAgo).length;
+      const recentNames = recentWorkouts.slice(0, 8).map((w: any) => `  - ${w.date}: ${w.name}`).join("\n");
+
+      // Build context block
+      const existingRoutinesText = templates.length === 0
+        ? "No saved routines yet — this will be the user's first."
+        : templates.map(t => `  • ${t.name}: ${t.exercises.length > 0 ? t.exercises.join(", ") : "no exercises added yet"}`).join("\n");
+
+      const topLiftsText = topLiftsLines.length > 0
+        ? topLiftsLines.join("\n")
+        : "  No lift history recorded yet — treat as a new trainee.";
+
       const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-      const prompt = `You are a personal trainer. Create a single workout routine (one session, not a full weekly plan).
+      const prompt = `You are an expert personal trainer reviewing a user's training history to build a new workout routine.
+
+━━━ USER'S CURRENT TRAINING CONTEXT ━━━
+
+SAVED ROUTINES (what they already have):
+${existingRoutinesText}
+
+RECENT WORKOUTS (last ${recentCount} sessions in 30 days):
+${recentNames || "  None logged yet."}
+
+TOP LIFTS (most recent weights):
+${topLiftsText}
+
+━━━ NEW ROUTINE REQUEST ━━━
 
 Goal: ${goal}
 Available equipment: ${equipLabel}
-${notes ? `Notes: ${notes}` : ""}
+${notes ? `Additional notes: ${notes}` : ""}
 
-IMPORTANT: Only include exercises achievable with the stated equipment. For "Bodyweight only" — no weights at all. For "Dumbbells only" — no barbell or cable exercises.
+━━━ INSTRUCTIONS ━━━
 
-Return a JSON object with this exact structure:
+1. Study the user's existing routines. Identify any gaps: muscle groups that are undertrained, imbalances (e.g. lots of chest/push but no rear-delt or upper-back work), missing movement patterns (e.g. no hinge, no unilateral work), or exercises that overlap too much with what they already have.
+2. Design the new routine to COMPLEMENT what they already do — don't just duplicate their existing exercises unless specifically requested. If they have a Push Day with bench press, don't make another routine that also centers on bench press.
+3. Where the user has lift history, reference their actual weights to suggest appropriate starting weights or progressions in the weightNote field.
+4. Flag any specific observations about their current training in the "coachFeedback" array — these are honest, concrete notes like "Your existing Push Day has no rear-delt work — I've added face pulls here" or "You're squatting frequently but have no Romanian deadlift — added it for hamstring balance." Maximum 4 observations, minimum 0 if nothing notable.
+5. Only include exercises achievable with the stated equipment.
+
+Return ONLY valid JSON (no markdown, no explanation):
 {
-  "name": "Routine name (e.g. Push Day, Leg Day, Full Body A)",
+  "name": "Routine name",
   "exercises": [
     {
       "name": "Exercise name",
       "sets": 3,
       "reps": "8-12",
-      "muscle": "primary muscle group (chest/back/shoulders/biceps/triceps/quads/hamstrings/glutes/core/cardio)"
+      "muscle": "primary muscle group",
+      "weightNote": "e.g. 'Based on your 135 lb bench, start curls at 35 lbs' — or null"
     }
+  ],
+  "coachFeedback": [
+    "Specific observation about the user's existing training or this routine's purpose"
   ]
-}
-
-Include 5-8 exercises. Use common, well-known exercise names. Return ONLY valid JSON, no markdown, no explanation.`;
+}`;
 
       const msg = await client.messages.create({
         model: "claude-opus-4-7",
-        max_tokens: 1200,
+        max_tokens: 1600,
         messages: [{ role: "user", content: prompt }],
       });
 
@@ -1635,24 +1699,18 @@ Include 5-8 exercises. Use common, well-known exercise names. Return ONLY valid 
       // ── Auto-create template + exercises in DB ──────────────────────────────
       const template = await storage.createTemplate({ userId, name: routine.name });
 
-      // Map muscle label → category for seeding custom exercises
       const muscleToCategory = (muscle: string): "compound" | "isolation" | "cardio" => {
         const m = muscle.toLowerCase();
         if (m === "cardio") return "cardio";
         return ["chest", "back", "quads", "hamstrings", "glutes"].includes(m) ? "compound" : "isolation";
       };
 
-      // For each AI-suggested exercise: find existing or create custom
-      const allExercises = await storage.getExercises(userId);
       const created: any[] = [];
       for (let i = 0; i < routine.exercises.length; i++) {
         const ae = routine.exercises[i];
-        let match = allExercises.find(e =>
-          e.name.toLowerCase() === ae.name.toLowerCase()
-        );
+        let match = allExercises.find((e: any) => e.name.toLowerCase() === ae.name.toLowerCase());
         if (!match) {
-          // Fuzzy fallback — partial match
-          match = allExercises.find(e =>
+          match = allExercises.find((e: any) =>
             e.name.toLowerCase().includes(ae.name.toLowerCase().split(" ")[0])
           );
         }
@@ -1669,16 +1727,21 @@ Include 5-8 exercises. Use common, well-known exercise names. Return ONLY valid 
         }
         await storage.addTemplateExercise({
           templateId: template.id,
-          exerciseId: match.id,
+          exerciseId: (match as any).id,
           orderIndex: i,
           targetSets: ae.sets ?? 3,
           targetReps: ae.reps ?? "8-12",
           targetWeightGrams: null,
         });
-        created.push({ ...ae, exerciseId: match.id });
+        created.push({ ...ae, exerciseId: (match as any).id });
       }
 
-      res.json({ templateId: template.id, name: template.name, exercises: created });
+      res.json({
+        templateId:    template.id,
+        name:          template.name,
+        exercises:     created,
+        coachFeedback: routine.coachFeedback ?? [],
+      });
     } catch (err: any) {
       console.error("AI routine generation error:", err);
       res.status(500).json({ message: "Failed to generate routine. Please try again." });
