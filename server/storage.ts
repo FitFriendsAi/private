@@ -1,6 +1,6 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
-import { eq, and, desc, gte, lte, like, or, isNull, sql, inArray } from "drizzle-orm";
+import { eq, and, desc, gte, lte, like, or, isNull, sql, inArray, ne } from "drizzle-orm";
 import {
   users, userProfiles, goals, bodyMeasurements, foodItems, foodLog,
   nutritionTargets, waterLog, supplementLog, exercises, workoutTemplates,
@@ -856,6 +856,43 @@ export const storage = {
   async areFriends(userId: number, friendId: number): Promise<boolean> {
     const row = await this.getFriendship(userId, friendId);
     return row?.status === "accepted";
+  },
+
+  /** Search users by name or email, excluding self, returning friendship status */
+  async searchUsers(currentUserId: number, query: string): Promise<Array<{
+    id: number;
+    name: string;
+    friendshipStatus: "none" | "pending_sent" | "pending_received" | "friends";
+    friendshipId?: number;
+  }>> {
+    if (!query.trim()) return [];
+    const q = `%${query.toLowerCase()}%`;
+    const results = await db.select().from(users)
+      .where(
+        and(
+          ne(users.id, currentUserId),
+          or(
+            sql`lower(${users.name}) like ${q}`,
+            sql`lower(${users.email}) like ${q}`,
+          )
+        )
+      )
+      .limit(20);
+
+    return await Promise.all(results.map(async (u) => {
+      const friendship = await this.getFriendship(currentUserId, u.id);
+      let friendshipStatus: "none" | "pending_sent" | "pending_received" | "friends" = "none";
+      if (friendship) {
+        if (friendship.status === "accepted") {
+          friendshipStatus = "friends";
+        } else if (friendship.userId === currentUserId) {
+          friendshipStatus = "pending_sent";
+        } else {
+          friendshipStatus = "pending_received";
+        }
+      }
+      return { id: u.id, name: u.name, friendshipStatus, friendshipId: friendship?.id };
+    }));
   },
 
   /**

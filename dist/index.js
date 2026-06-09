@@ -245745,6 +245745,34 @@ var storage = {
     const row = await this.getFriendship(userId, friendId);
     return row?.status === "accepted";
   },
+  /** Search users by name or email, excluding self, returning friendship status */
+  async searchUsers(currentUserId, query) {
+    if (!query.trim()) return [];
+    const q2 = `%${query.toLowerCase()}%`;
+    const results = await db.select().from(users).where(
+      and(
+        ne(users.id, currentUserId),
+        or(
+          sql`lower(${users.name}) like ${q2}`,
+          sql`lower(${users.email}) like ${q2}`
+        )
+      )
+    ).limit(20);
+    return await Promise.all(results.map(async (u2) => {
+      const friendship = await this.getFriendship(currentUserId, u2.id);
+      let friendshipStatus = "none";
+      if (friendship) {
+        if (friendship.status === "accepted") {
+          friendshipStatus = "friends";
+        } else if (friendship.userId === currentUserId) {
+          friendshipStatus = "pending_sent";
+        } else {
+          friendshipStatus = "pending_received";
+        }
+      }
+      return { id: u2.id, name: u2.name, friendshipStatus, friendshipId: friendship?.id };
+    }));
+  },
   /**
    * Compute workout streak for a user: count consecutive days ending today
    * where at least one workout was logged.
@@ -256264,6 +256292,33 @@ Return ONLY valid JSON (no markdown, no explanation):
       points
     };
   }
+  app2.get("/api/users/search", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = req.user.id;
+    const q2 = String(req.query.q ?? "").trim();
+    if (!q2 || q2.length < 2) return res.json([]);
+    const results = await storage.searchUsers(userId, q2);
+    res.json(results.map((u2) => ({
+      id: u2.id,
+      name: u2.name,
+      initials: (u2.name[0] ?? "?").toUpperCase(),
+      color: friendColor(u2.id),
+      friendshipStatus: u2.friendshipStatus,
+      friendshipId: u2.friendshipId
+    })));
+  });
+  app2.post("/api/friends/request-by-id", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = req.user.id;
+    const { targetId } = external_exports.object({ targetId: external_exports.number().int().positive() }).parse(req.body);
+    if (targetId === userId) return res.status(400).json({ message: "Cannot add yourself" });
+    const existing = await storage.getFriendship(userId, targetId);
+    if (existing) return res.status(409).json({ message: "Friendship already exists" });
+    const target = await storage.getUserById(targetId);
+    if (!target) return res.status(404).json({ message: "User not found" });
+    const f3 = await storage.sendFriendRequest(userId, targetId);
+    res.status(201).json(f3);
+  });
   app2.get("/api/friends", async (req, res) => {
     if (!requireAuth(req, res)) return;
     const userId = req.user.id;

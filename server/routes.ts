@@ -1812,6 +1812,37 @@ Return ONLY valid JSON (no markdown, no explanation):
     };
   }
 
+  /** GET /api/users/search?q= — search platform users by name or email */
+  app.get("/api/users/search", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = (req.user as any).id;
+    const q = String(req.query.q ?? "").trim();
+    if (!q || q.length < 2) return res.json([]);
+    const results = await storage.searchUsers(userId, q);
+    res.json(results.map(u => ({
+      id:               u.id,
+      name:             u.name,
+      initials:         (u.name[0] ?? "?").toUpperCase(),
+      color:            friendColor(u.id),
+      friendshipStatus: u.friendshipStatus,
+      friendshipId:     u.friendshipId,
+    })));
+  });
+
+  /** POST /api/friends/request-by-id — send friend request by user ID */
+  app.post("/api/friends/request-by-id", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = (req.user as any).id;
+    const { targetId } = z.object({ targetId: z.number().int().positive() }).parse(req.body);
+    if (targetId === userId) return res.status(400).json({ message: "Cannot add yourself" });
+    const existing = await storage.getFriendship(userId, targetId);
+    if (existing) return res.status(409).json({ message: "Friendship already exists" });
+    const target = await storage.getUserById(targetId);
+    if (!target) return res.status(404).json({ message: "User not found" });
+    const f = await storage.sendFriendRequest(userId, targetId);
+    res.status(201).json(f);
+  });
+
   /** GET /api/friends — list accepted friends with stats */
   app.get("/api/friends", async (req, res) => {
     if (!requireAuth(req, res)) return;

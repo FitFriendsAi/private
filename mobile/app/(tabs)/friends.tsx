@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   View, Text, ScrollView, Pressable, Alert, TextInput, Modal, ActivityIndicator,
   KeyboardAvoidingView, Platform,
@@ -11,7 +11,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/api";
 import {
   Plus, Heart, MessageCircle, Flame, Dumbbell,
-  Target, Zap, Check, UserPlus, Trophy, X, Mail, Smartphone, Send,
+  Target, Zap, Check, UserPlus, Trophy, X, Mail, Smartphone, Send, Search,
 } from "lucide-react-native";
 
 const LIME  = "#c8e84c";
@@ -85,6 +85,10 @@ export default function FriendsScreen() {
   const [modalTab, setModalTab]           = useState<"add" | "invite">("add");
   const [addEmail, setAddEmail]           = useState("");
   const [addError, setAddError]           = useState("");
+  // Search-by-name state
+  const [searchQuery, setSearchQuery]     = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [addMode, setAddMode]             = useState<"search" | "email">("search");
   // Invite state
   const [inviteMethod, setInviteMethod]   = useState<"email" | "sms">("email");
   const [inviteContact, setInviteContact] = useState("");
@@ -92,9 +96,16 @@ export default function FriendsScreen() {
   const [inviteError, setInviteError]     = useState("");
   const [inviteSent, setInviteSent]       = useState(false);
 
+  // Debounce search query by 350ms
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 350);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   function openModal(defaultTab: "add" | "invite" = "add") {
     setModalTab(defaultTab);
     setAddEmail(""); setAddError("");
+    setSearchQuery(""); setDebouncedSearch(""); setAddMode("search");
     setInviteContact(""); setInviteNote(""); setInviteError(""); setInviteSent(false);
     setShowAddModal(true);
   }
@@ -152,6 +163,23 @@ export default function FriendsScreen() {
   const removeMutation = useMutation({
     mutationFn: (friendId: number) => apiRequest("DELETE", `/api/friends/${friendId}`),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/friends"] }); },
+  });
+
+  // Search platform users by name / email
+  const { data: searchResults = [], isFetching: searchLoading } = useQuery<any[]>({
+    queryKey: ["/api/users/search", debouncedSearch],
+    queryFn:  () => apiRequest("GET", `/api/users/search?q=${encodeURIComponent(debouncedSearch)}`),
+    enabled:  debouncedSearch.length >= 2,
+  });
+
+  // Send friend request by user ID (used from search results)
+  const sendByIdMutation = useMutation({
+    mutationFn: (targetId: number) => apiRequest("POST", "/api/friends/request-by-id", { targetId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/users/search", debouncedSearch] });
+      qc.invalidateQueries({ queryKey: ["/api/friends/requests"] });
+    },
+    onError: (err: any) => setAddError(err?.message ?? "Could not send request"),
   });
 
   // My own computed points (sum of friends for leaderboard reference)
@@ -613,44 +641,172 @@ export default function FriendsScreen() {
             {/* ── ADD FRIEND tab ── */}
             {modalTab === "add" && (
               <>
-                <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted, marginBottom: 12 }}>
-                  Enter the email address of someone already on FitCore.
-                </Text>
-                <TextInput
-                  value={addEmail}
-                  onChangeText={t => { setAddEmail(t); setAddError(""); }}
-                  placeholder="friend@email.com"
-                  placeholderTextColor="#555"
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                  style={{
-                    backgroundColor: "#1a1a1a", borderRadius: 14, padding: 14,
-                    fontFamily: "Manrope", fontSize: 15, color: text,
-                    borderWidth: 1, borderColor: addError ? "#ef4444" : border, marginBottom: 8,
-                  }}
-                />
-                {addError ? <Text style={{ fontFamily: "Manrope", fontSize: 12, color: "#ef4444", marginBottom: 10 }}>{addError}</Text> : null}
-                <Pressable
-                  onPress={() => {
-                    if (!addEmail.trim()) { setAddError("Enter an email address"); return; }
-                    sendRequestMutation.mutate(addEmail.trim().toLowerCase());
-                  }}
-                  disabled={sendRequestMutation.isPending}
-                  style={({ pressed }) => ({
-                    backgroundColor: LIME, borderRadius: 14, paddingVertical: 16,
-                    alignItems: "center", marginTop: 8,
-                    opacity: pressed || sendRequestMutation.isPending ? 0.7 : 1,
-                  })}
-                >
-                  {sendRequestMutation.isPending
-                    ? <ActivityIndicator color="#0a0a0a" />
-                    : <Text style={{ fontFamily: "Manrope-Bold", fontSize: 15, color: "#0a0a0a" }}>Send Friend Request</Text>}
-                </Pressable>
-                <Pressable onPress={() => setModalTab("invite")} style={{ marginTop: 14, alignItems: "center" }}>
-                  <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted }}>
-                    Not on FitCore yet? <Text style={{ color: LIME, fontFamily: "Manrope-Bold" }}>Send an invite →</Text>
-                  </Text>
-                </Pressable>
+                {/* Search / Email toggle */}
+                <View style={{ flexDirection: "row", backgroundColor: "#1a1a1a", borderRadius: 12, padding: 3, marginBottom: 16 }}>
+                  {(["search", "email"] as const).map(m => (
+                    <Pressable
+                      key={m}
+                      onPress={() => { setAddMode(m); setAddError(""); }}
+                      style={({ pressed }) => ({
+                        flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: "center",
+                        backgroundColor: addMode === m ? "#2a2a2a" : "transparent",
+                        opacity: pressed ? 0.8 : 1,
+                      })}
+                    >
+                      <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: addMode === m ? text : muted }}>
+                        {m === "search" ? "Browse Users" : "By Email"}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                {addMode === "search" ? (
+                  /* ── SEARCH MODE ── */
+                  <>
+                    {/* Search input */}
+                    <View style={{
+                      flexDirection: "row", alignItems: "center",
+                      backgroundColor: "#1a1a1a", borderRadius: 14,
+                      borderWidth: 1, borderColor: border, paddingHorizontal: 14,
+                      marginBottom: 12, gap: 10,
+                    }}>
+                      <Search size={16} color={muted} />
+                      <TextInput
+                        value={searchQuery}
+                        onChangeText={t => { setSearchQuery(t); setAddError(""); }}
+                        placeholder="Search by name or email…"
+                        placeholderTextColor="#555"
+                        autoCapitalize="none"
+                        style={{
+                          flex: 1, paddingVertical: 14,
+                          fontFamily: "Manrope", fontSize: 15, color: text,
+                        }}
+                      />
+                      {searchLoading && <ActivityIndicator size="small" color={muted} />}
+                    </View>
+
+                    {addError ? (
+                      <Text style={{ fontFamily: "Manrope", fontSize: 12, color: "#ef4444", marginBottom: 10 }}>{addError}</Text>
+                    ) : null}
+
+                    {/* Results */}
+                    {debouncedSearch.length < 2 ? (
+                      <View style={{ alignItems: "center", paddingVertical: 28, gap: 8 }}>
+                        <Search size={28} color="#333" strokeWidth={1.5} />
+                        <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted, textAlign: "center" }}>
+                          Type a name or email to find people on FitCore
+                        </Text>
+                      </View>
+                    ) : !searchLoading && searchResults.length === 0 ? (
+                      <View style={{ alignItems: "center", paddingVertical: 24, gap: 8 }}>
+                        <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 14, color: muted }}>No users found</Text>
+                        <Pressable onPress={() => setAddMode("email")}>
+                          <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted }}>
+                            Know their email? <Text style={{ color: LIME, fontFamily: "Manrope-Bold" }}>Try adding by email →</Text>
+                          </Text>
+                        </Pressable>
+                      </View>
+                    ) : (
+                      <View style={{ gap: 2 }}>
+                        {searchResults.map((u: any) => (
+                          <View key={u.id} style={{
+                            flexDirection: "row", alignItems: "center", gap: 12,
+                            paddingVertical: 10, paddingHorizontal: 4,
+                            borderBottomWidth: 1, borderBottomColor: border,
+                          }}>
+                            <Avatar initials={u.initials} color={u.color} size={42} />
+                            <Text style={{ flex: 1, fontFamily: "Manrope-SemiBold", fontSize: 15, color: text }}>
+                              {u.name}
+                            </Text>
+                            {u.friendshipStatus === "friends" ? (
+                              <View style={{ flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "#1a2e1a", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6 }}>
+                                <Check size={12} color="#22c55e" />
+                                <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: "#22c55e" }}>Friends</Text>
+                              </View>
+                            ) : u.friendshipStatus === "pending_sent" ? (
+                              <View style={{ backgroundColor: "#1a1a2e", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6 }}>
+                                <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: "#9bd1ff" }}>Pending</Text>
+                              </View>
+                            ) : u.friendshipStatus === "pending_received" ? (
+                              <Pressable
+                                onPress={() => acceptMutation.mutate(u.friendshipId)}
+                                style={({ pressed }) => ({
+                                  backgroundColor: LIME, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6,
+                                  opacity: pressed ? 0.7 : 1,
+                                })}
+                              >
+                                <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: "#0a0a0a" }}>Accept</Text>
+                              </Pressable>
+                            ) : (
+                              <Pressable
+                                onPress={() => sendByIdMutation.mutate(u.id)}
+                                disabled={sendByIdMutation.isPending}
+                                style={({ pressed }) => ({
+                                  backgroundColor: "#1e1e1e", borderRadius: 10,
+                                  borderWidth: 1, borderColor: border,
+                                  paddingHorizontal: 10, paddingVertical: 6,
+                                  flexDirection: "row", alignItems: "center", gap: 5,
+                                  opacity: pressed || sendByIdMutation.isPending ? 0.6 : 1,
+                                })}
+                              >
+                                <UserPlus size={12} color={text} />
+                                <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: text }}>Add</Text>
+                              </Pressable>
+                            )}
+                          </View>
+                        ))}
+                      </View>
+                    )}
+
+                    <Pressable onPress={() => setModalTab("invite")} style={{ marginTop: 16, alignItems: "center" }}>
+                      <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted }}>
+                        Not on FitCore yet? <Text style={{ color: LIME, fontFamily: "Manrope-Bold" }}>Send an invite →</Text>
+                      </Text>
+                    </Pressable>
+                  </>
+                ) : (
+                  /* ── EMAIL MODE ── */
+                  <>
+                    <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted, marginBottom: 12 }}>
+                      Enter the email address of someone already on FitCore.
+                    </Text>
+                    <TextInput
+                      value={addEmail}
+                      onChangeText={t => { setAddEmail(t); setAddError(""); }}
+                      placeholder="friend@email.com"
+                      placeholderTextColor="#555"
+                      autoCapitalize="none"
+                      keyboardType="email-address"
+                      style={{
+                        backgroundColor: "#1a1a1a", borderRadius: 14, padding: 14,
+                        fontFamily: "Manrope", fontSize: 15, color: text,
+                        borderWidth: 1, borderColor: addError ? "#ef4444" : border, marginBottom: 8,
+                      }}
+                    />
+                    {addError ? <Text style={{ fontFamily: "Manrope", fontSize: 12, color: "#ef4444", marginBottom: 10 }}>{addError}</Text> : null}
+                    <Pressable
+                      onPress={() => {
+                        if (!addEmail.trim()) { setAddError("Enter an email address"); return; }
+                        sendRequestMutation.mutate(addEmail.trim().toLowerCase());
+                      }}
+                      disabled={sendRequestMutation.isPending}
+                      style={({ pressed }) => ({
+                        backgroundColor: LIME, borderRadius: 14, paddingVertical: 16,
+                        alignItems: "center", marginTop: 8,
+                        opacity: pressed || sendRequestMutation.isPending ? 0.7 : 1,
+                      })}
+                    >
+                      {sendRequestMutation.isPending
+                        ? <ActivityIndicator color="#0a0a0a" />
+                        : <Text style={{ fontFamily: "Manrope-Bold", fontSize: 15, color: "#0a0a0a" }}>Send Friend Request</Text>}
+                    </Pressable>
+                    <Pressable onPress={() => setModalTab("invite")} style={{ marginTop: 14, alignItems: "center" }}>
+                      <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted }}>
+                        Not on FitCore yet? <Text style={{ color: LIME, fontFamily: "Manrope-Bold" }}>Send an invite →</Text>
+                      </Text>
+                    </Pressable>
+                  </>
+                )}
               </>
             )}
 
