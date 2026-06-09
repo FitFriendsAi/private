@@ -157,11 +157,42 @@ interface AiTraining {
   daysPerWeek: number; restDays: number; split: string;
   schedule: AiScheduleDay[]; reasoning: string; tips: string[];
 }
+interface AiGoalFeasibility {
+  goalId: number;
+  goalLabel: string;
+  status: "on_track" | "achievable" | "tight" | "not_achievable" | "no_deadline";
+  requiredRatePerWeek: string | null;
+  safeMaxRate: string | null;
+  currentRate: string | null;
+  assessment: string;
+  recommendedAdditionalDays: number | null;
+  suggestedDeadline: string | null;
+}
+interface AiAdjustOption {
+  type: "extend_deadline" | "adjust_nutrition";
+  label: string;
+  description: string;
+  // extend_deadline fields
+  goalId?: number;
+  newDeadline?: string;
+  // adjust_nutrition fields
+  newCalories?: number;
+  newProteinG?: number;
+  newCarbsG?: number;
+  newFatG?: number;
+}
+interface AiProgressAdjustment {
+  needed: boolean;
+  observation?: string;
+  options: AiAdjustOption[];
+}
 interface AiPlan {
   summary: string;
   nutrition: AiNutrition;
   hydration: AiHydration;
   training: AiTraining;
+  goalFeasibility: AiGoalFeasibility[];
+  progressAdjustment: AiProgressAdjustment;
   priorityActions: string[];
   goalNotes: string;
 }
@@ -218,6 +249,18 @@ function dayTypeColor(type: string): string {
   return "#c8e84c"; // strength
 }
 
+// feasibility status → color + label
+function feasibilityMeta(status: AiGoalFeasibility["status"]) {
+  switch (status) {
+    case "on_track":      return { color: "#22c55e", emoji: "✅", label: "On Track" };
+    case "achievable":    return { color: "#22c55e", emoji: "✅", label: "Achievable" };
+    case "tight":         return { color: "#f59e0b", emoji: "⚠️", label: "Tight" };
+    case "not_achievable":return { color: "#ef4444", emoji: "🚨", label: "Needs Adjustment" };
+    case "no_deadline":   return { color: "#6b7280", emoji: "📅", label: "No Deadline" };
+    default:              return { color: "#6b7280", emoji: "📅", label: status };
+  }
+}
+
 // ── Main component ────────────────────────────────────────────────
 export default function GoalsScreen() {
   const { palette } = useTheme();
@@ -239,12 +282,36 @@ export default function GoalsScreen() {
   const pastGoals    = (goals as any[]).filter((g: any) => !g.isActive);
 
   // ── AI analysis state ──
-  const [aiPlan, setAiPlan]       = useState<AiPlan | null>(null);
-  const [aiError, setAiError]     = useState<string | null>(null);
+  const [aiPlan, setAiPlan]           = useState<AiPlan | null>(null);
+  const [aiError, setAiError]         = useState<string | null>(null);
+  const [adjustChosen, setAdjustChosen] = useState<"extend_deadline" | "adjust_nutrition" | null>(null);
+
   const aiMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/goals/ai-analysis"),
-    onSuccess: (data: AiPlan) => { setAiPlan(data); setAiError(null); },
+    onSuccess: (data: AiPlan) => { setAiPlan(data); setAiError(null); setAdjustChosen(null); },
     onError: (e: any) => setAiError(e?.message ?? "Failed to generate plan"),
+  });
+
+  // Extend goal deadline
+  const extendDeadline = useMutation({
+    mutationFn: ({ goalId, newDeadline }: { goalId: number; newDeadline: string }) =>
+      apiRequest("PATCH", `/api/goals/${goalId}`, { deadline: newDeadline }),
+    onSuccess: () => {
+      setAdjustChosen("extend_deadline");
+      qc.invalidateQueries({ queryKey: ["/api/goals"] });
+    },
+    onError: (e: any) => setAiError(e?.message ?? "Could not update deadline"),
+  });
+
+  // Adjust nutrition targets
+  const adjustNutrition = useMutation({
+    mutationFn: (body: { calories: number; proteinG: number; carbsG: number; fatG: number }) =>
+      apiRequest("PATCH", "/api/targets", body),
+    onSuccess: () => {
+      setAdjustChosen("adjust_nutrition");
+      qc.invalidateQueries({ queryKey: ["/api/targets"] });
+    },
+    onError: (e: any) => setAiError(e?.message ?? "Could not update targets"),
   });
 
   // ── New goal modal state ──
@@ -413,6 +480,146 @@ export default function GoalsScreen() {
                 </Text>
               ) : null}
             </View>
+
+            {/* Goal Feasibility section */}
+            {aiPlan.goalFeasibility && aiPlan.goalFeasibility.length > 0 && (
+              <Section icon={<Target size={16} color={PURPLE} />} title="Goal Feasibility" color={PURPLE} palette={palette}>
+                {aiPlan.goalFeasibility.map((f, i) => {
+                  const meta = feasibilityMeta(f.status);
+                  return (
+                    <View key={i} style={{
+                      backgroundColor: `${meta.color}11`,
+                      borderRadius: 12, padding: 12, marginBottom: 8,
+                      borderLeftWidth: 3, borderLeftColor: meta.color,
+                    }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                        <Text style={{ fontSize: 13 }}>{meta.emoji}</Text>
+                        <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: meta.color, flex: 1 }}>
+                          {f.goalLabel}
+                        </Text>
+                        <View style={{
+                          backgroundColor: `${meta.color}22`, borderRadius: 8,
+                          paddingHorizontal: 8, paddingVertical: 3,
+                        }}>
+                          <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: meta.color }}>
+                            {meta.label}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={{ fontSize: 12, fontFamily: "Manrope", color: text, lineHeight: 18, marginBottom: 6 }}>
+                        {f.assessment}
+                      </Text>
+                      {(f.requiredRatePerWeek || f.currentRate) && (
+                        <View style={{ flexDirection: "row", gap: 12 }}>
+                          {f.requiredRatePerWeek && (
+                            <Text style={{ fontSize: 11, fontFamily: "Manrope-SemiBold", color: muted }}>
+                              Required: <Text style={{ color: text }}>{f.requiredRatePerWeek}</Text>
+                            </Text>
+                          )}
+                          {f.currentRate && (
+                            <Text style={{ fontSize: 11, fontFamily: "Manrope-SemiBold", color: muted }}>
+                              Actual: <Text style={{ color: text }}>{f.currentRate}</Text>
+                            </Text>
+                          )}
+                        </View>
+                      )}
+                      {f.suggestedDeadline && (
+                        <Text style={{ fontSize: 11, fontFamily: "Manrope-SemiBold", color: "#f59e0b", marginTop: 4 }}>
+                          Suggested deadline: {f.suggestedDeadline}
+                          {f.recommendedAdditionalDays ? ` (+${f.recommendedAdditionalDays} days)` : ""}
+                        </Text>
+                      )}
+                    </View>
+                  );
+                })}
+              </Section>
+            )}
+
+            {/* Progress Adjustment section */}
+            {aiPlan.progressAdjustment?.needed && aiPlan.progressAdjustment.options.length > 0 && (
+              <View style={{
+                backgroundColor: "#1c1007", borderRadius: 18,
+                borderWidth: 1.5, borderColor: "#f59e0b",
+                padding: 16, marginBottom: 12,
+              }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  <Text style={{ fontSize: 16 }}>⚡</Text>
+                  <Text style={{ fontSize: 14, fontFamily: "Manrope-Bold", color: "#f59e0b" }}>
+                    Adjustment Recommended
+                  </Text>
+                </View>
+                <Text style={{ fontSize: 13, fontFamily: "Manrope", color: "#fef3c7", lineHeight: 19, marginBottom: 14 }}>
+                  {aiPlan.progressAdjustment.observation}
+                </Text>
+
+                {adjustChosen ? (
+                  <View style={{
+                    backgroundColor: "#052e16", borderRadius: 12, padding: 14,
+                    borderWidth: 1, borderColor: "#22c55e", alignItems: "center",
+                  }}>
+                    <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: "#22c55e" }}>
+                      {adjustChosen === "extend_deadline" ? "✅ Deadline updated" : "✅ Nutrition targets updated"}
+                    </Text>
+                    <Text style={{ fontSize: 11, fontFamily: "Manrope", color: "#86efac", marginTop: 4, textAlign: "center" }}>
+                      {adjustChosen === "extend_deadline"
+                        ? "Your goal deadline has been extended. Keep going!"
+                        : "Your daily targets have been adjusted. Check the Nutrition section above."}
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={{ fontSize: 12, fontFamily: "Manrope-Bold", color: "#fbbf24", marginBottom: 10, letterSpacing: 0.4 }}>
+                    WHAT WOULD YOU LIKE TO DO?
+                  </Text>
+                )}
+
+                {!adjustChosen && aiPlan.progressAdjustment.options.map((opt, i) => {
+                  const isDeadline  = opt.type === "extend_deadline";
+                  const isPending   = isDeadline ? extendDeadline.isPending : adjustNutrition.isPending;
+                  const optColor    = isDeadline ? "#9bd1ff" : "#f8c8dc";
+                  return (
+                    <Pressable
+                      key={i}
+                      disabled={isPending}
+                      onPress={() => {
+                        if (isDeadline && opt.goalId && opt.newDeadline) {
+                          extendDeadline.mutate({ goalId: opt.goalId, newDeadline: opt.newDeadline });
+                        } else if (!isDeadline && opt.newCalories != null) {
+                          adjustNutrition.mutate({
+                            calories:  opt.newCalories!,
+                            proteinG:  opt.newProteinG!,
+                            carbsG:    opt.newCarbsG!,
+                            fatG:      opt.newFatG!,
+                          });
+                        }
+                      }}
+                      style={({ pressed }) => ({
+                        backgroundColor: `${optColor}11`,
+                        borderRadius: 14, padding: 14, marginBottom: 8,
+                        borderWidth: 1.5, borderColor: optColor,
+                        opacity: (pressed || isPending) ? 0.6 : 1,
+                      })}
+                    >
+                      <Text style={{ fontSize: 14, fontFamily: "Manrope-Bold", color: optColor, marginBottom: 4 }}>
+                        {isPending ? "Applying…" : opt.label}
+                      </Text>
+                      <Text style={{ fontSize: 12, fontFamily: "Manrope", color: text, lineHeight: 17 }}>
+                        {opt.description}
+                      </Text>
+                      {!isDeadline && opt.newCalories != null && (
+                        <Text style={{ fontSize: 11, fontFamily: "Manrope-SemiBold", color: muted, marginTop: 6 }}>
+                          {opt.newCalories} kcal · {opt.newProteinG}g protein · {opt.newCarbsG}g carbs · {opt.newFatG}g fat
+                        </Text>
+                      )}
+                      {isDeadline && opt.newDeadline && (
+                        <Text style={{ fontSize: 11, fontFamily: "Manrope-SemiBold", color: muted, marginTop: 6 }}>
+                          New deadline: {opt.newDeadline}
+                        </Text>
+                      )}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
 
             {/* Nutrition section */}
             <Section icon={<Utensils size={16} color={LIME} />} title="Nutrition Targets" color={LIME} palette={palette}>

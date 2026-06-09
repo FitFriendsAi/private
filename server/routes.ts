@@ -225,10 +225,10 @@ export function registerRoutes(app: Express) {
       const [profile, goals, measurements, target, recentWorkouts, foodSummary] = await Promise.all([
         storage.getProfile(userId),
         storage.getGoals(userId),
-        storage.getMeasurements(userId, 5),
+        storage.getMeasurements(userId, 30),   // more history for trend detection
         storage.getNutritionTarget(userId),
         storage.getWorkouts(userId, 10),
-        storage.getFoodLogSummary(userId, "1W"),   // last 7 days — non-zero days = actively logging
+        storage.getFoodLogSummary(userId, "1W"),
       ]);
 
       const activeGoals = goals.filter(g => g.isActive);
@@ -245,12 +245,34 @@ export function registerRoutes(app: Express) {
       const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000);
       const recentCount = recentWorkouts.filter(w => new Date(w.date) >= thirtyDaysAgo).length;
 
+      // ── Weight trend (computed server-side so Claude gets hard numbers) ──────
+      // Use the two measurements furthest apart (>= 7 days) for a reliable rate.
+      let weightTrendLbsPerWeek: number | null = null;
+      let trendWindowDays: number | null = null;
+      if (measurements.length >= 2) {
+        const newest = measurements[0];
+        const oldest = measurements[measurements.length - 1];
+        const ms = new Date(newest.date).getTime() - new Date(oldest.date).getTime();
+        const days = ms / 86400000;
+        if (days >= 7) {
+          const changeLbs = (newest.weightGrams - oldest.weightGrams) / 453.592;
+          weightTrendLbsPerWeek = (changeLbs / days) * 7;
+          trendWindowDays = Math.round(days);
+        }
+      }
+
+      const recentMeasurementsText = measurements.slice(0, 8).map(m => {
+        const lbs = (m.weightGrams / 453.592).toFixed(1);
+        return `  ${m.date}: ${lbs} lbs`;
+      }).join("\n");
+
+      const trendText = trendWindowDays
+        ? `Actual rate over last ${trendWindowDays} days: ${weightTrendLbsPerWeek! >= 0 ? "+" : ""}${weightTrendLbsPerWeek!.toFixed(2)} lbs/week (${weightTrendLbsPerWeek! > 0 ? "gaining" : weightTrendLbsPerWeek! < 0 ? "losing" : "stable"})`
+        : "Insufficient measurement history to calculate trend (need at least 2 weigh-ins 7+ days apart)";
+
       // ── Diet logging context ─────────────────────────────────────────────────
-      // foodSummary has one bucket per day for the last 7 days. Days the user
-      // didn't open the app at all show 0 — we distinguish "logged zero" from
-      // "never opened the log" by checking whether *any* entry exists that day.
       const loggedDays    = foodSummary.filter(d => d.calories > 0);
-      const totalDays     = foodSummary.length;                   // always 7 for "1W"
+      const totalDays     = foodSummary.length;
       const loggedCount   = loggedDays.length;
       const avgCalLogged  = loggedCount > 0
         ? Math.round(loggedDays.reduce((s, d) => s + d.calories, 0) / loggedCount)
@@ -259,18 +281,22 @@ export function registerRoutes(app: Express) {
         ? Math.round(loggedDays.reduce((s, d) => s + d.protein, 0) / loggedCount)
         : null;
 
-      // Human-readable diet logging status for the prompt
       let dietLoggingStatus: string;
       if (loggedCount === 0) {
-        dietLoggingStatus = `No diet logs found in the last ${totalDays} days. The user has NOT been logging their food intake — do NOT assume they ate nothing. Base nutrition recommendations entirely on their goals and profile, not on any intake data.`;
+        dietLoggingStatus = `No diet logs in the last ${totalDays} days. User has NOT been logging — do NOT assume they ate nothing. Base recommendations on goals and profile only.`;
       } else if (loggedCount < totalDays * 0.5) {
-        dietLoggingStatus = `Inconsistent logging: user logged on ${loggedCount} of ${totalDays} days this week. On logged days: avg ${avgCalLogged} kcal, avg ${avgProtLogged}g protein. Treat these as partial data — the user's true intake is likely higher than what's recorded. Acknowledge the logging gap in your advice.`;
+        dietLoggingStatus = `Inconsistent: logged ${loggedCount}/${totalDays} days. On logged days avg ${avgCalLogged} kcal, ${avgProtLogged}g protein. True intake is likely higher — acknowledge the gap.`;
       } else {
-        dietLoggingStatus = `Consistent logging: user logged on ${loggedCount} of ${totalDays} days this week. On logged days: avg ${avgCalLogged} kcal, avg ${avgProtLogged}g protein. This is reasonably reliable data.`;
+        dietLoggingStatus = `Consistent: logged ${loggedCount}/${totalDays} days. On logged days avg ${avgCalLogged} kcal, ${avgProtLogged}g protein. Reasonably reliable.`;
       }
+
+      // ── Today's date (for deadline math) ────────────────────────────────────
+      const today = new Date().toISOString().slice(0, 10);
 
       // ── Build prompt ────────────────────────────────────────────────────────
       const userContext = `
+TODAY: ${today}
+
 USER PROFILE:
 - Age: ${ageYears ?? "unknown"}
 - Sex: ${sex}
@@ -279,77 +305,121 @@ USER PROFILE:
 - Activity level: ${activity}
 - Workouts in last 30 days: ${recentCount}
 
+WEIGHT HISTORY (newest first):
+${recentMeasurementsText || "  No measurements recorded yet."}
+${trendText}
+
 DIET LOGGING STATUS (last 7 days):
 ${dietLoggingStatus}
 
-ACTIVE GOALS:
+ACTIVE GOALS (include id in feasibility analysis):
 ${activeGoals.length === 0 ? "No active goals set." : activeGoals.map(g => {
-  const targetLbs = (g.unit === "lbs" && g.targetValue) ? Math.round(g.targetValue / 453.6) : null;
-  const startLbs  = (g.unit === "lbs" && g.startValue)  ? Math.round(g.startValue / 453.6)  : null;
-  const deadline  = g.deadline ? `by ${g.deadline}` : "no deadline";
-  return `- ${g.label} (type: ${g.type}, target: ${targetLbs ? targetLbs + " lbs" : g.targetValue + " " + g.unit}, start: ${startLbs ? startLbs + " lbs" : g.startValue ?? "unknown"}, ${deadline})`;
+  const targetLbs = (g.unit === "lbs" && g.targetValue) ? (g.targetValue / 453.592).toFixed(1) : null;
+  const startLbs  = (g.unit === "lbs" && g.startValue)  ? (g.startValue  / 453.592).toFixed(1) : null;
+  const deadline  = g.deadline ? `deadline ${g.deadline}` : "no deadline";
+  const daysLeft  = g.deadline ? Math.ceil((new Date(g.deadline).getTime() - Date.now()) / 86400000) : null;
+  return `- [goalId:${g.id}] "${g.label}" — type: ${g.type}, target: ${targetLbs ? targetLbs + " lbs" : g.targetValue + " " + g.unit}, start: ${startLbs ? startLbs + " lbs" : (g.startValue ?? "unknown")}, ${deadline}${daysLeft !== null ? ` (${daysLeft} days remaining)` : ""}`;
 }).join("\n")}
 
-CURRENT AUTO-CALCULATED TARGETS (for reference, you may revise):
+CURRENT AUTO-CALCULATED TARGETS:
 - Calories: ${target ? Math.round(target.calories) : "not set"} kcal/day
-- Protein: ${target ? Math.round(target.proteinG) : "not set"} g/day
-- Carbs: ${target ? Math.round(target.carbsG) : "not set"} g/day
-- Fat: ${target ? Math.round(target.fatG) : "not set"} g/day
-- Water: ${target ? Math.round((target.waterMl ?? 2500) / 29.57) : "not set"} oz/day
+- Protein:  ${target ? Math.round(target.proteinG) : "not set"} g/day
+- Carbs:    ${target ? Math.round(target.carbsG)   : "not set"} g/day
+- Fat:      ${target ? Math.round(target.fatG)     : "not set"} g/day
+- Water:    ${target ? Math.round((target.waterMl ?? 2500) / 29.57) : "not set"} oz/day
 `.trim();
 
-      const prompt = `You are an expert fitness and nutrition coach. Analyze the user's data below and create a comprehensive, personalized plan to help them achieve ALL of their goals simultaneously.
+      const prompt = `You are an expert fitness and nutrition coach. Analyze the user's data below and produce a comprehensive, personalized plan.
 
 ${userContext}
 
-Provide a detailed, actionable plan. If goals appear to conflict (e.g., lose weight AND gain significant muscle), acknowledge the tension and explain how to prioritize and sequence them.
+IMPORTANT RULES:
+1. For each active goal with a deadline, calculate whether it is realistically achievable:
+   - Weight loss/gain: safe maximum is 2 lbs/week loss, 1 lb/week gain (0.5 lb/week if body-recomp)
+   - Strength goals: natural progression is roughly 5 lbs/week on main lifts for beginners, 1-2 lbs/week intermediate
+   - If the required rate exceeds safe limits, the goal is NOT achievable in time — compute the minimum additional days needed and provide a concrete suggested new deadline date (YYYY-MM-DD format).
+2. If weight trend data is available and the user is falling behind their required rate, generate a progressAdjustment with two concrete options (extend deadline OR adjust nutrition). Do NOT make this choice for them — present both options.
+3. For the "adjust_nutrition" option, provide specific updated macro numbers (not just "eat less") that would get them back on track, keeping protein ≥ 0.8 g per lb bodyweight and total calories ≥ 1400 kcal.
+4. Never assume zero food intake when logging is absent or inconsistent.
 
 Return ONLY valid JSON (no markdown, no explanation) with this exact structure:
 {
-  "summary": "2-3 sentence overall assessment of the user's situation and how you'll help them achieve all goals",
+  "summary": "2-3 sentence overall assessment",
   "nutrition": {
-    "calories": <recommended daily calories as integer>,
-    "proteinG": <recommended daily protein in grams as integer>,
-    "carbsG": <recommended daily carbs in grams as integer>,
-    "fatG": <recommended daily fat in grams as integer>,
-    "reasoning": "1-2 sentence explanation of why these numbers fit this person's goals",
-    "tips": ["practical eating tip 1", "practical eating tip 2", "practical eating tip 3"]
+    "calories": <integer>,
+    "proteinG": <integer>,
+    "carbsG": <integer>,
+    "fatG": <integer>,
+    "reasoning": "1-2 sentences",
+    "tips": ["tip1", "tip2", "tip3"]
   },
   "hydration": {
-    "dailyOz": <recommended daily water intake in fluid ounces as integer>,
-    "reasoning": "1 sentence explanation",
-    "tips": ["hydration tip 1", "hydration tip 2"]
+    "dailyOz": <integer>,
+    "reasoning": "1 sentence",
+    "tips": ["tip1", "tip2"]
   },
   "training": {
-    "daysPerWeek": <recommended training days per week as integer>,
-    "restDays": <recommended rest days as integer>,
-    "split": "e.g. Push/Pull/Legs, Upper/Lower, Full Body 3x, etc.",
+    "daysPerWeek": <integer>,
+    "restDays": <integer>,
+    "split": "e.g. Push/Pull/Legs",
     "schedule": [
-      { "day": "Monday", "focus": "e.g. Push — Chest, Shoulders, Triceps", "type": "strength|cardio|rest|active_recovery" },
-      { "day": "Tuesday", "focus": "...", "type": "..." },
+      { "day": "Monday",    "focus": "...", "type": "strength|cardio|rest|active_recovery" },
+      { "day": "Tuesday",   "focus": "...", "type": "..." },
       { "day": "Wednesday", "focus": "...", "type": "..." },
-      { "day": "Thursday", "focus": "...", "type": "..." },
-      { "day": "Friday", "focus": "...", "type": "..." },
-      { "day": "Saturday", "focus": "...", "type": "..." },
-      { "day": "Sunday", "focus": "...", "type": "..." }
+      { "day": "Thursday",  "focus": "...", "type": "..." },
+      { "day": "Friday",    "focus": "...", "type": "..." },
+      { "day": "Saturday",  "focus": "...", "type": "..." },
+      { "day": "Sunday",    "focus": "...", "type": "..." }
     ],
-    "reasoning": "1-2 sentence explanation of why this schedule fits their goals",
-    "tips": ["training tip 1", "training tip 2", "training tip 3"]
+    "reasoning": "1-2 sentences",
+    "tips": ["tip1", "tip2", "tip3"]
   },
-  "priorityActions": [
-    "Most important immediate action (be specific)",
-    "Second priority action",
-    "Third priority action",
-    "Fourth priority action",
-    "Fifth priority action"
+  "goalFeasibility": [
+    {
+      "goalId": <integer — the goalId from the context>,
+      "goalLabel": "label string",
+      "status": "on_track|achievable|tight|not_achievable|no_deadline",
+      "requiredRatePerWeek": "e.g. 1.8 lbs/week — null if not applicable",
+      "safeMaxRate": "e.g. 2 lbs/week — null if not applicable",
+      "currentRate": "e.g. 0.4 lbs/week from trend data, or null if unknown",
+      "assessment": "1-2 sentences explaining the assessment",
+      "recommendedAdditionalDays": <integer or null — extra days needed beyond current deadline, 0 if achievable>,
+      "suggestedDeadline": "YYYY-MM-DD or null if no change needed"
+    }
   ],
-  "goalNotes": "1-2 sentences about how the goals interact — synergies, potential conflicts, and recommended sequencing if needed"
-}`;
+  "progressAdjustment": {
+    "needed": <true if user is measurably behind on at least one goal, false otherwise>,
+    "observation": "1-2 sentences describing the gap between actual progress and required progress. Omit if needed=false.",
+    "options": [
+      {
+        "type": "extend_deadline",
+        "label": "Give me more time",
+        "description": "1 sentence: what changes and by how much",
+        "goalId": <integer — which goal's deadline to extend>,
+        "newDeadline": "YYYY-MM-DD"
+      },
+      {
+        "type": "adjust_nutrition",
+        "label": "Tighten my diet",
+        "description": "1 sentence: what changes and by how much",
+        "newCalories": <integer>,
+        "newProteinG": <integer>,
+        "newCarbsG": <integer>,
+        "newFatG": <integer>
+      }
+    ]
+  },
+  "priorityActions": ["action1", "action2", "action3", "action4", "action5"],
+  "goalNotes": "1-2 sentences on goal interactions, synergies, conflicts"
+}
+
+If progressAdjustment.needed is false, set options to an empty array [].
+If there are no active goals with deadlines, set goalFeasibility to [] and progressAdjustment.needed to false.`;
 
       const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
       const msg = await client.messages.create({
         model: "claude-opus-4-5",
-        max_tokens: 2048,
+        max_tokens: 3000,
         messages: [{ role: "user", content: prompt }],
       });
 
