@@ -891,10 +891,7 @@ export default function FoodScreen() {
                         </View>
                         {/* Delete whole group */}
                         <Pressable
-                          onPress={() => Alert.alert("Remove meal?", `Remove "${row.groupName}" from log?`, [
-                            { text: "Cancel", style: "cancel" },
-                            { text: "Remove", style: "destructive", onPress: () => row.entries.forEach(e => deleteEntry.mutate(e.id)) },
-                          ])}
+                          onPress={() => row.entries.forEach(e => deleteEntry.mutate(e.id))}
                           hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, padding: 4 })}
                         >
                           <X size={15} color={muted} />
