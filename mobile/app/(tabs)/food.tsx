@@ -1116,22 +1116,22 @@ export default function FoodScreen() {
                   onPress={() => setMealPickerPage("search")}
                   style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 4, opacity: pressed ? 0.7 : 1 })}
                 >
-                  <Plus size={14} color={accentActive} />
-                  <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: accentActive }}>Add Food</Text>
+                  <Plus size={14} color={text} />
+                  <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: text }}>Add Food</Text>
                 </Pressable>
               </View>
 
-              {newMealIngredients.length === 0 && (
-                <Pressable
-                  onPress={() => setMealPickerPage("search")}
-                  style={({ pressed }) => ({
-                    borderRadius: 14, borderWidth: 1.5, borderColor: border, borderStyle: "dashed",
-                    paddingVertical: 20, alignItems: "center", marginBottom: 16, opacity: pressed ? 0.7 : 1,
-                  })}
-                >
-                  <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted }}>Tap to add ingredients</Text>
-                </Pressable>
-              )}
+              <Pressable
+                onPress={() => setMealPickerPage("search")}
+                style={({ pressed }) => ({
+                  borderRadius: 14, borderWidth: 1.5, borderColor: border, borderStyle: "dashed",
+                  paddingVertical: 20, alignItems: "center", marginBottom: 16, opacity: pressed ? 0.7 : 1,
+                })}
+              >
+                <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted }}>
+                  {newMealIngredients.length === 0 ? "Tap to add ingredients" : "+ Add another ingredient"}
+                </Text>
+              </Pressable>
 
               {newMealIngredients.map((ing, i) => (
                 <View key={i} style={{ backgroundColor: card, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: border, marginBottom: 8, flexDirection: "row", alignItems: "center" }}>
