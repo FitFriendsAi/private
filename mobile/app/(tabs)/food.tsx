@@ -64,6 +64,33 @@ interface FoodLogEntry {
   fatActual: number;
   loggedAt?: string | null;
   foodItem?: FoodItem;
+  mealGroupId?: number | null;
+  mealGroupName?: string | null;
+}
+
+// Groups food log entries so that items logged together from a saved meal
+// appear as a single collapsible card instead of individual rows.
+type LogDisplayRow =
+  | { kind: "group"; groupId: number; groupName: string; entries: FoodLogEntry[] }
+  | { kind: "entry"; entry: FoodLogEntry };
+
+function groupLogEntries(entries: FoodLogEntry[]): LogDisplayRow[] {
+  const rows: LogDisplayRow[] = [];
+  const seen = new Map<number, LogDisplayRow & { kind: "group" }>();
+  for (const entry of entries) {
+    if (entry.mealGroupId != null) {
+      let g = seen.get(entry.mealGroupId);
+      if (!g) {
+        g = { kind: "group", groupId: entry.mealGroupId, groupName: entry.mealGroupName ?? "Meal", entries: [] };
+        seen.set(entry.mealGroupId, g);
+        rows.push(g);
+      }
+      g.entries.push(entry);
+    } else {
+      rows.push({ kind: "entry", entry });
+    }
+  }
+  return rows;
 }
 
 
@@ -843,40 +870,84 @@ export default function FoodScreen() {
                 </View>
                 <Plus size={18} color={muted} strokeWidth={2} />
               </Pressable>
-              {entries.map(entry => (
-                <Pressable
-                  key={entry.id}
-                  onPress={() => openDetail(entry)}
-                  style={({ pressed }) => ({
-                    borderTopWidth: 1, borderTopColor: border,
-                    paddingHorizontal: 18, paddingVertical: 12,
-                    flexDirection: "row", alignItems: "center",
-                    opacity: pressed ? 0.7 : 1,
-                  })}
-                >
-                  <View style={{ flex: 1, marginRight: 8 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                      <Text numberOfLines={1} style={{ fontSize: 13, fontFamily: "Manrope-SemiBold", color: text, flex: 1, marginRight: 6 }}>
-                        {entry.foodName ?? entry.foodItem?.name ?? `Food #${entry.foodItemId}`}
-                      </Text>
-                      {entry.loggedAt ? (
-                        <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted, flexShrink: 0 }}>
-                          {fmtTime(entry.loggedAt)}
+              {groupLogEntries(entries).map((row, rowIdx) => {
+                if (row.kind === "group") {
+                  const gCals    = Math.round(row.entries.reduce((s, e) => s + e.caloriesActual, 0));
+                  const gProtein = Math.round(row.entries.reduce((s, e) => s + e.proteinActual,  0));
+                  const gCarbs   = Math.round(row.entries.reduce((s, e) => s + e.carbsActual,    0));
+                  const gFat     = Math.round(row.entries.reduce((s, e) => s + e.fatActual,      0));
+                  return (
+                    <View key={`group-${row.groupId}-${rowIdx}`} style={{ borderTopWidth: 1, borderTopColor: border }}>
+                      {/* Group header */}
+                      <View style={{ paddingHorizontal: 18, paddingVertical: 10, flexDirection: "row", alignItems: "center" }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: text }}>{row.groupName}</Text>
+                          <View style={{ flexDirection: "row", gap: 8, marginTop: 2 }}>
+                            <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: muted }}>{gCals} kcal</Text>
+                            <Text style={{ fontSize: 11, fontFamily: "Manrope", color: LIME }}>P {gProtein}g</Text>
+                            <Text style={{ fontSize: 11, fontFamily: "Manrope", color: BLUE }}>C {gCarbs}g</Text>
+                            <Text style={{ fontSize: 11, fontFamily: "Manrope", color: PURPLE }}>F {gFat}g</Text>
+                          </View>
+                        </View>
+                        {/* Delete whole group */}
+                        <Pressable
+                          onPress={() => Alert.alert("Remove meal?", `Remove "${row.groupName}" from log?`, [
+                            { text: "Cancel", style: "cancel" },
+                            { text: "Remove", style: "destructive", onPress: () => row.entries.forEach(e => deleteEntry.mutate(e.id)) },
+                          ])}
+                          hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, padding: 4 })}
+                        >
+                          <X size={15} color={muted} />
+                        </Pressable>
+                      </View>
+                      {/* Individual ingredient lines */}
+                      {row.entries.map(e => (
+                        <View key={e.id} style={{ paddingHorizontal: 18, paddingVertical: 6, flexDirection: "row", alignItems: "center", borderTopWidth: 1, borderTopColor: `${border}88` }}>
+                          <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: muted, marginRight: 10, opacity: 0.4 }} />
+                          <Text numberOfLines={1} style={{ flex: 1, fontSize: 12, fontFamily: "Manrope", color: muted }}>{e.foodName}</Text>
+                          <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>{Math.round(e.caloriesActual)} kcal</Text>
+                        </View>
+                      ))}
+                    </View>
+                  );
+                }
+                // Plain single entry
+                const entry = row.entry;
+                return (
+                  <Pressable
+                    key={entry.id}
+                    onPress={() => openDetail(entry)}
+                    style={({ pressed }) => ({
+                      borderTopWidth: 1, borderTopColor: border,
+                      paddingHorizontal: 18, paddingVertical: 12,
+                      flexDirection: "row", alignItems: "center",
+                      opacity: pressed ? 0.7 : 1,
+                    })}
+                  >
+                    <View style={{ flex: 1, marginRight: 8 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                        <Text numberOfLines={1} style={{ fontSize: 13, fontFamily: "Manrope-SemiBold", color: text, flex: 1, marginRight: 6 }}>
+                          {entry.foodName ?? entry.foodItem?.name ?? `Food #${entry.foodItemId}`}
                         </Text>
-                      ) : null}
+                        {entry.loggedAt ? (
+                          <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted, flexShrink: 0 }}>
+                            {fmtTime(entry.loggedAt)}
+                          </Text>
+                        ) : null}
+                      </View>
+                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 3 }}>
+                        <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: muted }}>{entry.caloriesActual} kcal</Text>
+                        <Text style={{ fontSize: 11, fontFamily: "Manrope", color: LIME }}>P {Math.round(entry.proteinActual)}g</Text>
+                        <Text style={{ fontSize: 11, fontFamily: "Manrope", color: BLUE }}>C {Math.round(entry.carbsActual)}g</Text>
+                        <Text style={{ fontSize: 11, fontFamily: "Manrope", color: PURPLE }}>F {Math.round(entry.fatActual)}g</Text>
+                      </View>
                     </View>
-                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 3 }}>
-                      <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: muted }}>{entry.caloriesActual} kcal</Text>
-                      <Text style={{ fontSize: 11, fontFamily: "Manrope", color: LIME }}>P {Math.round(entry.proteinActual)}g</Text>
-                      <Text style={{ fontSize: 11, fontFamily: "Manrope", color: BLUE }}>C {Math.round(entry.carbsActual)}g</Text>
-                      <Text style={{ fontSize: 11, fontFamily: "Manrope", color: PURPLE }}>F {Math.round(entry.fatActual)}g</Text>
-                    </View>
-                  </View>
-                  <Pressable onPress={() => deleteEntry.mutate(entry.id)} hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, padding: 4 })}>
-                    <X size={15} color={muted} />
+                    <Pressable onPress={() => deleteEntry.mutate(entry.id)} hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, padding: 4 })}>
+                      <X size={15} color={muted} />
+                    </Pressable>
                   </Pressable>
-                </Pressable>
-              ))}
+                );
+              })}
             </View>
           );
         })}

@@ -52545,7 +52545,11 @@ var foodLog = pgTable("food_log", {
   fatActual: real("fat_actual").notNull().default(0),
   fiberActual: real("fiber_actual"),
   notes: text("notes"),
-  loggedAt: timestamp("logged_at").defaultNow()
+  loggedAt: timestamp("logged_at").defaultNow(),
+  mealGroupId: integer("meal_group_id"),
+  // set when logged from a saved meal; groups entries together
+  mealGroupName: text("meal_group_name")
+  // denormalized saved-meal name for display
 });
 var insertFoodLogSchema = c(foodLog).omit({ id: true }).extend({ loggedAt: external_exports.coerce.date().optional() });
 var nutritionTargets = pgTable("nutrition_targets", {
@@ -53273,7 +53277,9 @@ var storage = {
       caloriesActual: ing.caloriesActual,
       proteinActual: ing.proteinActual,
       carbsActual: ing.carbsActual,
-      fatActual: ing.fatActual
+      fatActual: ing.fatActual,
+      mealGroupId: mealId,
+      mealGroupName: meal.name
     }))).returning();
     return entries;
   },

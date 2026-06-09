@@ -115,6 +115,8 @@ export const foodLog = pgTable("food_log", {
   fiberActual: real("fiber_actual"),
   notes: text("notes"),
   loggedAt: timestamp("logged_at").defaultNow(),
+  mealGroupId: integer("meal_group_id"),    // set when logged from a saved meal; groups entries together
+  mealGroupName: text("meal_group_name"),   // denormalized saved-meal name for display
 });
 
 export const insertFoodLogSchema = createInsertSchema(foodLog)

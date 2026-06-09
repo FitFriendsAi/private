@@ -780,6 +780,8 @@ export const storage = {
         proteinActual: ing.proteinActual,
         carbsActual: ing.carbsActual,
         fatActual: ing.fatActual,
+        mealGroupId: mealId,
+        mealGroupName: meal.name,
       })))
       .returning();
     return entries;
