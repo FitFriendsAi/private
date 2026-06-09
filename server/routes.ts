@@ -469,7 +469,12 @@ Return ONLY valid JSON (no markdown, no explanation) with this exact structure:
 If progressAdjustment.needed is false, set options to an empty array [].
 If there are no active goals with deadlines, set goalFeasibility to [] and progressAdjustment.needed to false.`;
 
-      const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) {
+        console.error("AI analysis: ANTHROPIC_API_KEY is not set in environment");
+        return res.status(500).json({ message: "AI service is not configured. Contact support." });
+      }
+      const client = new Anthropic({ apiKey });
       const msg = await client.messages.create({
         model: "claude-opus-4-5",
         max_tokens: 4096,
@@ -505,12 +510,18 @@ If there are no active goals with deadlines, set goalFeasibility to [] and progr
 
       res.json(plan);
     } catch (err: any) {
-      console.error("AI analysis error:", err?.message ?? err);
+      console.error("AI analysis error:", err?.status, err?.message ?? err);
       const msg = err?.status === 401
         ? "AI service authentication failed — check ANTHROPIC_API_KEY."
         : err?.status === 529
         ? "AI service is overloaded. Please try again in a moment."
-        : "Failed to generate AI analysis. Please try again.";
+        : err?.status === 400
+        ? `AI request was invalid (${err?.message ?? "bad request"}). Please try again.`
+        : err?.status === 404
+        ? "AI model not found. Please contact support."
+        : err?.message?.includes("API key")
+        ? "AI service is not configured — ANTHROPIC_API_KEY missing in environment."
+        : `Failed to generate AI analysis: ${err?.message ?? "unknown error"}. Please try again.`;
       res.status(500).json({ message: msg });
     }
   });
@@ -589,7 +600,9 @@ Return ONLY valid JSON (no markdown):
   "topAction": "Single most important thing to do this week"
 }`;
 
-      const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+      const apiKey2 = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey2) return res.status(500).json({ message: "AI service is not configured." });
+      const client = new Anthropic({ apiKey: apiKey2 });
       const msg = await client.messages.create({
         model: "claude-opus-4-5",
         max_tokens: 512,
@@ -1635,7 +1648,9 @@ Return ONLY valid JSON (no markdown):
         ? topLiftsLines.join("\n")
         : "  No lift history recorded yet — treat as a new trainee.";
 
-      const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+      const apiKey3 = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey3) return res.status(500).json({ message: "AI service is not configured." });
+      const client = new Anthropic({ apiKey: apiKey3 });
 
       const prompt = `You are an expert personal trainer reviewing a user's training history to build a new workout routine.
 
