@@ -445,73 +445,75 @@ export default function SettingsScreen() {
 
             {/* Row 1: Height (left) + Date of Birth (right) */}
             <View style={{ flexDirection: "row", gap: 12, marginBottom: 14 }}>
-              {/* Height */}
+              {/* Height — two boxes: ft | in */}
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: muted, marginBottom: 6 }}>Height</Text>
+                <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: muted, marginBottom: 6 }}>
+                  Height
+                </Text>
                 <View style={{ flexDirection: "row", gap: 8 }}>
-                  <TextInput
-                    value={ftVal}
-                    onChangeText={t => setFtVal(t.replace(/[^0-9]/g, ""))}
-                    placeholder="ft"
-                    placeholderTextColor={muted}
-                    keyboardType="numeric"
-                    maxLength={1}
-                    style={{
-                      flex: 1, backgroundColor: "#111111", borderRadius: 12,
-                      padding: 12, textAlign: "center",
-                      borderWidth: 1, borderColor: border,
-                      fontFamily: "Manrope-SemiBold", fontSize: 14, color: text,
-                    }}
-                  />
-                  <TextInput
-                    value={inVal}
-                    onChangeText={t => setInVal(t.replace(/[^0-9]/g, ""))}
-                    placeholder="in"
-                    placeholderTextColor={muted}
-                    keyboardType="numeric"
-                    maxLength={2}
-                    style={{
-                      flex: 1, backgroundColor: "#111111", borderRadius: 12,
-                      padding: 12, textAlign: "center",
-                      borderWidth: 1, borderColor: border,
-                      fontFamily: "Manrope-SemiBold", fontSize: 14, color: text,
-                    }}
-                  />
+                  {/* ft — View wrapper forces correct flex sizing on web */}
+                  <View style={{ flex: 1 }}>
+                    <TextInput
+                      value={ftVal}
+                      onChangeText={t => setFtVal(t.replace(/[^0-9]/g, ""))}
+                      placeholder="ft"
+                      placeholderTextColor={muted}
+                      keyboardType="numeric"
+                      maxLength={1}
+                      style={{
+                        backgroundColor: "#111111", borderRadius: 12,
+                        paddingVertical: 12, paddingHorizontal: 8,
+                        textAlign: "center",
+                        borderWidth: 1, borderColor: border,
+                        fontFamily: "Manrope-SemiBold", fontSize: 14, color: text,
+                      }}
+                    />
+                    <Text style={{ fontFamily: "Manrope", fontSize: 10, color: muted, textAlign: "center", marginTop: 3 }}>ft</Text>
+                  </View>
+                  {/* in */}
+                  <View style={{ flex: 1 }}>
+                    <TextInput
+                      value={inVal}
+                      onChangeText={t => setInVal(t.replace(/[^0-9]/g, ""))}
+                      placeholder="in"
+                      placeholderTextColor={muted}
+                      keyboardType="numeric"
+                      maxLength={2}
+                      style={{
+                        backgroundColor: "#111111", borderRadius: 12,
+                        paddingVertical: 12, paddingHorizontal: 8,
+                        textAlign: "center",
+                        borderWidth: 1, borderColor: border,
+                        fontFamily: "Manrope-SemiBold", fontSize: 14, color: text,
+                      }}
+                    />
+                    <Text style={{ fontFamily: "Manrope", fontSize: 10, color: muted, textAlign: "center", marginTop: 3 }}>in</Text>
+                  </View>
                 </View>
               </View>
 
-              {/* Date of Birth */}
+              {/* Date of Birth — plain TextInput on all platforms (avoids browser date quirks) */}
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: muted, marginBottom: 6 }}>Date of Birth</Text>
-                {Platform.OS === "web" ? (
-                  <View style={{ backgroundColor: "#111111", borderRadius: 12, borderWidth: 1, borderColor: border, overflow: "hidden" }}>
-                    {/* @ts-ignore */}
-                    <input
-                      type="date"
-                      value={birthDate}
-                      onChange={(e: any) => setBirthDate(e.target.value)}
-                      style={{
-                        background: "transparent", border: "none", outline: "none",
-                        color: birthDate ? "#f4f4f4" : "#888888",
-                        fontFamily: "Manrope-SemiBold", fontSize: 13,
-                        padding: "11px 12px", width: "100%", boxSizing: "border-box",
-                        colorScheme: "dark",
-                      }}
-                    />
-                  </View>
-                ) : (
-                  <TextInput
-                    value={birthDate}
-                    onChangeText={setBirthDate}
-                    placeholder="YYYY-MM-DD"
-                    placeholderTextColor={muted}
-                    style={{
-                      backgroundColor: "#111111", borderRadius: 12, padding: 11,
-                      borderWidth: 1, borderColor: border,
-                      fontFamily: "Manrope-SemiBold", fontSize: 13, color: text,
-                    }}
-                  />
-                )}
+                <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: muted, marginBottom: 6 }}>
+                  Date of Birth
+                </Text>
+                <TextInput
+                  value={birthDate}
+                  onChangeText={setBirthDate}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor={muted}
+                  keyboardType="numeric"
+                  maxLength={10}
+                  style={{
+                    backgroundColor: "#111111", borderRadius: 12,
+                    paddingVertical: 12, paddingHorizontal: 12,
+                    borderWidth: 1, borderColor: border,
+                    fontFamily: "Manrope-SemiBold", fontSize: 13, color: text,
+                  }}
+                />
+                <Text style={{ fontFamily: "Manrope", fontSize: 10, color: muted, marginTop: 3, paddingHorizontal: 2 }}>
+                  e.g. 1990-06-15
+                </Text>
               </View>
             </View>
 
