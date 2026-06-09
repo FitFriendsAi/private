@@ -256084,40 +256084,95 @@ Return ONLY valid JSON (no markdown):
   });
   app2.post("/api/routines/generate-ai", async (req, res) => {
     if (!requireAuth(req, res)) return;
+    const userId = req.user.id;
     try {
-      const { goal, daysPerWeek, equipment, notes } = req.body;
+      const { goal, equipment, notes } = req.body;
+      const equipmentLabel = {
+        full_gym: "Full gym (barbells, cables, machines, everything)",
+        dumbbells_cables: "Dumbbells + cables (no barbell)",
+        dumbbells_only: "Dumbbells only",
+        bodyweight: "Bodyweight only"
+      };
+      const equipLabel = equipmentLabel[equipment] ?? equipment ?? "any equipment";
       const client2 = new sdk_default({ apiKey: process.env.ANTHROPIC_API_KEY });
       const prompt = `You are a personal trainer. Create a single workout routine (one session, not a full weekly plan).
 
 Goal: ${goal}
-Available equipment: ${equipment?.join(", ") || "any"}
+Available equipment: ${equipLabel}
 ${notes ? `Notes: ${notes}` : ""}
+
+IMPORTANT: Only include exercises achievable with the stated equipment. For "Bodyweight only" \u2014 no weights at all. For "Dumbbells only" \u2014 no barbell or cable exercises.
 
 Return a JSON object with this exact structure:
 {
-  "name": "Routine name (e.g. Push Day, Leg Day, Full Body)",
+  "name": "Routine name (e.g. Push Day, Leg Day, Full Body A)",
   "exercises": [
     {
       "name": "Exercise name",
       "sets": 3,
       "reps": "8-12",
-      "muscle": "primary muscle group"
+      "muscle": "primary muscle group (chest/back/shoulders/biceps/triceps/quads/hamstrings/glutes/core/cardio)"
     }
   ]
 }
 
-Include 6-10 exercises. Use common gym exercise names. Return ONLY the JSON, no markdown.`;
+Include 5-8 exercises. Use common, well-known exercise names. Return ONLY valid JSON, no markdown, no explanation.`;
       const msg = await client2.messages.create({
         model: "claude-opus-4-7",
-        max_tokens: 1024,
+        max_tokens: 1200,
         messages: [{ role: "user", content: prompt }]
       });
-      const text2 = msg.content[0].text;
-      const routine = JSON.parse(text2);
-      res.json(routine);
+      const rawText = msg.content[0].text ?? "";
+      const stripped = rawText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      const jsonStart = stripped.indexOf("{");
+      const jsonEnd = stripped.lastIndexOf("}");
+      if (jsonStart === -1 || jsonEnd === -1) {
+        return res.status(500).json({ message: "AI returned an unexpected format. Please try again." });
+      }
+      const routine = JSON.parse(stripped.slice(jsonStart, jsonEnd + 1));
+      const template = await storage.createTemplate({ userId, name: routine.name });
+      const muscleToCategory = (muscle) => {
+        const m3 = muscle.toLowerCase();
+        if (m3 === "cardio") return "cardio";
+        return ["chest", "back", "quads", "hamstrings", "glutes"].includes(m3) ? "compound" : "isolation";
+      };
+      const allExercises = await storage.getExercises(userId);
+      const created = [];
+      for (let i2 = 0; i2 < routine.exercises.length; i2++) {
+        const ae2 = routine.exercises[i2];
+        let match = allExercises.find(
+          (e2) => e2.name.toLowerCase() === ae2.name.toLowerCase()
+        );
+        if (!match) {
+          match = allExercises.find(
+            (e2) => e2.name.toLowerCase().includes(ae2.name.toLowerCase().split(" ")[0])
+          );
+        }
+        if (!match) {
+          match = await storage.createExercise({
+            name: ae2.name,
+            primaryMuscle: ae2.muscle ?? "other",
+            secondaryMuscles: [],
+            category: muscleToCategory(ae2.muscle ?? ""),
+            equipment: equipment === "bodyweight" ? "bodyweight" : "dumbbell",
+            isCustom: true,
+            userId
+          });
+        }
+        await storage.addTemplateExercise({
+          templateId: template.id,
+          exerciseId: match.id,
+          orderIndex: i2,
+          targetSets: ae2.sets ?? 3,
+          targetReps: ae2.reps ?? "8-12",
+          targetWeightGrams: null
+        });
+        created.push({ ...ae2, exerciseId: match.id });
+      }
+      res.json({ templateId: template.id, name: template.name, exercises: created });
     } catch (err) {
       console.error("AI routine generation error:", err);
-      res.status(500).json({ message: "Failed to generate routine" });
+      res.status(500).json({ message: "Failed to generate routine. Please try again." });
     }
   });
   app2.post("/api/heart-rate", async (req, res) => {

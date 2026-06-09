@@ -1580,44 +1580,108 @@ Return ONLY valid JSON (no markdown):
   // ── AI Routine Generator ────────────────────────────────────────────────────
   app.post("/api/routines/generate-ai", async (req, res) => {
     if (!requireAuth(req, res)) return;
+    const userId = (req.user as any).id;
     try {
-      const { goal, daysPerWeek, equipment, notes } = req.body;
+      const { goal, equipment, notes } = req.body;
+
+      const equipmentLabel: Record<string, string> = {
+        full_gym:         "Full gym (barbells, cables, machines, everything)",
+        dumbbells_cables: "Dumbbells + cables (no barbell)",
+        dumbbells_only:   "Dumbbells only",
+        bodyweight:       "Bodyweight only",
+      };
+      const equipLabel = equipmentLabel[equipment] ?? equipment ?? "any equipment";
 
       const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
       const prompt = `You are a personal trainer. Create a single workout routine (one session, not a full weekly plan).
 
 Goal: ${goal}
-Available equipment: ${equipment?.join(", ") || "any"}
+Available equipment: ${equipLabel}
 ${notes ? `Notes: ${notes}` : ""}
+
+IMPORTANT: Only include exercises achievable with the stated equipment. For "Bodyweight only" — no weights at all. For "Dumbbells only" — no barbell or cable exercises.
 
 Return a JSON object with this exact structure:
 {
-  "name": "Routine name (e.g. Push Day, Leg Day, Full Body)",
+  "name": "Routine name (e.g. Push Day, Leg Day, Full Body A)",
   "exercises": [
     {
       "name": "Exercise name",
       "sets": 3,
       "reps": "8-12",
-      "muscle": "primary muscle group"
+      "muscle": "primary muscle group (chest/back/shoulders/biceps/triceps/quads/hamstrings/glutes/core/cardio)"
     }
   ]
 }
 
-Include 6-10 exercises. Use common gym exercise names. Return ONLY the JSON, no markdown.`;
+Include 5-8 exercises. Use common, well-known exercise names. Return ONLY valid JSON, no markdown, no explanation.`;
 
       const msg = await client.messages.create({
         model: "claude-opus-4-7",
-        max_tokens: 1024,
+        max_tokens: 1200,
         messages: [{ role: "user", content: prompt }],
       });
 
-      const text = (msg.content[0] as any).text;
-      const routine = JSON.parse(text);
-      res.json(routine);
+      const rawText = (msg.content[0] as any).text ?? "";
+      const stripped = rawText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      const jsonStart = stripped.indexOf("{");
+      const jsonEnd   = stripped.lastIndexOf("}");
+      if (jsonStart === -1 || jsonEnd === -1) {
+        return res.status(500).json({ message: "AI returned an unexpected format. Please try again." });
+      }
+      const routine = JSON.parse(stripped.slice(jsonStart, jsonEnd + 1));
+
+      // ── Auto-create template + exercises in DB ──────────────────────────────
+      const template = await storage.createTemplate({ userId, name: routine.name });
+
+      // Map muscle label → category for seeding custom exercises
+      const muscleToCategory = (muscle: string): "compound" | "isolation" | "cardio" => {
+        const m = muscle.toLowerCase();
+        if (m === "cardio") return "cardio";
+        return ["chest", "back", "quads", "hamstrings", "glutes"].includes(m) ? "compound" : "isolation";
+      };
+
+      // For each AI-suggested exercise: find existing or create custom
+      const allExercises = await storage.getExercises(userId);
+      const created: any[] = [];
+      for (let i = 0; i < routine.exercises.length; i++) {
+        const ae = routine.exercises[i];
+        let match = allExercises.find(e =>
+          e.name.toLowerCase() === ae.name.toLowerCase()
+        );
+        if (!match) {
+          // Fuzzy fallback — partial match
+          match = allExercises.find(e =>
+            e.name.toLowerCase().includes(ae.name.toLowerCase().split(" ")[0])
+          );
+        }
+        if (!match) {
+          match = await storage.createExercise({
+            name: ae.name,
+            primaryMuscle: ae.muscle ?? "other",
+            secondaryMuscles: [],
+            category: muscleToCategory(ae.muscle ?? ""),
+            equipment: equipment === "bodyweight" ? "bodyweight" : "dumbbell",
+            isCustom: true,
+            userId,
+          });
+        }
+        await storage.addTemplateExercise({
+          templateId: template.id,
+          exerciseId: match.id,
+          orderIndex: i,
+          targetSets: ae.sets ?? 3,
+          targetReps: ae.reps ?? "8-12",
+          targetWeightGrams: null,
+        });
+        created.push({ ...ae, exerciseId: match.id });
+      }
+
+      res.json({ templateId: template.id, name: template.name, exercises: created });
     } catch (err: any) {
       console.error("AI routine generation error:", err);
-      res.status(500).json({ message: "Failed to generate routine" });
+      res.status(500).json({ message: "Failed to generate routine. Please try again." });
     }
   });
 
