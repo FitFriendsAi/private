@@ -314,19 +314,48 @@ export default function GoalsScreen() {
   const [checkIn, setCheckIn]           = useState<CheckInResult | null>(null);
   const [checkInError, setCheckInError] = useState<string | null>(null);
 
+  // ── Pre-flight preferences ────────────────────────────────────────
+  const [showPrefs, setShowPrefs] = useState(false);
+  const [prefExperience, setPrefExperience] = useState<"beginner"|"intermediate"|"advanced">("beginner");
+  const [prefDuration, setPrefDuration]     = useState<30|45|60|90>(45);
+  const [prefEquipment, setPrefEquipment]   = useState<"full_gym"|"dumbbells_cables"|"dumbbells_only"|"bodyweight">("full_gym");
+  const [prefLimitations, setPrefLimitations] = useState("");
+
+  // Seed prefs from stored plan on first load
+  const storedPrefs = (storedPlan as any)?.preferences;
+  const [prefsSynced, setPrefsSynced] = useState(false);
+
   // Effective plan: local state (just fetched) takes priority over stored plan
   const effectivePlan: AiPlan | null = aiPlan ?? (storedPlan ?? null);
 
+  // Sync prefs from stored plan once
+  if (storedPlan && !prefsSynced) {
+    if (storedPrefs?.experience)   setPrefExperience(storedPrefs.experience);
+    if (storedPrefs?.duration)     setPrefDuration(storedPrefs.duration);
+    if (storedPrefs?.equipment)    setPrefEquipment(storedPrefs.equipment);
+    if (storedPrefs?.limitations)  setPrefLimitations(storedPrefs.limitations);
+    setPrefsSynced(true);
+  }
+
+  const currentPrefs = {
+    experience:  prefExperience,
+    duration:    prefDuration,
+    equipment:   prefEquipment,
+    limitations: prefLimitations.trim() || undefined,
+  };
+
   const aiMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/goals/ai-analysis"),
+    mutationFn: (prefs: typeof currentPrefs) =>
+      apiRequest("POST", "/api/goals/ai-analysis", { preferences: prefs }),
     onSuccess: (data: AiPlan) => {
       setAiPlan(data);
       setAiError(null);
       setAdjustChosen(null);
       setExpandedDays({});
+      setShowPrefs(false);
       qc.invalidateQueries({ queryKey: ["/api/goals/ai-plan"] });
     },
-    onError: (e: any) => setAiError(e?.message ?? "Failed to generate plan"),
+    onError: (e: any) => { setAiError(e?.message ?? "Failed to generate plan"); setShowPrefs(false); },
   });
 
   const checkinMutation = useMutation({
@@ -470,7 +499,7 @@ export default function GoalsScreen() {
 
         {/* ── AI Coach button ── */}
         <Pressable
-          onPress={() => aiMutation.mutate()}
+          onPress={() => setShowPrefs(true)}
           disabled={aiMutation.isPending}
           style={({ pressed }) => ({
             flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10,
@@ -836,17 +865,24 @@ export default function GoalsScreen() {
                           gap: 4,
                         }}>
                           {d.exercises!.map((ex, j) => (
-                            <View key={j} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                              <View style={{
-                                width: 4, height: 4, borderRadius: 2,
-                                backgroundColor: dayTypeColor(d.type), opacity: 0.7,
-                              }} />
-                              <Text style={{ fontSize: 12, fontFamily: "Manrope-SemiBold", color: text, flex: 1 }}>
-                                {ex.name}
-                              </Text>
-                              <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>
-                                {ex.sets}×{ex.reps}
-                              </Text>
+                            <View key={j} style={{ gap: 2, marginBottom: 2 }}>
+                              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                                <View style={{
+                                  width: 4, height: 4, borderRadius: 2,
+                                  backgroundColor: dayTypeColor(d.type), opacity: 0.7,
+                                }} />
+                                <Text style={{ fontSize: 12, fontFamily: "Manrope-SemiBold", color: text, flex: 1 }}>
+                                  {ex.name}
+                                </Text>
+                                <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>
+                                  {ex.sets}×{ex.reps}
+                                </Text>
+                              </View>
+                              {(ex as any).weightNote ? (
+                                <Text style={{ fontSize: 11, fontFamily: "Manrope", color: "#a78bfa", marginLeft: 12, lineHeight: 15 }}>
+                                  💡 {(ex as any).weightNote}
+                                </Text>
+                              ) : null}
                             </View>
                           ))}
                         </View>
@@ -889,7 +925,7 @@ export default function GoalsScreen() {
 
             {/* Regenerate button */}
             <Pressable
-              onPress={() => aiMutation.mutate()}
+              onPress={() => setShowPrefs(true)}
               disabled={aiMutation.isPending}
               style={({ pressed }) => ({
                 alignItems: "center", paddingVertical: 12,
@@ -1134,6 +1170,150 @@ export default function GoalsScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* ── AI Coach Preferences Modal ── */}
+      <Modal visible={showPrefs} transparent animationType="slide" onRequestClose={() => setShowPrefs(false)}>
+        <Pressable onPress={() => setShowPrefs(false)} style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.65)" }} />
+        <View style={{
+          backgroundColor: "#141414", borderTopLeftRadius: 28, borderTopRightRadius: 28,
+          borderWidth: 1, borderColor: "#2a2a2a",
+          paddingHorizontal: 20, paddingTop: 20, paddingBottom: 44,
+        }}>
+          {/* Header */}
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 20, color: "#f4f4f4" }}>Personalize Your Plan</Text>
+            <Pressable onPress={() => setShowPrefs(false)} hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}>
+              <X size={22} color="#666" />
+            </Pressable>
+          </View>
+          <Text style={{ fontFamily: "Manrope", fontSize: 13, color: "#888", marginBottom: 20 }}>
+            Tell the AI a few things so it can tailor workouts and macros specifically for you.
+          </Text>
+
+          {/* Experience level */}
+          <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: "#aaa", letterSpacing: 0.6, marginBottom: 10 }}>
+            TRAINING EXPERIENCE
+          </Text>
+          <View style={{ flexDirection: "row", gap: 8, marginBottom: 18 }}>
+            {([
+              { key: "beginner",     label: "Beginner",     sub: "0 – 1 yr"  },
+              { key: "intermediate", label: "Intermediate", sub: "1 – 3 yrs" },
+              { key: "advanced",     label: "Advanced",     sub: "3+ yrs"    },
+            ] as const).map(opt => {
+              const sel = prefExperience === opt.key;
+              return (
+                <Pressable key={opt.key} onPress={() => setPrefExperience(opt.key)}
+                  style={({ pressed }) => ({
+                    flex: 1, borderRadius: 14, padding: 12, alignItems: "center",
+                    backgroundColor: sel ? "#1a1a2e" : "#1e1e1e",
+                    borderWidth: 1.5, borderColor: sel ? "#a78bfa" : "#2a2a2a",
+                    opacity: pressed ? 0.8 : 1,
+                  })}>
+                  <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: sel ? "#a78bfa" : "#f4f4f4" }}>{opt.label}</Text>
+                  <Text style={{ fontFamily: "Manrope", fontSize: 11, color: "#666", marginTop: 2 }}>{opt.sub}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {/* Workout duration */}
+          <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: "#aaa", letterSpacing: 0.6, marginBottom: 10 }}>
+            WORKOUT DURATION
+          </Text>
+          <View style={{ flexDirection: "row", gap: 8, marginBottom: 18 }}>
+            {([30, 45, 60, 90] as const).map(mins => {
+              const sel = prefDuration === mins;
+              return (
+                <Pressable key={mins} onPress={() => setPrefDuration(mins)}
+                  style={({ pressed }) => ({
+                    flex: 1, borderRadius: 14, paddingVertical: 12, alignItems: "center",
+                    backgroundColor: sel ? "#1a1a2e" : "#1e1e1e",
+                    borderWidth: 1.5, borderColor: sel ? "#a78bfa" : "#2a2a2a",
+                    opacity: pressed ? 0.8 : 1,
+                  })}>
+                  <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: sel ? "#a78bfa" : "#f4f4f4" }}>{mins}</Text>
+                  <Text style={{ fontFamily: "Manrope", fontSize: 10, color: "#666" }}>min</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {/* Equipment */}
+          <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: "#aaa", letterSpacing: 0.6, marginBottom: 10 }}>
+            AVAILABLE EQUIPMENT
+          </Text>
+          <View style={{ gap: 8, marginBottom: 18 }}>
+            {([
+              { key: "full_gym",        label: "Full Gym",               sub: "Barbells, cables, machines, everything" },
+              { key: "dumbbells_cables", label: "Dumbbells + Cables",     sub: "No barbell, but cables available"       },
+              { key: "dumbbells_only",  label: "Dumbbells Only",          sub: "Home gym or limited equipment"          },
+              { key: "bodyweight",      label: "Bodyweight Only",         sub: "No weights at all"                      },
+            ] as const).map(opt => {
+              const sel = prefEquipment === opt.key;
+              return (
+                <Pressable key={opt.key} onPress={() => setPrefEquipment(opt.key)}
+                  style={({ pressed }) => ({
+                    flexDirection: "row", alignItems: "center", gap: 12,
+                    borderRadius: 14, padding: 13,
+                    backgroundColor: sel ? "#1a1a2e" : "#1e1e1e",
+                    borderWidth: 1.5, borderColor: sel ? "#a78bfa" : "#2a2a2a",
+                    opacity: pressed ? 0.8 : 1,
+                  })}>
+                  <View style={{
+                    width: 18, height: 18, borderRadius: 9,
+                    borderWidth: 2, borderColor: sel ? "#a78bfa" : "#555",
+                    backgroundColor: sel ? "#a78bfa" : "transparent",
+                    alignItems: "center", justifyContent: "center",
+                  }}>
+                    {sel && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#141414" }} />}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: sel ? "#a78bfa" : "#f4f4f4" }}>{opt.label}</Text>
+                    <Text style={{ fontFamily: "Manrope", fontSize: 11, color: "#666", marginTop: 1 }}>{opt.sub}</Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {/* Injuries / limitations (optional) */}
+          <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: "#aaa", letterSpacing: 0.6, marginBottom: 8 }}>
+            INJURIES OR LIMITATIONS <Text style={{ fontFamily: "Manrope", color: "#555" }}>(optional)</Text>
+          </Text>
+          <TextInput
+            value={prefLimitations}
+            onChangeText={setPrefLimitations}
+            placeholder="e.g. bad lower back, no heavy squats, recovering from shoulder surgery…"
+            placeholderTextColor="#444"
+            multiline
+            style={{
+              backgroundColor: "#1e1e1e", borderRadius: 14, padding: 13,
+              fontFamily: "Manrope", fontSize: 13, color: "#f4f4f4",
+              borderWidth: 1, borderColor: "#2a2a2a",
+              minHeight: 60, textAlignVertical: "top", marginBottom: 20,
+            }}
+          />
+
+          {/* Generate button */}
+          <Pressable
+            onPress={() => aiMutation.mutate(currentPrefs)}
+            disabled={aiMutation.isPending}
+            style={({ pressed }) => ({
+              backgroundColor: "#a78bfa", borderRadius: 16, paddingVertical: 16,
+              flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10,
+              opacity: (pressed || aiMutation.isPending) ? 0.7 : 1,
+            })}
+          >
+            {aiMutation.isPending
+              ? <ActivityIndicator size="small" color="#fff" />
+              : <Sparkles size={18} color="#fff" />}
+            <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 16, color: "#fff" }}>
+              {aiMutation.isPending ? "Generating your plan…" : "Generate My Plan"}
+            </Text>
+          </Pressable>
+        </View>
+      </Modal>
+
     </SafeAreaView>
   );
 }

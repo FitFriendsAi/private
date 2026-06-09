@@ -255002,6 +255002,7 @@ function registerRoutes(app2) {
   app2.post("/api/goals/ai-analysis", async (req, res) => {
     if (!requireAuth(req, res)) return;
     const userId = req.user.id;
+    const preferences = req.body?.preferences ?? null;
     try {
       const [profile, goals2, measurements, target, recentWorkouts, foodSummary] = await Promise.all([
         storage.getProfile(userId),
@@ -255104,6 +255105,20 @@ CURRENT AUTO-CALCULATED TARGETS:
 - Water:    ${target ? Math.round((target.waterMl ?? 2500) / 29.57) : "not set"} oz/day
 
 ${topLiftsContext}
+${preferences ? `
+USER PREFERENCES (collected before plan generation):
+- Training experience: ${preferences.experience ?? "unspecified"}
+- Preferred workout duration: ${preferences.duration ? `${preferences.duration} minutes` : "unspecified"}
+- Available equipment: ${(() => {
+        const map = {
+          full_gym: "Full gym (barbells, cables, machines, everything)",
+          dumbbells_cables: "Dumbbells + cables (no barbell)",
+          dumbbells_only: "Dumbbells only",
+          bodyweight: "Bodyweight only (no weights)"
+        };
+        return map[preferences.equipment ?? ""] ?? preferences.equipment ?? "unspecified";
+      })()}
+- Physical limitations/injuries: ${preferences.limitations?.trim() || "None stated"}` : ""}
 `.trim();
       const prompt = `You are an expert fitness and nutrition coach. Analyze the user's data below and produce a comprehensive, personalized plan.
 
@@ -255119,6 +255134,13 @@ IMPORTANT RULES:
 4. Never assume zero food intake when logging is absent or inconsistent.
 5. For each strength or cardio training day in the schedule, provide 4-6 exercises with sets and rep ranges. Rest and active_recovery days get an empty exercises array []. Where the user has logged TOP LIFTS, prefer to include those exercises and reference their current weights when suggesting progressions.
 6. For the training schedule, use the TOP LIFTS data to make personalized recommendations \u2014 if the user has bench press at 185 lbs, suggest appropriate weight ranges in the assessment.
+7. NEW USER / NO HISTORY RULES (apply when TOP LIFTS shows no strength data):
+   - Calculate macros directly from the user's profile (height, weight, age, sex, activity level) even if no food has been logged. Use the Mifflin-St Jeor formula for BMR, apply the activity multiplier, then adjust for the active goal (deficit or surplus).
+   - Set protein at 0.82 g per lb of current bodyweight (or 0.7 g/lb on a cut). Fill remaining calories with carbs (\u226540% kcal) and fat (25-30% kcal).
+   - For a complete beginner (experience: beginner), include a "weightNote" on every exercise in the exercises array. The weightNote should give a friendly starting-weight suggestion (e.g., "Start with the empty bar (45 lbs) and add 5 lbs each session" or "Use 10-15 lb dumbbells for your first session \u2014 focus on form").
+   - For intermediate/advanced, weightNote is optional \u2014 only include it if you have specific TOP LIFTS data to reference.
+8. EQUIPMENT CONSTRAINT: If USER PREFERENCES specify equipment other than "full_gym", you MUST only include exercises that can be performed with that equipment. No barbell exercises if dumbbells_only or bodyweight; no machine exercises if bodyweight.
+9. WORKOUT DURATION: Fit the number of exercises to the stated workout duration. 30 min \u2192 3-4 exercises; 45 min \u2192 4-5 exercises; 60 min \u2192 5-6 exercises; 90 min \u2192 6-8 exercises.
 
 Return ONLY valid JSON (no markdown, no explanation) with this exact structure:
 {
@@ -255141,7 +255163,7 @@ Return ONLY valid JSON (no markdown, no explanation) with this exact structure:
     "restDays": <integer>,
     "split": "e.g. Push/Pull/Legs",
     "schedule": [
-      { "day": "Monday",    "focus": "...", "type": "strength|cardio|rest|active_recovery", "exercises": [{ "name": "...", "sets": 3, "reps": "8-10" }] },
+      { "day": "Monday",    "focus": "...", "type": "strength|cardio|rest|active_recovery", "exercises": [{ "name": "...", "sets": 3, "reps": "8-10", "weightNote": "optional beginner guidance or null" }] },
       { "day": "Tuesday",   "focus": "...", "type": "...", "exercises": [] },
       { "day": "Wednesday", "focus": "...", "type": "...", "exercises": [] },
       { "day": "Thursday",  "focus": "...", "type": "...", "exercises": [] },
@@ -255215,6 +255237,7 @@ If there are no active goals with deadlines, set goalFeasibility to [] and progr
         console.error("AI analysis JSON parse failed:", parseErr, "\nRaw slice:", jsonSlice.slice(0, 500));
         return res.status(500).json({ message: "AI response could not be parsed. Please try again." });
       }
+      if (preferences) plan.preferences = preferences;
       await storage.saveAiCoachPlan(userId, plan);
       res.json(plan);
     } catch (err) {
