@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   View, Text, ScrollView, Pressable, Alert, TextInput, Modal, ActivityIndicator,
+  KeyboardAvoidingView, Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -10,7 +11,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/api";
 import {
   Plus, Heart, MessageCircle, Flame, Dumbbell,
-  Target, Zap, Check, UserPlus, Trophy, X,
+  Target, Zap, Check, UserPlus, Trophy, X, Mail, Smartphone, Send,
 } from "lucide-react-native";
 
 const LIME  = "#c8e84c";
@@ -80,9 +81,26 @@ export default function FriendsScreen() {
   const qc          = useQueryClient();
   const { card, cardBorder: border, text, muted, bg } = palette;
   const [tab, setTab]               = useState<Tab>("Feed");
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [addEmail, setAddEmail]     = useState("");
-  const [addError, setAddError]     = useState("");
+  const [showAddModal, setShowAddModal]   = useState(false);
+  const [modalTab, setModalTab]           = useState<"add" | "invite">("add");
+  const [addEmail, setAddEmail]           = useState("");
+  const [addError, setAddError]           = useState("");
+  // Invite state
+  const [inviteMethod, setInviteMethod]   = useState<"email" | "sms">("email");
+  const [inviteContact, setInviteContact] = useState("");
+  const [inviteNote, setInviteNote]       = useState("");
+  const [inviteError, setInviteError]     = useState("");
+  const [inviteSent, setInviteSent]       = useState(false);
+
+  function openModal(defaultTab: "add" | "invite" = "add") {
+    setModalTab(defaultTab);
+    setAddEmail(""); setAddError("");
+    setInviteContact(""); setInviteNote(""); setInviteError(""); setInviteSent(false);
+    setShowAddModal(true);
+  }
+  function closeModal() {
+    setShowAddModal(false);
+  }
 
   const myInitial = (user?.name?.[0] ?? "Y").toUpperCase();
 
@@ -100,13 +118,29 @@ export default function FriendsScreen() {
   const sendRequestMutation = useMutation({
     mutationFn: (email: string) => apiRequest("POST", "/api/friends/request", { email }),
     onSuccess: () => {
-      setShowAddModal(false);
-      setAddEmail("");
-      setAddError("");
+      closeModal();
       Alert.alert("Friend request sent!");
     },
     onError: (err: any) => {
       setAddError(err?.message ?? "Could not send request");
+    },
+  });
+
+  const sendInviteMutation = useMutation({
+    mutationFn: (body: { method: "email" | "sms"; contact: string; personalNote?: string }) =>
+      apiRequest("POST", "/api/invite", body),
+    onSuccess: () => {
+      setInviteSent(true);
+      setInviteError("");
+    },
+    onError: (err: any) => {
+      const msg = err?.message ?? "Could not send invitation";
+      // If already registered, offer to switch to Add Friend flow
+      if (err?.alreadyRegistered) {
+        setInviteError(msg);
+      } else {
+        setInviteError(msg);
+      }
     },
   });
 
@@ -156,7 +190,7 @@ export default function FriendsScreen() {
           </Text>
         </View>
         <Pressable
-          onPress={() => setShowAddModal(true)}
+          onPress={() => openModal("add")}
           style={({ pressed }) => ({
             width: 40, height: 40, borderRadius: 20,
             backgroundColor: "#1e1e1e", borderWidth: 1, borderColor: border,
@@ -265,11 +299,34 @@ export default function FriendsScreen() {
             {/* Posts */}
             <View style={{ paddingHorizontal: 16, gap: 12 }}>
               {friends.length === 0 && !loadingFriends ? (
-                <View style={{ backgroundColor: card, borderRadius: 20, borderWidth: 1, borderColor: border, padding: 32, alignItems: "center", gap: 10 }}>
+                <View style={{ backgroundColor: card, borderRadius: 20, borderWidth: 1, borderColor: border, padding: 32, alignItems: "center", gap: 14 }}>
                   <UserPlus size={32} color={muted} strokeWidth={1.5} />
                   <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 14, color: muted, textAlign: "center" }}>
-                    No friends yet{"\n"}Tap + to add friends by email
+                    No friends yet
                   </Text>
+                  <View style={{ flexDirection: "row", gap: 10 }}>
+                    <Pressable
+                      onPress={() => openModal("add")}
+                      style={({ pressed }) => ({
+                        flex: 1, backgroundColor: "#1e1e1e", borderRadius: 14,
+                        borderWidth: 1, borderColor: border,
+                        paddingVertical: 11, alignItems: "center",
+                        opacity: pressed ? 0.7 : 1,
+                      })}
+                    >
+                      <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: text }}>Add Friend</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => openModal("invite")}
+                      style={({ pressed }) => ({
+                        flex: 1, backgroundColor: LIME, borderRadius: 14,
+                        paddingVertical: 11, alignItems: "center",
+                        opacity: pressed ? 0.7 : 1,
+                      })}
+                    >
+                      <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: "#0a0a0a" }}>Invite Friends</Text>
+                    </Pressable>
+                  </View>
                 </View>
               ) : (
                 FEED_POSTS.map((post, idx) => {
@@ -490,58 +547,229 @@ export default function FriendsScreen() {
 
       </ScrollView>
 
-      {/* ── Add Friend Modal ── */}
-      <Modal visible={showAddModal} transparent animationType="fade">
-        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "center", padding: 24 }}>
-          <View style={{ backgroundColor: "#1a1a1a", borderRadius: 24, padding: 24, borderWidth: 1, borderColor: border }}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-              <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 20, color: text }}>Add Friend</Text>
-              <Pressable onPress={() => { setShowAddModal(false); setAddEmail(""); setAddError(""); }}>
+      {/* ── Add / Invite Modal ── */}
+      <Modal visible={showAddModal} transparent animationType="slide" onRequestClose={closeModal}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+          <Pressable onPress={closeModal} style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.65)" }} />
+          <View style={{
+            backgroundColor: "#141414", borderTopLeftRadius: 28, borderTopRightRadius: 28,
+            borderWidth: 1, borderColor: border, paddingHorizontal: 20, paddingTop: 20, paddingBottom: 40,
+          }}>
+            {/* Header */}
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+              <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 20, color: text }}>
+                {modalTab === "add" ? "Add Friend" : "Invite to FitCore"}
+              </Text>
+              <Pressable onPress={closeModal} hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}>
                 <X size={22} color={muted} />
               </Pressable>
             </View>
 
-            <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted, marginBottom: 12 }}>
-              Enter your friend's email address
-            </Text>
+            {/* Tab switcher */}
+            <View style={{
+              flexDirection: "row", backgroundColor: "#1e1e1e", borderRadius: 14,
+              padding: 4, marginBottom: 20,
+            }}>
+              {(["add", "invite"] as const).map(t => (
+                <Pressable
+                  key={t}
+                  onPress={() => {
+                    setModalTab(t);
+                    setAddError(""); setInviteError(""); setInviteSent(false);
+                  }}
+                  style={({ pressed }) => ({
+                    flex: 1, paddingVertical: 10, borderRadius: 11, alignItems: "center",
+                    backgroundColor: modalTab === t ? "#ffffff" : "transparent",
+                    opacity: pressed ? 0.8 : 1,
+                  })}
+                >
+                  <Text style={{
+                    fontFamily: "Manrope-Bold", fontSize: 13,
+                    color: modalTab === t ? "#0a0a0a" : muted,
+                  }}>
+                    {t === "add" ? "Add Friend" : "Invite"}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
 
-            <TextInput
-              value={addEmail}
-              onChangeText={t => { setAddEmail(t); setAddError(""); }}
-              placeholder="friend@email.com"
-              placeholderTextColor="#555"
-              autoCapitalize="none"
-              keyboardType="email-address"
-              style={{
-                backgroundColor: "#111111", borderRadius: 14, padding: 14,
-                fontFamily: "Manrope", fontSize: 15, color: text,
-                borderWidth: 1, borderColor: addError ? "#ef4444" : border,
-                marginBottom: 8,
-              }}
-            />
-            {addError ? (
-              <Text style={{ fontFamily: "Manrope", fontSize: 12, color: "#ef4444", marginBottom: 12 }}>{addError}</Text>
-            ) : null}
+            {/* ── ADD FRIEND tab ── */}
+            {modalTab === "add" && (
+              <>
+                <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted, marginBottom: 12 }}>
+                  Enter the email address of someone already on FitCore.
+                </Text>
+                <TextInput
+                  value={addEmail}
+                  onChangeText={t => { setAddEmail(t); setAddError(""); }}
+                  placeholder="friend@email.com"
+                  placeholderTextColor="#555"
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  style={{
+                    backgroundColor: "#1a1a1a", borderRadius: 14, padding: 14,
+                    fontFamily: "Manrope", fontSize: 15, color: text,
+                    borderWidth: 1, borderColor: addError ? "#ef4444" : border, marginBottom: 8,
+                  }}
+                />
+                {addError ? <Text style={{ fontFamily: "Manrope", fontSize: 12, color: "#ef4444", marginBottom: 10 }}>{addError}</Text> : null}
+                <Pressable
+                  onPress={() => {
+                    if (!addEmail.trim()) { setAddError("Enter an email address"); return; }
+                    sendRequestMutation.mutate(addEmail.trim().toLowerCase());
+                  }}
+                  disabled={sendRequestMutation.isPending}
+                  style={({ pressed }) => ({
+                    backgroundColor: LIME, borderRadius: 14, paddingVertical: 16,
+                    alignItems: "center", marginTop: 8,
+                    opacity: pressed || sendRequestMutation.isPending ? 0.7 : 1,
+                  })}
+                >
+                  {sendRequestMutation.isPending
+                    ? <ActivityIndicator color="#0a0a0a" />
+                    : <Text style={{ fontFamily: "Manrope-Bold", fontSize: 15, color: "#0a0a0a" }}>Send Friend Request</Text>}
+                </Pressable>
+                <Pressable onPress={() => setModalTab("invite")} style={{ marginTop: 14, alignItems: "center" }}>
+                  <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted }}>
+                    Not on FitCore yet? <Text style={{ color: LIME, fontFamily: "Manrope-Bold" }}>Send an invite →</Text>
+                  </Text>
+                </Pressable>
+              </>
+            )}
 
-            <Pressable
-              onPress={() => {
-                if (!addEmail.trim()) { setAddError("Enter an email"); return; }
-                sendRequestMutation.mutate(addEmail.trim().toLowerCase());
-              }}
-              disabled={sendRequestMutation.isPending}
-              style={({ pressed }) => ({
-                backgroundColor: LIME, borderRadius: 14, padding: 16,
-                alignItems: "center", marginTop: 8,
-                opacity: pressed || sendRequestMutation.isPending ? 0.7 : 1,
-              })}
-            >
-              {sendRequestMutation.isPending
-                ? <ActivityIndicator color="#0a0a0a" />
-                : <Text style={{ fontFamily: "Manrope-Bold", fontSize: 15, color: "#0a0a0a" }}>Send Request</Text>
-              }
-            </Pressable>
+            {/* ── INVITE tab ── */}
+            {modalTab === "invite" && (
+              <>
+                {inviteSent ? (
+                  /* Success state */
+                  <View style={{ alignItems: "center", paddingVertical: 24, gap: 12 }}>
+                    <View style={{
+                      width: 64, height: 64, borderRadius: 32,
+                      backgroundColor: "#052e16", borderWidth: 1.5, borderColor: "#22c55e",
+                      alignItems: "center", justifyContent: "center",
+                    }}>
+                      <Send size={28} color="#22c55e" />
+                    </View>
+                    <Text style={{ fontFamily: "Manrope-Bold", fontSize: 18, color: "#22c55e" }}>Invitation sent!</Text>
+                    <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted, textAlign: "center" }}>
+                      Your invite was sent to {inviteContact}.
+                      They'll get a link to join FitCore.
+                    </Text>
+                    <Pressable
+                      onPress={() => { setInviteContact(""); setInviteNote(""); setInviteSent(false); }}
+                      style={({ pressed }) => ({
+                        backgroundColor: "#1e1e1e", borderRadius: 14, paddingVertical: 12, paddingHorizontal: 24,
+                        borderWidth: 1, borderColor: border, marginTop: 8,
+                        opacity: pressed ? 0.7 : 1,
+                      })}
+                    >
+                      <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: text }}>Send another</Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <>
+                    <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted, marginBottom: 14 }}>
+                      Invite someone who isn't on FitCore yet. They'll receive a link to create an account.
+                    </Text>
+
+                    {/* Email / SMS toggle */}
+                    <View style={{
+                      flexDirection: "row", gap: 10, marginBottom: 16,
+                    }}>
+                      {(["email", "sms"] as const).map(m => {
+                        const selected = inviteMethod === m;
+                        const Icon = m === "email" ? Mail : Smartphone;
+                        return (
+                          <Pressable
+                            key={m}
+                            onPress={() => { setInviteMethod(m); setInviteContact(""); setInviteError(""); }}
+                            style={({ pressed }) => ({
+                              flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+                              gap: 7, paddingVertical: 11, borderRadius: 14,
+                              backgroundColor: selected ? "#1e3a5f" : "#1a1a1a",
+                              borderWidth: 1.5, borderColor: selected ? "#9bd1ff" : border,
+                              opacity: pressed ? 0.8 : 1,
+                            })}
+                          >
+                            <Icon size={15} color={selected ? "#9bd1ff" : muted} />
+                            <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: selected ? "#9bd1ff" : muted }}>
+                              {m === "email" ? "Email" : "Text (SMS)"}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+
+                    {/* Contact input */}
+                    <TextInput
+                      value={inviteContact}
+                      onChangeText={t => { setInviteContact(t); setInviteError(""); }}
+                      placeholder={inviteMethod === "email" ? "friend@email.com" : "555-867-5309"}
+                      placeholderTextColor="#555"
+                      autoCapitalize="none"
+                      keyboardType={inviteMethod === "email" ? "email-address" : "phone-pad"}
+                      style={{
+                        backgroundColor: "#1a1a1a", borderRadius: 14, padding: 14,
+                        fontFamily: "Manrope", fontSize: 15, color: text,
+                        borderWidth: 1, borderColor: inviteError ? "#ef4444" : border, marginBottom: 8,
+                      }}
+                    />
+
+                    {/* Personal note */}
+                    <TextInput
+                      value={inviteNote}
+                      onChangeText={setInviteNote}
+                      placeholder="Add a personal note… (optional)"
+                      placeholderTextColor="#555"
+                      multiline
+                      maxLength={280}
+                      style={{
+                        backgroundColor: "#1a1a1a", borderRadius: 14, padding: 14,
+                        fontFamily: "Manrope", fontSize: 14, color: text,
+                        borderWidth: 1, borderColor: border, marginBottom: 8,
+                        minHeight: 72, textAlignVertical: "top",
+                      }}
+                    />
+                    <Text style={{ fontFamily: "Manrope", fontSize: 11, color: muted, textAlign: "right", marginBottom: 12 }}>
+                      {inviteNote.length}/280
+                    </Text>
+
+                    {inviteError ? (
+                      <Text style={{ fontFamily: "Manrope", fontSize: 12, color: "#ef4444", marginBottom: 10 }}>{inviteError}</Text>
+                    ) : null}
+
+                    <Pressable
+                      disabled={sendInviteMutation.isPending}
+                      onPress={() => {
+                        const contact = inviteContact.trim();
+                        if (!contact) { setInviteError(`Enter a${inviteMethod === "email" ? "n email address" : " phone number"}`); return; }
+                        sendInviteMutation.mutate({
+                          method: inviteMethod,
+                          contact,
+                          personalNote: inviteNote.trim() || undefined,
+                        });
+                      }}
+                      style={({ pressed }) => ({
+                        backgroundColor: LIME, borderRadius: 14, paddingVertical: 16,
+                        flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+                        opacity: pressed || sendInviteMutation.isPending ? 0.7 : 1,
+                      })}
+                    >
+                      {sendInviteMutation.isPending
+                        ? <ActivityIndicator color="#0a0a0a" />
+                        : <>
+                            <Send size={16} color="#0a0a0a" />
+                            <Text style={{ fontFamily: "Manrope-Bold", fontSize: 15, color: "#0a0a0a" }}>
+                              Send {inviteMethod === "email" ? "Email" : "Text"} Invite
+                            </Text>
+                          </>}
+                    </Pressable>
+                  </>
+                )}
+              </>
+            )}
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
     </SafeAreaView>

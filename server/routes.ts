@@ -8,6 +8,7 @@ import { lookupBarcode, lookupBarcodeFS, autocompleteFatSecret, searchFoodByName
 import { parseNutritionLabel } from "./services/vision.js";
 import { calculateMacroTargets, getAgeFromBirthDate } from "./services/goal-engine.js";
 import { fetchExerciseGif } from "./services/exercise-gif.js";
+import { sendInviteEmail, sendInviteSms } from "./services/notifications.js";
 import {
   insertUserSchema, insertUserProfileSchema, insertGoalSchema, insertBodyMeasurementSchema,
   insertFoodItemSchema, insertFoodLogSchema, insertWaterLogSchema, insertSupplementLogSchema,
@@ -1611,5 +1612,66 @@ Include 6-10 exercises. Use common gym exercise names. Return ONLY the JSON, no 
     }
     const data = await storage.getExerciseHistory(exerciseId, friendId);
     res.json(data);
+  });
+
+  // ── Invitations ─────────────────────────────────────────────────────────────
+
+  /**
+   * POST /api/invite
+   * Send an email or SMS invitation to someone who isn't on FitCore yet.
+   * Body: { method: "email"|"sms", contact: string, personalNote?: string }
+   */
+  app.post("/api/invite", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = (req.user as any).id;
+
+    const schema = z.object({
+      method:       z.enum(["email", "sms"]),
+      contact:      z.string().min(1),
+      personalNote: z.string().max(280).optional(),
+    });
+
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: "Invalid request: " + parsed.error.issues[0]?.message });
+    }
+
+    const { method, contact, personalNote } = parsed.data;
+    const sender = await storage.getUserById(userId);
+    if (!sender) return res.sendStatus(401);
+    const inviterName = sender.name;
+
+    try {
+      if (method === "email") {
+        // Basic email format check
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact)) {
+          return res.status(400).json({ message: "Please enter a valid email address." });
+        }
+        // Don't invite someone who already has an account
+        const existing = await storage.getUserByEmail(contact);
+        if (existing) {
+          return res.status(409).json({
+            message: "That email is already registered. Use 'Add Friend' to connect with them instead.",
+            alreadyRegistered: true,
+          });
+        }
+        await sendInviteEmail({ toEmail: contact, inviterName, personalNote });
+        return res.json({ sent: true, method: "email", contact });
+      } else {
+        // Normalise phone: strip spaces/dashes/parens, ensure leading +
+        const digits = contact.replace(/[\s\-().]/g, "");
+        const normalised = digits.startsWith("+") ? digits : `+1${digits}`; // default +1 (US)
+        if (!/^\+\d{10,15}$/.test(normalised)) {
+          return res.status(400).json({ message: "Please enter a valid phone number (10+ digits)." });
+        }
+        await sendInviteSms({ toPhone: normalised, inviterName, personalNote });
+        return res.json({ sent: true, method: "sms", contact: normalised });
+      }
+    } catch (err: any) {
+      console.error("Invite send error:", err);
+      // Surface the human-readable config error vs generic failure
+      const isConfig = err.message?.includes("not configured");
+      return res.status(isConfig ? 503 : 500).json({ message: err.message ?? "Failed to send invitation" });
+    }
   });
 }
