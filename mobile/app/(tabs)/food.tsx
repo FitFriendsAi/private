@@ -878,24 +878,15 @@ export default function FoodScreen() {
                   const gFat     = Math.round(row.entries.reduce((s, e) => s + e.fatActual,      0));
                   return (
                     <View key={`group-${row.groupId}-${rowIdx}`} style={{ borderTopWidth: 1, borderTopColor: border }}>
-                      {/* Group header */}
-                      <View style={{ paddingHorizontal: 18, paddingVertical: 10, flexDirection: "row", alignItems: "center" }}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: text }}>{row.groupName}</Text>
-                          <View style={{ flexDirection: "row", gap: 8, marginTop: 2 }}>
-                            <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: muted }}>{gCals} kcal</Text>
-                            <Text style={{ fontSize: 11, fontFamily: "Manrope", color: LIME }}>P {gProtein}g</Text>
-                            <Text style={{ fontSize: 11, fontFamily: "Manrope", color: BLUE }}>C {gCarbs}g</Text>
-                            <Text style={{ fontSize: 11, fontFamily: "Manrope", color: PURPLE }}>F {gFat}g</Text>
-                          </View>
+                      {/* Group header — name + combined macros */}
+                      <View style={{ paddingHorizontal: 18, paddingVertical: 10 }}>
+                        <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: text }}>{row.groupName}</Text>
+                        <View style={{ flexDirection: "row", gap: 8, marginTop: 2 }}>
+                          <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: muted }}>{gCals} kcal</Text>
+                          <Text style={{ fontSize: 11, fontFamily: "Manrope", color: LIME }}>P {gProtein}g</Text>
+                          <Text style={{ fontSize: 11, fontFamily: "Manrope", color: BLUE }}>C {gCarbs}g</Text>
+                          <Text style={{ fontSize: 11, fontFamily: "Manrope", color: PURPLE }}>F {gFat}g</Text>
                         </View>
-                        {/* Delete whole group */}
-                        <Pressable
-                          onPress={() => row.entries.forEach(e => deleteEntry.mutate(e.id))}
-                          hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, padding: 4 })}
-                        >
-                          <X size={15} color={muted} />
-                        </Pressable>
                       </View>
                       {/* Individual ingredient lines */}
                       {row.entries.map(e => (
@@ -905,6 +896,17 @@ export default function FoodScreen() {
                           <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>{Math.round(e.caloriesActual)} kcal</Text>
                         </View>
                       ))}
+                      {/* Full-width Remove button at the bottom */}
+                      <Pressable
+                        onPress={() => row.entries.forEach(e => deleteEntry.mutate(e.id))}
+                        style={({ pressed }) => ({
+                          borderTopWidth: 1, borderTopColor: border,
+                          paddingVertical: 11, alignItems: "center",
+                          opacity: pressed ? 0.5 : 1,
+                        })}
+                      >
+                        <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: "#ef4444" }}>Remove from Log</Text>
+                      </Pressable>
                     </View>
                   );
                 }
