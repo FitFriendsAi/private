@@ -249604,7 +249604,7 @@ Convert all units to the specified units (g, mg, kcal).`;
 async function parseNutritionLabel(imageBase64, mediaType) {
   try {
     const response = await client.messages.create({
-      model: "claude-3-5-haiku-20241022",
+      model: "claude-opus-4-5",
       max_tokens: 512,
       messages: [
         {
@@ -255161,7 +255161,7 @@ If progressAdjustment.needed is false, set options to an empty array [].
 If there are no active goals with deadlines, set goalFeasibility to [] and progressAdjustment.needed to false.`;
       const client2 = new sdk_default({ apiKey: process.env.ANTHROPIC_API_KEY });
       const msg = await client2.messages.create({
-        model: "claude-3-5-haiku-20241022",
+        model: "claude-opus-4-5",
         max_tokens: 4096,
         messages: [{ role: "user", content: prompt }]
       });
@@ -255977,7 +255977,7 @@ Return a JSON object with this exact structure:
 
 Include 6-10 exercises. Use common gym exercise names. Return ONLY the JSON, no markdown.`;
       const msg = await client2.messages.create({
-        model: "claude-3-5-haiku-20241022",
+        model: "claude-opus-4-7",
         max_tokens: 1024,
         messages: [{ role: "user", content: prompt }]
       });

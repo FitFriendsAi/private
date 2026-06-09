@@ -419,7 +419,7 @@ If there are no active goals with deadlines, set goalFeasibility to [] and progr
 
       const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
       const msg = await client.messages.create({
-        model: "claude-3-5-haiku-20241022",
+        model: "claude-opus-4-5",
         max_tokens: 4096,
         messages: [{ role: "user", content: prompt }],
       });
@@ -1453,7 +1453,7 @@ Return a JSON object with this exact structure:
 Include 6-10 exercises. Use common gym exercise names. Return ONLY the JSON, no markdown.`;
 
       const msg = await client.messages.create({
-        model: "claude-3-5-haiku-20241022",
+        model: "claude-opus-4-7",
         max_tokens: 1024,
         messages: [{ role: "user", content: prompt }],
       });
