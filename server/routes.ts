@@ -210,6 +210,131 @@ export function registerRoutes(app: Express) {
     res.sendStatus(204);
   });
 
+  /**
+   * POST /api/goals/ai-analysis
+   * Sends the user's full profile, active goals, measurements, and training
+   * history to Claude and returns a comprehensive structured plan covering
+   * nutrition, hydration, workout schedule, and actionable priorities.
+   */
+  app.post("/api/goals/ai-analysis", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = (req.user as any).id;
+
+    try {
+      // ── Gather user context ─────────────────────────────────────────────────
+      const [profile, goals, measurements, target, recentWorkouts] = await Promise.all([
+        storage.getProfile(userId),
+        storage.getGoals(userId),
+        storage.getMeasurements(userId, 5),
+        storage.getNutritionTarget(userId),
+        storage.getWorkouts(userId, 10),
+      ]);
+
+      const activeGoals = goals.filter(g => g.isActive);
+      const latestWeight = measurements[0];
+      const weightKg = latestWeight ? latestWeight.weightGrams / 1000 : null;
+      const weightLbs = weightKg ? Math.round(weightKg * 2.205) : null;
+      const heightCm  = profile?.heightCm ?? null;
+      const heightIn  = heightCm ? Math.round(heightCm / 2.54) : null;
+      const ageYears  = profile?.birthDate ? getAgeFromBirthDate(profile.birthDate) : null;
+      const sex       = profile?.sex ?? "unspecified";
+      const activity  = profile?.activityLevel ?? "moderate";
+
+      // Workout frequency over last 30 days
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000);
+      const recentCount = recentWorkouts.filter(w => new Date(w.date) >= thirtyDaysAgo).length;
+
+      // ── Build prompt ────────────────────────────────────────────────────────
+      const userContext = `
+USER PROFILE:
+- Age: ${ageYears ?? "unknown"}
+- Sex: ${sex}
+- Height: ${heightIn ? `${Math.floor(heightIn / 12)}'${heightIn % 12}"` : "unknown"} (${heightCm ?? "unknown"} cm)
+- Current weight: ${weightLbs ? `${weightLbs} lbs` : "unknown"} (${weightKg ? `${weightKg.toFixed(1)} kg` : "unknown"})
+- Activity level: ${activity}
+- Workouts in last 30 days: ${recentCount}
+
+ACTIVE GOALS:
+${activeGoals.length === 0 ? "No active goals set." : activeGoals.map(g => {
+  const targetLbs = (g.unit === "lbs" && g.targetValue) ? Math.round(g.targetValue / 453.6) : null;
+  const startLbs  = (g.unit === "lbs" && g.startValue)  ? Math.round(g.startValue / 453.6)  : null;
+  const deadline  = g.deadline ? `by ${g.deadline}` : "no deadline";
+  return `- ${g.label} (type: ${g.type}, target: ${targetLbs ? targetLbs + " lbs" : g.targetValue + " " + g.unit}, start: ${startLbs ? startLbs + " lbs" : g.startValue ?? "unknown"}, ${deadline})`;
+}).join("\n")}
+
+CURRENT AUTO-CALCULATED TARGETS (for reference, you may revise):
+- Calories: ${target ? Math.round(target.calories) : "not set"} kcal/day
+- Protein: ${target ? Math.round(target.proteinG) : "not set"} g/day
+- Carbs: ${target ? Math.round(target.carbsG) : "not set"} g/day
+- Fat: ${target ? Math.round(target.fatG) : "not set"} g/day
+- Water: ${target ? Math.round((target.waterMl ?? 2500) / 29.57) : "not set"} oz/day
+`.trim();
+
+      const prompt = `You are an expert fitness and nutrition coach. Analyze the user's data below and create a comprehensive, personalized plan to help them achieve ALL of their goals simultaneously.
+
+${userContext}
+
+Provide a detailed, actionable plan. If goals appear to conflict (e.g., lose weight AND gain significant muscle), acknowledge the tension and explain how to prioritize and sequence them.
+
+Return ONLY valid JSON (no markdown, no explanation) with this exact structure:
+{
+  "summary": "2-3 sentence overall assessment of the user's situation and how you'll help them achieve all goals",
+  "nutrition": {
+    "calories": <recommended daily calories as integer>,
+    "proteinG": <recommended daily protein in grams as integer>,
+    "carbsG": <recommended daily carbs in grams as integer>,
+    "fatG": <recommended daily fat in grams as integer>,
+    "reasoning": "1-2 sentence explanation of why these numbers fit this person's goals",
+    "tips": ["practical eating tip 1", "practical eating tip 2", "practical eating tip 3"]
+  },
+  "hydration": {
+    "dailyOz": <recommended daily water intake in fluid ounces as integer>,
+    "reasoning": "1 sentence explanation",
+    "tips": ["hydration tip 1", "hydration tip 2"]
+  },
+  "training": {
+    "daysPerWeek": <recommended training days per week as integer>,
+    "restDays": <recommended rest days as integer>,
+    "split": "e.g. Push/Pull/Legs, Upper/Lower, Full Body 3x, etc.",
+    "schedule": [
+      { "day": "Monday", "focus": "e.g. Push — Chest, Shoulders, Triceps", "type": "strength|cardio|rest|active_recovery" },
+      { "day": "Tuesday", "focus": "...", "type": "..." },
+      { "day": "Wednesday", "focus": "...", "type": "..." },
+      { "day": "Thursday", "focus": "...", "type": "..." },
+      { "day": "Friday", "focus": "...", "type": "..." },
+      { "day": "Saturday", "focus": "...", "type": "..." },
+      { "day": "Sunday", "focus": "...", "type": "..." }
+    ],
+    "reasoning": "1-2 sentence explanation of why this schedule fits their goals",
+    "tips": ["training tip 1", "training tip 2", "training tip 3"]
+  },
+  "priorityActions": [
+    "Most important immediate action (be specific)",
+    "Second priority action",
+    "Third priority action",
+    "Fourth priority action",
+    "Fifth priority action"
+  ],
+  "goalNotes": "1-2 sentences about how the goals interact — synergies, potential conflicts, and recommended sequencing if needed"
+}`;
+
+      const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+      const msg = await client.messages.create({
+        model: "claude-opus-4-5",
+        max_tokens: 2048,
+        messages: [{ role: "user", content: prompt }],
+      });
+
+      const rawText = (msg.content[0] as any).text ?? "";
+      const cleaned = rawText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      const plan = JSON.parse(cleaned);
+      res.json(plan);
+    } catch (err: any) {
+      console.error("AI analysis error:", err);
+      res.status(500).json({ message: "Failed to generate AI analysis" });
+    }
+  });
+
   // ── Measurements ────────────────────────────────────────────────────────────
   app.get("/api/measurements", async (req, res) => {
     if (!requireAuth(req, res)) return;

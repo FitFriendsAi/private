@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   ScrollView, View, Text, Pressable, Modal, TextInput,
-  Alert, Platform,
+  Alert, Platform, ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -11,6 +11,7 @@ import { gramsToLbs, lbsToGrams } from "@/lib/utils";
 import {
   Target, TrendingDown, TrendingUp, Dumbbell, Activity,
   Plus, X, ChevronRight, CheckCircle2, Trash2,
+  Sparkles, Utensils, Droplets, Calendar, Zap, ChevronDown, ChevronUp,
 } from "lucide-react-native";
 
 // ── Accent colours ────────────────────────────────────────────────
@@ -145,6 +146,78 @@ function GoalCard({
   );
 }
 
+// ── AI plan types ────────────────────────────────────────────────
+interface AiNutrition {
+  calories: number; proteinG: number; carbsG: number; fatG: number;
+  reasoning: string; tips: string[];
+}
+interface AiHydration { dailyOz: number; reasoning: string; tips: string[]; }
+interface AiScheduleDay { day: string; focus: string; type: string; }
+interface AiTraining {
+  daysPerWeek: number; restDays: number; split: string;
+  schedule: AiScheduleDay[]; reasoning: string; tips: string[];
+}
+interface AiPlan {
+  summary: string;
+  nutrition: AiNutrition;
+  hydration: AiHydration;
+  training: AiTraining;
+  priorityActions: string[];
+  goalNotes: string;
+}
+
+// ── Collapsible section helper ───────────────────────────────────
+function Section({
+  icon, title, color, children, palette,
+}: {
+  icon: React.ReactNode; title: string; color: string;
+  children: React.ReactNode; palette: any;
+}) {
+  const [open, setOpen] = useState(true);
+  return (
+    <View style={{
+      backgroundColor: palette.card, borderRadius: 18,
+      borderWidth: 1, borderColor: palette.cardBorder,
+      marginBottom: 12, overflow: "hidden",
+    }}>
+      <Pressable
+        onPress={() => setOpen(v => !v)}
+        style={({ pressed }) => ({
+          flexDirection: "row", alignItems: "center", gap: 10,
+          padding: 16, opacity: pressed ? 0.8 : 1,
+        })}
+      >
+        <View style={{
+          width: 32, height: 32, borderRadius: 9,
+          backgroundColor: `${color}22`,
+          alignItems: "center", justifyContent: "center",
+        }}>
+          {icon}
+        </View>
+        <Text style={{ flex: 1, fontSize: 14, fontFamily: "Manrope-Bold", color: palette.text }}>
+          {title}
+        </Text>
+        {open
+          ? <ChevronUp size={16} color={palette.muted} />
+          : <ChevronDown size={16} color={palette.muted} />}
+      </Pressable>
+      {open && (
+        <View style={{ paddingHorizontal: 16, paddingBottom: 16 }}>
+          {children}
+        </View>
+      )}
+    </View>
+  );
+}
+
+// day-type → color
+function dayTypeColor(type: string): string {
+  if (type === "rest") return "#6b7280";
+  if (type === "active_recovery") return "#9bd1ff";
+  if (type === "cardio") return "#f8c8dc";
+  return "#c8e84c"; // strength
+}
+
 // ── Main component ────────────────────────────────────────────────
 export default function GoalsScreen() {
   const { palette } = useTheme();
@@ -164,6 +237,15 @@ export default function GoalsScreen() {
   const latestWeightGrams: number | null = measurements[0]?.weightGrams ?? null;
   const activeGoals  = (goals as any[]).filter((g: any) =>  g.isActive);
   const pastGoals    = (goals as any[]).filter((g: any) => !g.isActive);
+
+  // ── AI analysis state ──
+  const [aiPlan, setAiPlan]       = useState<AiPlan | null>(null);
+  const [aiError, setAiError]     = useState<string | null>(null);
+  const aiMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/goals/ai-analysis"),
+    onSuccess: (data: AiPlan) => { setAiPlan(data); setAiError(null); },
+    onError: (e: any) => setAiError(e?.message ?? "Failed to generate plan"),
+  });
 
   // ── New goal modal state ──
   const [modalOpen, setModalOpen]           = useState(false);
@@ -275,6 +357,190 @@ export default function GoalsScreen() {
             <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: "#0a0a0a" }}>New Goal</Text>
           </Pressable>
         </View>
+
+        {/* ── AI Coach button ── */}
+        <Pressable
+          onPress={() => aiMutation.mutate()}
+          disabled={aiMutation.isPending}
+          style={({ pressed }) => ({
+            flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10,
+            backgroundColor: "#1a1a2e", borderRadius: 18,
+            borderWidth: 1.5, borderColor: "#7c3aed",
+            paddingVertical: 16, marginBottom: 20,
+            opacity: (pressed || aiMutation.isPending) ? 0.7 : 1,
+          })}
+        >
+          {aiMutation.isPending
+            ? <ActivityIndicator size="small" color="#a78bfa" />
+            : <Sparkles size={18} color="#a78bfa" />}
+          <Text style={{ fontSize: 15, fontFamily: "Manrope-Bold", color: "#a78bfa" }}>
+            {aiMutation.isPending ? "Analyzing your goals…" : "Get AI Coach Plan"}
+          </Text>
+        </Pressable>
+
+        {/* ── AI error ── */}
+        {aiError && (
+          <View style={{
+            backgroundColor: "#2a0a0a", borderRadius: 14, padding: 14,
+            borderWidth: 1, borderColor: "#7f1d1d", marginBottom: 16,
+          }}>
+            <Text style={{ fontSize: 13, fontFamily: "Manrope", color: "#fca5a5" }}>{aiError}</Text>
+          </View>
+        )}
+
+        {/* ── AI Plan ── */}
+        {aiPlan && (
+          <View style={{ marginBottom: 20 }}>
+
+            {/* Summary banner */}
+            <View style={{
+              backgroundColor: "#1a1a2e", borderRadius: 18,
+              borderWidth: 1.5, borderColor: "#7c3aed",
+              padding: 16, marginBottom: 12,
+            }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <Sparkles size={16} color="#a78bfa" />
+                <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: "#a78bfa", letterSpacing: 0.5 }}>
+                  AI COACH PLAN
+                </Text>
+              </View>
+              <Text style={{ fontSize: 14, fontFamily: "Manrope", color: "#e2e8f0", lineHeight: 20 }}>
+                {aiPlan.summary}
+              </Text>
+              {aiPlan.goalNotes ? (
+                <Text style={{ fontSize: 12, fontFamily: "Manrope", color: "#a78bfa", marginTop: 8, lineHeight: 18, fontStyle: "italic" }}>
+                  {aiPlan.goalNotes}
+                </Text>
+              ) : null}
+            </View>
+
+            {/* Nutrition section */}
+            <Section icon={<Utensils size={16} color={LIME} />} title="Nutrition Targets" color={LIME} palette={palette}>
+              {/* Macro row */}
+              <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 12 }}>
+                {[
+                  { label: "Calories", value: aiPlan.nutrition.calories, unit: "kcal", color: text },
+                  { label: "Protein",  value: aiPlan.nutrition.proteinG, unit: "g",    color: LIME },
+                  { label: "Carbs",    value: aiPlan.nutrition.carbsG,   unit: "g",    color: BLUE },
+                  { label: "Fat",      value: aiPlan.nutrition.fatG,     unit: "g",    color: PURPLE },
+                ].map(m => (
+                  <View key={m.label} style={{ alignItems: "center" }}>
+                    <Text style={{ ...(DOT as any), fontSize: 24, color: m.color, lineHeight: 28 }}>{m.value}</Text>
+                    <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted, marginTop: 1 }}>{m.unit}</Text>
+                    <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted }}>{m.label}</Text>
+                  </View>
+                ))}
+              </View>
+              <Text style={{ fontSize: 12, fontFamily: "Manrope", color: muted, lineHeight: 18, marginBottom: 10 }}>
+                {aiPlan.nutrition.reasoning}
+              </Text>
+              {aiPlan.nutrition.tips.map((tip, i) => (
+                <View key={i} style={{ flexDirection: "row", gap: 8, marginBottom: 4 }}>
+                  <Text style={{ fontSize: 12, color: LIME }}>•</Text>
+                  <Text style={{ fontSize: 12, fontFamily: "Manrope", color: text, flex: 1, lineHeight: 18 }}>{tip}</Text>
+                </View>
+              ))}
+            </Section>
+
+            {/* Hydration section */}
+            <Section icon={<Droplets size={16} color={BLUE} />} title="Hydration" color={BLUE} palette={palette}>
+              <View style={{ flexDirection: "row", alignItems: "baseline", gap: 6, marginBottom: 8 }}>
+                <Text style={{ ...(DOT as any), fontSize: 32, color: BLUE }}>{aiPlan.hydration.dailyOz}</Text>
+                <Text style={{ fontSize: 14, fontFamily: "Manrope-Bold", color: muted }}>oz / day</Text>
+                <Text style={{ fontSize: 12, fontFamily: "Manrope", color: muted }}>
+                  ({Math.round(aiPlan.hydration.dailyOz * 29.57)} ml)
+                </Text>
+              </View>
+              <Text style={{ fontSize: 12, fontFamily: "Manrope", color: muted, lineHeight: 18, marginBottom: 10 }}>
+                {aiPlan.hydration.reasoning}
+              </Text>
+              {aiPlan.hydration.tips.map((tip, i) => (
+                <View key={i} style={{ flexDirection: "row", gap: 8, marginBottom: 4 }}>
+                  <Text style={{ fontSize: 12, color: BLUE }}>•</Text>
+                  <Text style={{ fontSize: 12, fontFamily: "Manrope", color: text, flex: 1, lineHeight: 18 }}>{tip}</Text>
+                </View>
+              ))}
+            </Section>
+
+            {/* Training schedule section */}
+            <Section icon={<Calendar size={16} color={PINK} />} title={`Training Schedule — ${aiPlan.training.split}`} color={PINK} palette={palette}>
+              <View style={{ flexDirection: "row", gap: 16, marginBottom: 12 }}>
+                <View style={{ alignItems: "center" }}>
+                  <Text style={{ ...(DOT as any), fontSize: 28, color: PINK }}>{aiPlan.training.daysPerWeek}</Text>
+                  <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted }}>training</Text>
+                  <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted }}>days/wk</Text>
+                </View>
+                <View style={{ alignItems: "center" }}>
+                  <Text style={{ ...(DOT as any), fontSize: 28, color: "#6b7280" }}>{aiPlan.training.restDays}</Text>
+                  <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted }}>rest</Text>
+                  <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted }}>days/wk</Text>
+                </View>
+              </View>
+              {/* Weekly schedule */}
+              <View style={{ gap: 5, marginBottom: 12 }}>
+                {aiPlan.training.schedule.map((d, i) => (
+                  <View key={i} style={{
+                    flexDirection: "row", alignItems: "center", gap: 10,
+                    backgroundColor: `${dayTypeColor(d.type)}11`,
+                    borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8,
+                    borderLeftWidth: 3, borderLeftColor: dayTypeColor(d.type),
+                  }}>
+                    <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: dayTypeColor(d.type), width: 32 }}>
+                      {d.day.slice(0, 3).toUpperCase()}
+                    </Text>
+                    <Text style={{ fontSize: 12, fontFamily: "Manrope", color: text, flex: 1, lineHeight: 16 }}>
+                      {d.focus}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+              <Text style={{ fontSize: 12, fontFamily: "Manrope", color: muted, lineHeight: 18, marginBottom: 10 }}>
+                {aiPlan.training.reasoning}
+              </Text>
+              {aiPlan.training.tips.map((tip, i) => (
+                <View key={i} style={{ flexDirection: "row", gap: 8, marginBottom: 4 }}>
+                  <Text style={{ fontSize: 12, color: PINK }}>•</Text>
+                  <Text style={{ fontSize: 12, fontFamily: "Manrope", color: text, flex: 1, lineHeight: 18 }}>{tip}</Text>
+                </View>
+              ))}
+            </Section>
+
+            {/* Priority actions section */}
+            <Section icon={<Zap size={16} color={PURPLE} />} title="Priority Actions" color={PURPLE} palette={palette}>
+              {aiPlan.priorityActions.map((action, i) => (
+                <View key={i} style={{
+                  flexDirection: "row", gap: 12, marginBottom: 10,
+                  alignItems: "flex-start",
+                }}>
+                  <View style={{
+                    width: 22, height: 22, borderRadius: 11,
+                    backgroundColor: `${PURPLE}33`,
+                    alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1,
+                  }}>
+                    <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: PURPLE }}>{i + 1}</Text>
+                  </View>
+                  <Text style={{ fontSize: 13, fontFamily: "Manrope", color: text, flex: 1, lineHeight: 19 }}>
+                    {action}
+                  </Text>
+                </View>
+              ))}
+            </Section>
+
+            {/* Regenerate button */}
+            <Pressable
+              onPress={() => aiMutation.mutate()}
+              disabled={aiMutation.isPending}
+              style={({ pressed }) => ({
+                alignItems: "center", paddingVertical: 12,
+                opacity: (pressed || aiMutation.isPending) ? 0.5 : 1,
+              })}
+            >
+              <Text style={{ fontSize: 12, fontFamily: "Manrope-SemiBold", color: "#7c3aed" }}>
+                Regenerate Plan
+              </Text>
+            </Pressable>
+          </View>
+        )}
 
         {/* ── Daily Targets card ── */}
         {targets && (
