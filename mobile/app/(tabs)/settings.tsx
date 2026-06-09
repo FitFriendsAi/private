@@ -500,24 +500,28 @@ export default function SettingsScreen() {
                 Date of Birth
               </Text>
               {Platform.OS === "web" ? (
-                /* @ts-ignore */
-                <input
-                  type="date"
-                  value={birthDate}
-                  onChange={(e: any) => setBirthDate(e.target.value)}
-                  style={{
-                    display: "block",
-                    width: "100%", boxSizing: "border-box",
-                    backgroundColor: "#111111",
-                    border: `1px solid ${border}`,
-                    borderRadius: "12px",
-                    padding: "13px 12px",
-                    color: "#f4f4f4",
-                    fontFamily: "Manrope-SemiBold", fontSize: "14px",
-                    outline: "none",
-                    colorScheme: "dark",
-                  }}
-                />
+                /* Wrap in View (no overflow:hidden) so the input is flex-constrained
+                   without clipping the browser's native date-picker popup */
+                <View>
+                  {/* @ts-ignore */}
+                  <input
+                    type="date"
+                    value={birthDate}
+                    onChange={(e: any) => setBirthDate(e.target.value)}
+                    style={{
+                      display: "block",
+                      width: "100%", boxSizing: "border-box",
+                      backgroundColor: "#111111",
+                      border: `1px solid ${border}`,
+                      borderRadius: "12px",
+                      padding: "13px 12px",
+                      color: "#f4f4f4",
+                      fontFamily: "Manrope-SemiBold", fontSize: "14px",
+                      outline: "none",
+                      colorScheme: "dark",
+                    }}
+                  />
+                </View>
               ) : (
                 <TextInput
                   value={birthDate}
