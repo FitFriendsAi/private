@@ -130,6 +130,21 @@ export const storage = {
     const [item] = await db.update(foodItems).set(patch).where(eq(foodItems.id, id)).returning();
     return item;
   },
+  /** Returns distinct food items recently logged by a user, ordered by most-recent use. */
+  async getRecentFoodItems(userId: number, limit = 20): Promise<FoodItem[]> {
+    const recent = await db
+      .select({ foodItemId: foodLog.foodItemId, maxDate: sql<string>`max(${foodLog.date})` })
+      .from(foodLog)
+      .where(and(eq(foodLog.userId, userId), sql`${foodLog.foodItemId} is not null`))
+      .groupBy(foodLog.foodItemId)
+      .orderBy(sql`max(${foodLog.date}) desc`)
+      .limit(limit);
+    const ids = recent.map(r => r.foodItemId).filter((id): id is number => id != null);
+    if (ids.length === 0) return [];
+    const items = await db.select().from(foodItems).where(inArray(foodItems.id, ids));
+    const map = new Map(items.map(i => [i.id, i]));
+    return ids.map(id => map.get(id)).filter((i): i is FoodItem => i != null);
+  },
 
   // ── Food Log ───────────────────────────────────────────────────────────────
   async getFoodLog(userId: number, date: string): Promise<FoodLogEntry[]> {

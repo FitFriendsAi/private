@@ -52779,6 +52779,15 @@ var storage = {
     const [item] = await db.update(foodItems).set(patch).where(eq(foodItems.id, id)).returning();
     return item;
   },
+  /** Returns distinct food items recently logged by a user, ordered by most-recent use. */
+  async getRecentFoodItems(userId, limit = 20) {
+    const recent = await db.select({ foodItemId: foodLog.foodItemId, maxDate: sql`max(${foodLog.date})` }).from(foodLog).where(and(eq(foodLog.userId, userId), sql`${foodLog.foodItemId} is not null`)).groupBy(foodLog.foodItemId).orderBy(sql`max(${foodLog.date}) desc`).limit(limit);
+    const ids = recent.map((r2) => r2.foodItemId).filter((id) => id != null);
+    if (ids.length === 0) return [];
+    const items = await db.select().from(foodItems).where(inArray(foodItems.id, ids));
+    const map = new Map(items.map((i2) => [i2.id, i2]));
+    return ids.map((id) => map.get(id)).filter((i2) => i2 != null);
+  },
   // ── Food Log ───────────────────────────────────────────────────────────────
   async getFoodLog(userId, date2) {
     return db.select().from(foodLog).where(and(eq(foodLog.userId, userId), eq(foodLog.date, date2))).orderBy(foodLog.loggedAt);
@@ -57717,6 +57726,11 @@ function registerRoutes(app2) {
     const result = await parseNutritionLabel(imageBase64, mediaType);
     if (!result) return res.status(422).json({ message: "Could not parse nutrition label" });
     res.json(result);
+  });
+  app2.get("/api/food/recent", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const items = await storage.getRecentFoodItems(req.user.id, 20);
+    res.json(items);
   });
   app2.get("/api/food/items/:id", async (req, res) => {
     if (!requireAuth(req, res)) return;

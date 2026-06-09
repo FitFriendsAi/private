@@ -143,8 +143,9 @@ export default function FoodScreen() {
   const [selectedItem, setSelectedItem]     = useState<FoodItem | null>(null);
   const [servings, setServings]             = useState("1");
   const [logTime, setLogTime]               = useState(nowTimeStr);
-  // ── Create meal modal ──
+  // ── Create / edit meal modal ──
   const [showCreateMeal, setShowCreateMeal]         = useState(false);
+  const [editingMeal, setEditingMeal]               = useState<SavedMeal | null>(null);
   const [newMealName, setNewMealName]               = useState("");
   const [newMealDesc, setNewMealDesc]               = useState("");
   const [newMealIngredients, setNewMealIngredients] = useState<
@@ -193,6 +194,10 @@ export default function FoodScreen() {
     queryKey: ["/api/meals"],
     queryFn:  () => apiRequest("GET", "/api/meals"),
   });
+  const { data: recentFoods = [] } = useQuery<FoodItem[]>({
+    queryKey: ["/api/food/recent"],
+    queryFn:  () => apiRequest("GET", "/api/food/recent"),
+  });
 
   // ── Mutations ──
   const addEntry = useMutation({
@@ -237,10 +242,15 @@ export default function FoodScreen() {
     mutationFn: (body: any) => apiRequest("POST", "/api/meals", body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/meals"] });
-      setShowCreateMeal(false);
-      setNewMealName("");
-      setNewMealDesc("");
-      setNewMealIngredients([]);
+      closeMealModal();
+    },
+  });
+
+  const updateMeal = useMutation({
+    mutationFn: ({ id, ...body }: any) => apiRequest("PATCH", `/api/meals/${id}`, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/meals"] });
+      closeMealModal();
     },
   });
 
@@ -360,6 +370,40 @@ export default function FoodScreen() {
     setMealPickerServings("1");
   }
 
+  function closeMealModal() {
+    setShowCreateMeal(false);
+    setEditingMeal(null);
+    setNewMealName("");
+    setNewMealDesc("");
+    setNewMealIngredients([]);
+    closeMealPicker();
+  }
+
+  function openEditMeal(meal: SavedMeal) {
+    setEditingMeal(meal);
+    setNewMealName(meal.name);
+    setNewMealDesc(meal.description ?? "");
+    // Reconstruct per-serving FoodItem from the stored actuals so the existing
+    // ingredient list UI (which expects { foodItem, servings }) works as-is.
+    setNewMealIngredients(meal.ingredients.map(ing => {
+      const sv = ing.servings || 1;
+      return {
+        foodItem: {
+          id: ing.foodItemId ?? 0,
+          name: ing.foodName,
+          calories: ing.caloriesActual / sv,
+          proteinG: ing.proteinActual / sv,
+          carbsG:   ing.carbsActual   / sv,
+          fatG:     ing.fatActual     / sv,
+          servingSizeG: 0,
+        } as FoodItem,
+        servings: sv,
+      };
+    }));
+    closeMealPicker();
+    setShowCreateMeal(true);
+  }
+
   function addIngredientToMeal() {
     if (!mealPickerItem) return;
     const sv = parseFloat(mealPickerServings) || 1;
@@ -396,11 +440,11 @@ export default function FoodScreen() {
       Alert.alert("Add a name and at least one ingredient");
       return;
     }
-    createMeal.mutate({
+    const payload = {
       name: newMealName,
       description: newMealDesc || undefined,
       ingredients: newMealIngredients.map(({ foodItem, servings: sv }) => ({
-        foodItemId: foodItem.id,
+        foodItemId: foodItem.id || undefined,
         foodName: foodItem.name,
         servings: sv,
         caloriesActual: Math.round(foodItem.calories * sv),
@@ -408,7 +452,12 @@ export default function FoodScreen() {
         carbsActual:    Math.round(foodItem.carbsG   * sv * 10) / 10,
         fatActual:      Math.round(foodItem.fatG     * sv * 10) / 10,
       })),
-    });
+    };
+    if (editingMeal) {
+      updateMeal.mutate({ id: editingMeal.id, ...payload });
+    } else {
+      createMeal.mutate(payload);
+    }
   }
 
   function addManualToLog() {
@@ -734,7 +783,7 @@ export default function FoodScreen() {
           <>
             {/* Create new meal button */}
             <Pressable
-              onPress={() => { setNewMealName(""); setNewMealDesc(""); setNewMealIngredients([]); setShowCreateMeal(true); }}
+              onPress={() => { setEditingMeal(null); setNewMealName(""); setNewMealDesc(""); setNewMealIngredients([]); closeMealPicker(); setShowCreateMeal(true); }}
               style={({ pressed }) => ({
                 flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
                 borderRadius: 20, borderWidth: 1.5, borderColor: border, borderStyle: "dashed",
@@ -768,16 +817,25 @@ export default function FoodScreen() {
                           <Text style={{ fontSize: 12, fontFamily: "Manrope", color: muted, marginTop: 2 }}>{meal.description}</Text>
                         ) : null}
                       </View>
-                      <Pressable
-                        onPress={() => Alert.alert("Delete meal", `Delete "${meal.name}"?`, [
-                          { text: "Cancel", style: "cancel" },
-                          { text: "Delete", style: "destructive", onPress: () => deleteMeal.mutate(meal.id) },
-                        ])}
-                        hitSlop={8}
-                        style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, padding: 4, marginLeft: 8 })}
-                      >
-                        <Trash2 size={15} color={muted} />
-                      </Pressable>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                        <Pressable
+                          onPress={() => openEditMeal(meal)}
+                          hitSlop={8}
+                          style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, padding: 4 })}
+                        >
+                          <PenLine size={15} color={muted} />
+                        </Pressable>
+                        <Pressable
+                          onPress={() => Alert.alert("Delete meal", `Delete "${meal.name}"?`, [
+                            { text: "Cancel", style: "cancel" },
+                            { text: "Delete", style: "destructive", onPress: () => deleteMeal.mutate(meal.id) },
+                          ])}
+                          hitSlop={8}
+                          style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, padding: 4 })}
+                        >
+                          <Trash2 size={15} color={muted} />
+                        </Pressable>
+                      </View>
                     </View>
 
                     {/* Macro summary */}
@@ -1011,7 +1069,9 @@ export default function FoodScreen() {
               // Search page — "Done" returns to the main form
               <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 18, color: text }}>Add Ingredients</Text>
             ) : (
-              <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 18, color: text }}>New Saved Meal</Text>
+              <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 18, color: text }}>
+                {editingMeal ? "Edit Meal" : "New Saved Meal"}
+              </Text>
             )}
             {mealPickerPage === "search" ? (
               // Done button — finishes ingredient adding and returns to main form
@@ -1021,7 +1081,7 @@ export default function FoodScreen() {
                 </Text>
               </Pressable>
             ) : (
-              <Pressable onPress={() => { setShowCreateMeal(false); closeMealPicker(); setNewMealName(""); setNewMealDesc(""); setNewMealIngredients([]); }}>
+              <Pressable onPress={closeMealModal}>
                 <X size={22} color={text} />
               </Pressable>
             )}
@@ -1116,14 +1176,16 @@ export default function FoodScreen() {
 
               <Pressable
                 onPress={saveMeal}
-                disabled={createMeal.isPending || !newMealName.trim() || newMealIngredients.length === 0}
+                disabled={createMeal.isPending || updateMeal.isPending || !newMealName.trim() || newMealIngredients.length === 0}
                 style={({ pressed }) => ({
                   backgroundColor: accentActive, borderRadius: 16, paddingVertical: 16, alignItems: "center",
-                  opacity: (pressed || createMeal.isPending || !newMealName.trim() || newMealIngredients.length === 0) ? 0.6 : 1,
+                  opacity: (pressed || createMeal.isPending || updateMeal.isPending || !newMealName.trim() || newMealIngredients.length === 0) ? 0.6 : 1,
                 })}
               >
                 <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 15, color: isWhite ? "#fff" : palette.accentText }}>
-                  {createMeal.isPending ? "Saving…" : "Save Meal"}
+                  {(createMeal.isPending || updateMeal.isPending)
+                    ? "Saving…"
+                    : editingMeal ? "Update Meal" : "Save Meal"}
                 </Text>
               </Pressable>
             </ScrollView>
@@ -1156,6 +1218,24 @@ export default function FoodScreen() {
 
               {mealPickerQuery.length >= 2 && mealPickerResults.length === 0 && !mealPickerSearching && (
                 <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted, textAlign: "center", marginTop: 10 }}>No results found</Text>
+              )}
+
+              {/* Recently used foods — shown when search box is empty */}
+              {mealPickerQuery.length === 0 && recentFoods.length > 0 && (
+                <>
+                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 11, color: muted, letterSpacing: 0.8, marginBottom: 8 }}>RECENTLY USED</Text>
+                  {recentFoods.map(item => (
+                    <Pressable
+                      key={item.id}
+                      onPress={() => { setMealPickerItem(item); setMealPickerPage("item"); }}
+                      style={({ pressed }) => ({ backgroundColor: card, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: border, marginBottom: 8, opacity: pressed ? 0.7 : 1 })}
+                    >
+                      {item.brand && <Text style={{ fontFamily: "Manrope-Bold", fontSize: 10, color: "#aaaaaa", letterSpacing: 0.6, marginBottom: 2 }}>{item.brand.toUpperCase()}</Text>}
+                      <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 14, color: text }}>{item.name}</Text>
+                      <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted, marginTop: 2 }}>{item.calories} kcal · P {item.proteinG}g · C {item.carbsG}g · F {item.fatG}g</Text>
+                    </Pressable>
+                  ))}
+                </>
               )}
 
               {mealPickerResults.map(item => (

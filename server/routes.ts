@@ -536,6 +536,12 @@ export function registerRoutes(app: Express) {
     res.json(result);
   });
 
+  app.get("/api/food/recent", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const items = await storage.getRecentFoodItems((req.user as any).id, 20);
+    res.json(items);
+  });
+
   app.get("/api/food/items/:id", async (req, res) => {
     if (!requireAuth(req, res)) return;
     let item = await storage.getFoodItemById(Number(req.params.id));
