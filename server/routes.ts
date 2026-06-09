@@ -476,7 +476,7 @@ If there are no active goals with deadlines, set goalFeasibility to [] and progr
       }
       const client = new Anthropic({ apiKey });
       const msg = await client.messages.create({
-        model: "claude-opus-4-5",
+        model: "claude-sonnet-4-5",
         max_tokens: 8192,
         messages: [{ role: "user", content: prompt }],
       });
@@ -606,7 +606,7 @@ Return ONLY valid JSON (no markdown):
       if (!apiKey2) return res.status(500).json({ message: "AI service is not configured." });
       const client = new Anthropic({ apiKey: apiKey2 });
       const msg = await client.messages.create({
-        model: "claude-opus-4-5",
+        model: "claude-sonnet-4-5",
         max_tokens: 512,
         messages: [{ role: "user", content: checkinPrompt }],
       });
@@ -1699,7 +1699,7 @@ Return ONLY valid JSON (no markdown, no explanation):
 }`;
 
       const msg = await client.messages.create({
-        model: "claude-opus-4-7",
+        model: "claude-sonnet-4-5",
         max_tokens: 1600,
         messages: [{ role: "user", content: prompt }],
       });
