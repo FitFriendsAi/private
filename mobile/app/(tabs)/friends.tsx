@@ -165,11 +165,11 @@ export default function FriendsScreen() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/friends"] }); },
   });
 
-  // Search platform users by name / email
+  // Search platform users by name / email (empty query = browse all)
   const { data: searchResults = [], isFetching: searchLoading } = useQuery<any[]>({
     queryKey: ["/api/users/search", debouncedSearch],
     queryFn:  () => apiRequest("GET", `/api/users/search?q=${encodeURIComponent(debouncedSearch)}`),
-    enabled:  debouncedSearch.length >= 2,
+    enabled:  showAddModal && modalTab === "add" && addMode === "search",
   });
 
   // Send friend request by user ID (used from search results)
@@ -689,15 +689,10 @@ export default function FriendsScreen() {
                       <Text style={{ fontFamily: "Manrope", fontSize: 12, color: "#ef4444", marginBottom: 10 }}>{addError}</Text>
                     ) : null}
 
-                    {/* Results */}
-                    {debouncedSearch.length < 2 ? (
-                      <View style={{ alignItems: "center", paddingVertical: 28, gap: 8 }}>
-                        <Search size={28} color="#333" strokeWidth={1.5} />
-                        <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted, textAlign: "center" }}>
-                          Type a name or email to find people on FitCore
-                        </Text>
-                      </View>
-                    ) : !searchLoading && searchResults.length === 0 ? (
+                    {/* Results list — scrollable, shown immediately */}
+                    {searchLoading && searchResults.length === 0 ? (
+                      <ActivityIndicator color={LIME} style={{ paddingVertical: 32 }} />
+                    ) : searchResults.length === 0 ? (
                       <View style={{ alignItems: "center", paddingVertical: 24, gap: 8 }}>
                         <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 14, color: muted }}>No users found</Text>
                         <Pressable onPress={() => setAddMode("email")}>
@@ -707,12 +702,17 @@ export default function FriendsScreen() {
                         </Pressable>
                       </View>
                     ) : (
-                      <View style={{ gap: 2 }}>
-                        {searchResults.map((u: any) => (
+                      <ScrollView
+                        style={{ maxHeight: 320 }}
+                        showsVerticalScrollIndicator={false}
+                        nestedScrollEnabled
+                      >
+                        {searchResults.map((u: any, i: number) => (
                           <View key={u.id} style={{
                             flexDirection: "row", alignItems: "center", gap: 12,
                             paddingVertical: 10, paddingHorizontal: 4,
-                            borderBottomWidth: 1, borderBottomColor: border,
+                            borderBottomWidth: i < searchResults.length - 1 ? 1 : 0,
+                            borderBottomColor: border,
                           }}>
                             <Avatar initials={u.initials} color={u.color} size={42} />
                             <Text style={{ flex: 1, fontFamily: "Manrope-SemiBold", fontSize: 15, color: text }}>
@@ -755,7 +755,7 @@ export default function FriendsScreen() {
                             )}
                           </View>
                         ))}
-                      </View>
+                      </ScrollView>
                     )}
 
                     <Pressable onPress={() => setModalTab("invite")} style={{ marginTop: 16, alignItems: "center" }}>

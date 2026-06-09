@@ -245745,19 +245745,19 @@ var storage = {
     const row = await this.getFriendship(userId, friendId);
     return row?.status === "accepted";
   },
-  /** Search users by name or email, excluding self, returning friendship status */
+  /** Search users by name or email, excluding self, returning friendship status.
+   *  When query is empty, returns all platform users (browse mode). */
   async searchUsers(currentUserId, query) {
-    if (!query.trim()) return [];
-    const q2 = `%${query.toLowerCase()}%`;
+    const q2 = query.trim();
     const results = await db.select().from(users).where(
-      and(
+      q2 ? and(
         ne(users.id, currentUserId),
         or(
-          sql`lower(${users.name}) like ${q2}`,
-          sql`lower(${users.email}) like ${q2}`
+          sql`lower(${users.name}) like ${`%${q2.toLowerCase()}%`}`,
+          sql`lower(${users.email}) like ${`%${q2.toLowerCase()}%`}`
         )
-      )
-    ).limit(20);
+      ) : ne(users.id, currentUserId)
+    ).orderBy(users.name).limit(50);
     return await Promise.all(results.map(async (u2) => {
       const friendship = await this.getFriendship(currentUserId, u2.id);
       let friendshipStatus = "none";
@@ -256296,7 +256296,6 @@ Return ONLY valid JSON (no markdown, no explanation):
     if (!requireAuth(req, res)) return;
     const userId = req.user.id;
     const q2 = String(req.query.q ?? "").trim();
-    if (!q2 || q2.length < 2) return res.json([]);
     const results = await storage.searchUsers(userId, q2);
     res.json(results.map((u2) => ({
       id: u2.id,

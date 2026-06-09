@@ -858,26 +858,29 @@ export const storage = {
     return row?.status === "accepted";
   },
 
-  /** Search users by name or email, excluding self, returning friendship status */
+  /** Search users by name or email, excluding self, returning friendship status.
+   *  When query is empty, returns all platform users (browse mode). */
   async searchUsers(currentUserId: number, query: string): Promise<Array<{
     id: number;
     name: string;
     friendshipStatus: "none" | "pending_sent" | "pending_received" | "friends";
     friendshipId?: number;
   }>> {
-    if (!query.trim()) return [];
-    const q = `%${query.toLowerCase()}%`;
+    const q = query.trim();
     const results = await db.select().from(users)
       .where(
-        and(
-          ne(users.id, currentUserId),
-          or(
-            sql`lower(${users.name}) like ${q}`,
-            sql`lower(${users.email}) like ${q}`,
-          )
-        )
+        q
+          ? and(
+              ne(users.id, currentUserId),
+              or(
+                sql`lower(${users.name}) like ${`%${q.toLowerCase()}%`}`,
+                sql`lower(${users.email}) like ${`%${q.toLowerCase()}%`}`,
+              )
+            )
+          : ne(users.id, currentUserId)
       )
-      .limit(20);
+      .orderBy(users.name)
+      .limit(50);
 
     return await Promise.all(results.map(async (u) => {
       const friendship = await this.getFriendship(currentUserId, u.id);

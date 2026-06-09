@@ -1817,7 +1817,6 @@ Return ONLY valid JSON (no markdown, no explanation):
     if (!requireAuth(req, res)) return;
     const userId = (req.user as any).id;
     const q = String(req.query.q ?? "").trim();
-    if (!q || q.length < 2) return res.json([]);
     const results = await storage.searchUsers(userId, q);
     res.json(results.map(u => ({
       id:               u.id,
