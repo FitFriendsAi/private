@@ -151,19 +151,12 @@ const WEIGHT_UNIT_OPTIONS = [
   { label: "Pounds (lbs)", value: "lbs" },
   { label: "Kilograms (kg)", value: "kg" },
 ];
-const VOLUME_UNIT_OPTIONS = [
-  { label: "Fluid ounces (oz)", value: "oz" },
-  { label: "Millilitres (ml)", value: "ml" },
-];
 
 function activityLabel(v: string) {
   return ACTIVITY_OPTIONS.find(o => o.value === v)?.label ?? v;
 }
 function weightUnitLabel(v: string) {
   return WEIGHT_UNIT_OPTIONS.find(o => o.value === v)?.label ?? v;
-}
-function volumeUnitLabel(v: string) {
-  return VOLUME_UNIT_OPTIONS.find(o => o.value === v)?.label ?? v;
 }
 function sexLabel(v: string) {
   return SEX_OPTIONS.find(o => o.value === v)?.label ?? v;
@@ -198,7 +191,6 @@ export default function SettingsScreen() {
   const [sex,          setSex]          = useState("male");
   const [activityLevel, setActivityLevel] = useState("moderate");
   const [weightUnit,   setWeightUnit]   = useState("lbs");
-  const [volumeUnit,   setVolumeUnit]   = useState("oz");
 
   // Populate form when profile loads
   useEffect(() => {
@@ -210,7 +202,6 @@ export default function SettingsScreen() {
     setSex(profile.sex ?? "male");
     setActivityLevel(profile.activityLevel ?? "moderate");
     setWeightUnit(profile.weightUnitPreference ?? "lbs");
-    setVolumeUnit(profile.volumeUnitPreference ?? "oz");
   }, [profile]);
 
   // ── Save profile ──
@@ -221,7 +212,6 @@ export default function SettingsScreen() {
       sex,
       activityLevel,
       weightUnitPreference: weightUnit,
-      volumeUnitPreference: volumeUnit,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/profile"] });
@@ -284,7 +274,7 @@ export default function SettingsScreen() {
 
   // ── Picker modal state ──
   const [openPicker, setOpenPicker] = useState<
-    "sex" | "activity" | "weightUnit" | "volumeUnit" | null
+    "sex" | "activity" | "weightUnit" | null
   >(null);
 
   const pickerProps = {
@@ -459,28 +449,34 @@ export default function SettingsScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: muted, marginBottom: 6 }}>Height</Text>
                 <View style={{ flexDirection: "row", gap: 8 }}>
-                  <View style={{ flex: 1, flexDirection: "row", alignItems: "center", backgroundColor: "#111111", borderRadius: 12, borderWidth: 1, borderColor: border, paddingHorizontal: 10 }}>
-                    <TextInput
-                      value={ftVal}
-                      onChangeText={setFtVal}
-                      placeholder="ft"
-                      placeholderTextColor={muted}
-                      keyboardType="number-pad"
-                      maxLength={1}
-                      style={{ flex: 1, padding: 11, textAlign: "center", fontFamily: "Manrope-SemiBold", fontSize: 14, color: text }}
-                    />
-                  </View>
-                  <View style={{ flex: 1, flexDirection: "row", alignItems: "center", backgroundColor: "#111111", borderRadius: 12, borderWidth: 1, borderColor: border, paddingHorizontal: 10 }}>
-                    <TextInput
-                      value={inVal}
-                      onChangeText={setInVal}
-                      placeholder="in"
-                      placeholderTextColor={muted}
-                      keyboardType="number-pad"
-                      maxLength={2}
-                      style={{ flex: 1, padding: 11, textAlign: "center", fontFamily: "Manrope-SemiBold", fontSize: 14, color: text }}
-                    />
-                  </View>
+                  <TextInput
+                    value={ftVal}
+                    onChangeText={t => setFtVal(t.replace(/[^0-9]/g, ""))}
+                    placeholder="ft"
+                    placeholderTextColor={muted}
+                    keyboardType="numeric"
+                    maxLength={1}
+                    style={{
+                      flex: 1, backgroundColor: "#111111", borderRadius: 12,
+                      padding: 12, textAlign: "center",
+                      borderWidth: 1, borderColor: border,
+                      fontFamily: "Manrope-SemiBold", fontSize: 14, color: text,
+                    }}
+                  />
+                  <TextInput
+                    value={inVal}
+                    onChangeText={t => setInVal(t.replace(/[^0-9]/g, ""))}
+                    placeholder="in"
+                    placeholderTextColor={muted}
+                    keyboardType="numeric"
+                    maxLength={2}
+                    style={{
+                      flex: 1, backgroundColor: "#111111", borderRadius: 12,
+                      padding: 12, textAlign: "center",
+                      borderWidth: 1, borderColor: border,
+                      fontFamily: "Manrope-SemiBold", fontSize: 14, color: text,
+                    }}
+                  />
                 </View>
               </View>
 
@@ -539,24 +535,14 @@ export default function SettingsScreen() {
               </View>
             </View>
 
-            {/* Weight Units + Volume Units row */}
-            <View style={{ flexDirection: "row", gap: 12, marginBottom: 18 }}>
-              <View style={{ flex: 1 }}>
-                <SelectPill
-                  label="Weight Units"
-                  value={weightUnitLabel(weightUnit)}
-                  onPress={() => setOpenPicker("weightUnit")}
-                  card={card} border={border} text={text} muted={muted}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <SelectPill
-                  label="Volume Units"
-                  value={volumeUnitLabel(volumeUnit)}
-                  onPress={() => setOpenPicker("volumeUnit")}
-                  card={card} border={border} text={text} muted={muted}
-                />
-              </View>
+            {/* Weight Units row */}
+            <View style={{ marginBottom: 18 }}>
+              <SelectPill
+                label="Weight Units"
+                value={weightUnitLabel(weightUnit)}
+                onPress={() => setOpenPicker("weightUnit")}
+                card={card} border={border} text={text} muted={muted}
+              />
             </View>
 
             {/* Save button */}
@@ -693,14 +679,6 @@ export default function SettingsScreen() {
         options={WEIGHT_UNIT_OPTIONS}
         value={weightUnit}
         onSelect={setWeightUnit}
-      />
-      <OptionsModal
-        {...pickerProps}
-        visible={openPicker === "volumeUnit"}
-        title="Volume Units"
-        options={VOLUME_UNIT_OPTIONS}
-        value={volumeUnit}
-        onSelect={setVolumeUnit}
       />
     </SafeAreaView>
   );
