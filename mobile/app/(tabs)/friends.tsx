@@ -299,31 +299,48 @@ export default function FriendsScreen() {
             {/* Posts */}
             <View style={{ paddingHorizontal: 16, gap: 12 }}>
               {friends.length === 0 && !loadingFriends ? (
-                <View style={{ backgroundColor: card, borderRadius: 20, borderWidth: 1, borderColor: border, padding: 32, alignItems: "center", gap: 14 }}>
-                  <UserPlus size={32} color={muted} strokeWidth={1.5} />
-                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 14, color: muted, textAlign: "center" }}>
-                    No friends yet
-                  </Text>
+                <View style={{ backgroundColor: card, borderRadius: 20, borderWidth: 1, borderColor: border, padding: 28 }}>
+                  {/* Icon + message */}
+                  <View style={{ alignItems: "center", marginBottom: 20 }}>
+                    <View style={{
+                      width: 56, height: 56, borderRadius: 28,
+                      backgroundColor: "#1e1e1e", borderWidth: 1, borderColor: border,
+                      alignItems: "center", justifyContent: "center", marginBottom: 12,
+                    }}>
+                      <UserPlus size={24} color={muted} strokeWidth={1.5} />
+                    </View>
+                    <Text style={{ fontFamily: "Manrope-Bold", fontSize: 15, color: text, marginBottom: 4 }}>
+                      No friends yet
+                    </Text>
+                    <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted, textAlign: "center" }}>
+                      Add people already on FitCore or invite someone new
+                    </Text>
+                  </View>
+                  {/* Buttons — full width row */}
                   <View style={{ flexDirection: "row", gap: 10 }}>
                     <Pressable
                       onPress={() => openModal("add")}
                       style={({ pressed }) => ({
                         flex: 1, backgroundColor: "#1e1e1e", borderRadius: 14,
                         borderWidth: 1, borderColor: border,
-                        paddingVertical: 11, alignItems: "center",
+                        paddingVertical: 13, alignItems: "center", justifyContent: "center",
+                        flexDirection: "row", gap: 6,
                         opacity: pressed ? 0.7 : 1,
                       })}
                     >
+                      <UserPlus size={14} color={text} />
                       <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: text }}>Add Friend</Text>
                     </Pressable>
                     <Pressable
                       onPress={() => openModal("invite")}
                       style={({ pressed }) => ({
                         flex: 1, backgroundColor: LIME, borderRadius: 14,
-                        paddingVertical: 11, alignItems: "center",
+                        paddingVertical: 13, alignItems: "center", justifyContent: "center",
+                        flexDirection: "row", gap: 6,
                         opacity: pressed ? 0.7 : 1,
                       })}
                     >
+                      <Send size={14} color="#0a0a0a" />
                       <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: "#0a0a0a" }}>Invite Friends</Text>
                     </Pressable>
                   </View>
