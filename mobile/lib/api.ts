@@ -56,7 +56,8 @@ export class ApiError extends Error {
 export async function apiRequest<T = unknown>(
   method: "GET" | "POST" | "PATCH" | "DELETE" | "PUT",
   path: string,
-  body?: unknown
+  body?: unknown,
+  timeoutMs = 10_000
 ): Promise<T> {
   const token = await getToken();
   const headers: Record<string, string> = {
@@ -64,9 +65,9 @@ export async function apiRequest<T = unknown>(
   };
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  // Abort after 10 s so the user gets an error instead of infinite spin
+  // Abort after timeoutMs so the user gets an error instead of infinite spin
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10_000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   let res: Response;
   try {

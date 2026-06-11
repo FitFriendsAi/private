@@ -186,6 +186,7 @@ export default function FoodScreen() {
   const [mealPickerResults, setMealPickerResults]   = useState<FoodItem[]>([]);
   const [mealPickerSearching, setMealPickerSearching] = useState(false);
   const [mealPickerItem, setMealPickerItem]         = useState<FoodItem | null>(null);
+  const [mealPickerAddingItem, setMealPickerAddingItem] = useState(false);
   const [mealPickerServings, setMealPickerServings] = useState("1");
   const [mealPickerBarcodeLoading, setMealPickerBarcodeLoading]     = useState(false);
   const [mealPickerBarcodeError, setMealPickerBarcodeError]         = useState("");
@@ -342,11 +343,22 @@ export default function FoodScreen() {
   const [manualProtein, setManualProtein] = useState("");
   const [manualCarbs, setManualCarbs]     = useState("");
   const [manualFat, setManualFat]         = useState("");
+  const [manualShowExtra, setManualShowExtra] = useState(false);
+  const [manualFiber, setManualFiber]       = useState("");
+  const [manualSugar, setManualSugar]       = useState("");
+  const [manualSodium, setManualSodium]     = useState("");
+  const [manualSatFat, setManualSatFat]     = useState("");
+  const [manualTransFat, setManualTransFat] = useState("");
+  const [manualCholesterol, setManualCholesterol] = useState("");
+  const [manualPotassium, setManualPotassium]     = useState("");
 
   function resetAddModal() {
     setAddView("home");
     setShowMealPicker(false);
     setManualName(""); setManualCals(""); setManualProtein(""); setManualCarbs(""); setManualFat("");
+    setManualShowExtra(false);
+    setManualFiber(""); setManualSugar(""); setManualSodium(""); setManualSatFat("");
+    setManualTransFat(""); setManualCholesterol(""); setManualPotassium("");
     setBarcodeError(""); setBarcodeManualCode(""); setBarcodeLoading(false);
     setScanLabelError(""); setScanLabelLoading(false);
   }
@@ -449,10 +461,16 @@ export default function FoodScreen() {
     setShowCreateMeal(true);
   }
 
-  function addIngredientToMeal() {
+  async function addIngredientToMeal() {
     if (!mealPickerItem) return;
     const sv = parseFloat(mealPickerServings) || 1;
-    setNewMealIngredients(prev => [...prev, { foodItem: mealPickerItem!, servings: sv }]);
+
+    setMealPickerAddingItem(true);
+    const foodItemId = await ensureFoodItemId(mealPickerItem);
+    setMealPickerAddingItem(false);
+
+    const foodItem = foodItemId ? { ...mealPickerItem, id: foodItemId } : mealPickerItem;
+    setNewMealIngredients(prev => [...prev, { foodItem, servings: sv }]);
     // Stay on the search page (cleared) so the user can immediately add another ingredient.
     // They tap "Done" in the header to return to the main form.
     setMealPickerItem(null);
@@ -529,7 +547,7 @@ export default function FoodScreen() {
       setMealPickerScanLabelError("");
       try {
         const { base64, mediaType } = await resizeFileForUpload(file, 1600, 0.85);
-        const data = await apiRequest<any>("POST", "/api/food/scan-label", { imageBase64: base64, mediaType });
+        const data = await apiRequest<any>("POST", "/api/food/scan-label", { imageBase64: base64, mediaType }, 45_000);
         const item = await apiRequest<FoodItem>("POST", "/api/food/items", {
           name: data.name || "Scanned Food",
           brand: data.brand || undefined,
@@ -555,46 +573,47 @@ export default function FoodScreen() {
     input.click();
   }
 
+  // Search results from external sources (USDA/FatSecret/OFF/CalorieNinjas) have no
+  // food_items.id yet — persist them first so log entries / meal ingredients can link
+  // to full nutrition (fiber, sodium, sugar, etc.) instead of just the 4 basic macros.
+  async function ensureFoodItemId(item: FoodItem): Promise<number | undefined> {
+    if (item.id) return item.id;
+    try {
+      const created = await apiRequest<FoodItem>("POST", "/api/food/items", {
+        name: item.name,
+        brand: item.brand || undefined,
+        servingSizeG: item.servingSizeG || 100,
+        servingUnit: item.servingUnit || "serving",
+        calories: item.calories,
+        proteinG: item.proteinG,
+        carbsG: item.carbsG,
+        fatG: item.fatG,
+        fiberG: item.fiberG,
+        sodiumMg: item.sodiumMg,
+        sugarG: item.sugarG,
+        saturatedFatG: item.saturatedFatG,
+        transFatG: item.transFatG,
+        cholesterolMg: item.cholesterolMg,
+        potassiumMg: item.potassiumMg,
+        calciumMg: item.calciumMg,
+        ironMg: item.ironMg,
+        vitaminDMcg: item.vitaminDMcg,
+        vitaminCMg: item.vitaminCMg,
+        source: item.source || "search",
+      });
+      return created.id;
+    } catch {
+      return undefined;
+    }
+  }
+
   async function addToLog() {
     if (!selectedItem) return;
     const sv = parseFloat(servings) || 1;
 
-    // Search results from external sources (USDA/FatSecret/OFF/CalorieNinjas) have no
-    // food_items.id yet — persist them first so the log entry can link to full nutrition
-    // (fiber, sodium, sugar, etc.) instead of just the 4 macros stored on the log entry.
-    let foodItemId = selectedItem.id;
-    if (!foodItemId) {
-      try {
-        setCreatingItem(true);
-        const item = await apiRequest<FoodItem>("POST", "/api/food/items", {
-          name: selectedItem.name,
-          brand: selectedItem.brand || undefined,
-          servingSizeG: selectedItem.servingSizeG || 100,
-          servingUnit: selectedItem.servingUnit || "serving",
-          calories: selectedItem.calories,
-          proteinG: selectedItem.proteinG,
-          carbsG: selectedItem.carbsG,
-          fatG: selectedItem.fatG,
-          fiberG: selectedItem.fiberG,
-          sodiumMg: selectedItem.sodiumMg,
-          sugarG: selectedItem.sugarG,
-          saturatedFatG: selectedItem.saturatedFatG,
-          transFatG: selectedItem.transFatG,
-          cholesterolMg: selectedItem.cholesterolMg,
-          potassiumMg: selectedItem.potassiumMg,
-          calciumMg: selectedItem.calciumMg,
-          ironMg: selectedItem.ironMg,
-          vitaminDMcg: selectedItem.vitaminDMcg,
-          vitaminCMg: selectedItem.vitaminCMg,
-          source: selectedItem.source || "search",
-        });
-        foodItemId = item.id;
-      } catch {
-        // fall back to logging without a linked food item
-      } finally {
-        setCreatingItem(false);
-      }
-    }
+    setCreatingItem(true);
+    const foodItemId = await ensureFoodItemId(selectedItem);
+    setCreatingItem(false);
 
     addEntry.mutate({
       date: today,
@@ -656,17 +675,56 @@ export default function FoodScreen() {
     );
   }
 
-  function addManualToLog() {
+  async function addManualToLog() {
     if (!manualName.trim()) return Alert.alert("Enter a food name");
     const cals = parseFloat(manualCals) || 0;
     const sv = parseFloat(servings) || 1;
+    const proteinG = parseFloat(manualProtein) || 0;
+    const carbsG   = parseFloat(manualCarbs)   || 0;
+    const fatG     = parseFloat(manualFat)     || 0;
+
+    // If the user filled in any extra nutrition fields, save them as a custom food_items
+    // entry so the detail view can show fiber/sodium/sugar/etc. for this entry.
+    const extra = {
+      fiberG:         parseFloat(manualFiber)       || undefined,
+      sugarG:         parseFloat(manualSugar)       || undefined,
+      sodiumMg:       parseFloat(manualSodium)      || undefined,
+      saturatedFatG:  parseFloat(manualSatFat)      || undefined,
+      transFatG:      parseFloat(manualTransFat)    || undefined,
+      cholesterolMg:  parseFloat(manualCholesterol) || undefined,
+      potassiumMg:    parseFloat(manualPotassium)   || undefined,
+    };
+    let foodItemId: number | undefined;
+    if (Object.values(extra).some(v => v !== undefined)) {
+      try {
+        setCreatingItem(true);
+        const item = await apiRequest<FoodItem>("POST", "/api/food/items", {
+          name: manualName.trim(),
+          servingSizeG: 1,
+          servingUnit: "serving",
+          calories: cals / sv,
+          proteinG: proteinG / sv,
+          carbsG:   carbsG   / sv,
+          fatG:     fatG     / sv,
+          ...Object.fromEntries(Object.entries(extra).map(([k, v]) => [k, v != null ? v / sv : v])),
+          source: "custom",
+        });
+        foodItemId = item.id;
+      } catch {
+        // fall back to logging without a linked food item
+      } finally {
+        setCreatingItem(false);
+      }
+    }
+
     addEntry.mutate({
       date: today, mealType: activeMeal,
+      foodItemId,
       foodName: manualName.trim(), servings: sv,
       caloriesActual: cals,
-      proteinActual: parseFloat(manualProtein) || 0,
-      carbsActual:   parseFloat(manualCarbs)   || 0,
-      fatActual:     parseFloat(manualFat)     || 0,
+      proteinActual: proteinG,
+      carbsActual:   carbsG,
+      fatActual:     fatG,
       loggedAt: timeStrToISO(logTime),
     });
   }
@@ -802,8 +860,8 @@ export default function FoodScreen() {
       try {
         // Resize before sending — full-res iPhone photos (8–15 MB) exceed Claude's limit
         const { base64, mediaType } = await resizeFileForUpload(file, 1600, 0.85);
-        // Claude Vision extracts nutrition facts
-        const data = await apiRequest<any>("POST", "/api/food/scan-label", { imageBase64: base64, mediaType });
+        // Claude Vision extracts nutrition facts — give it more time than the default 10s
+        const data = await apiRequest<any>("POST", "/api/food/scan-label", { imageBase64: base64, mediaType }, 45_000);
         // Persist as a food item so the log entry has a real id
         const item = await apiRequest<FoodItem>("POST", "/api/food/items", {
           name: data.name || "Scanned Food",
@@ -1665,10 +1723,11 @@ export default function FoodScreen() {
 
               <Pressable
                 onPress={addIngredientToMeal}
-                style={({ pressed }) => ({ backgroundColor: accentActive, borderRadius: 16, paddingVertical: 16, alignItems: "center", opacity: pressed ? 0.7 : 1 })}
+                disabled={mealPickerAddingItem}
+                style={({ pressed }) => ({ backgroundColor: accentActive, borderRadius: 16, paddingVertical: 16, alignItems: "center", opacity: (pressed || mealPickerAddingItem) ? 0.7 : 1 })}
               >
                 <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 15, color: isWhite ? "#fff" : palette.accentText }}>
-                  Add Ingredient
+                  {mealPickerAddingItem ? "Adding…" : "Add Ingredient"}
                 </Text>
               </Pressable>
             </ScrollView>
@@ -1896,6 +1955,33 @@ export default function FoodScreen() {
                   </View>
                 ))}
 
+                <Pressable onPress={() => setManualShowExtra(v => !v)} style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 14 }}>
+                  <ChevronDown size={16} color={muted} style={{ transform: [{ rotate: manualShowExtra ? "180deg" : "0deg" }] }} />
+                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: muted }}>
+                    {manualShowExtra ? "Hide additional nutrition" : "Add additional nutrition (optional)"}
+                  </Text>
+                </Pressable>
+
+                {manualShowExtra && [
+                  { label: "FIBER (g)", value: manualFiber, set: setManualFiber, placeholder: "0" },
+                  { label: "SUGAR (g)", value: manualSugar, set: setManualSugar, placeholder: "0" },
+                  { label: "SODIUM (mg)", value: manualSodium, set: setManualSodium, placeholder: "0" },
+                  { label: "SATURATED FAT (g)", value: manualSatFat, set: setManualSatFat, placeholder: "0" },
+                  { label: "TRANS FAT (g)", value: manualTransFat, set: setManualTransFat, placeholder: "0" },
+                  { label: "CHOLESTEROL (mg)", value: manualCholesterol, set: setManualCholesterol, placeholder: "0" },
+                  { label: "POTASSIUM (mg)", value: manualPotassium, set: setManualPotassium, placeholder: "0" },
+                ].map(f => (
+                  <View key={f.label} style={{ marginBottom: 14 }}>
+                    <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 11, color: muted, letterSpacing: 0.8, marginBottom: 6 }}>{f.label}</Text>
+                    <TextInput
+                      value={f.value} onChangeText={f.set}
+                      placeholder={f.placeholder} placeholderTextColor={muted}
+                      keyboardType="decimal-pad"
+                      style={{ backgroundColor: card, borderRadius: 12, padding: 13, borderWidth: 1, borderColor: border, fontFamily: "Manrope-SemiBold", fontSize: 15, color: text }}
+                    />
+                  </View>
+                ))}
+
                 {/* Time override */}
                 <View style={{ marginBottom: 14 }}>
                   <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 11, color: muted, letterSpacing: 0.8, marginBottom: 6 }}>TIME</Text>
@@ -1909,11 +1995,11 @@ export default function FoodScreen() {
 
                 <Pressable
                   onPress={addManualToLog}
-                  disabled={addEntry.isPending || !manualName.trim()}
-                  style={({ pressed }) => ({ backgroundColor: accentActive, borderRadius: 16, paddingVertical: 16, alignItems: "center", marginTop: 8, opacity: (pressed || addEntry.isPending || !manualName.trim()) ? 0.6 : 1 })}
+                  disabled={addEntry.isPending || creatingItem || !manualName.trim()}
+                  style={({ pressed }) => ({ backgroundColor: accentActive, borderRadius: 16, paddingVertical: 16, alignItems: "center", marginTop: 8, opacity: (pressed || addEntry.isPending || creatingItem || !manualName.trim()) ? 0.6 : 1 })}
                 >
                   <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 15, color: isWhite ? "#fff" : palette.accentText }}>
-                    {addEntry.isPending ? "Adding…" : `Add to ${MEAL_LABELS[activeMeal]}`}
+                    {(addEntry.isPending || creatingItem) ? "Adding…" : `Add to ${MEAL_LABELS[activeMeal]}`}
                   </Text>
                 </Pressable>
               </>
