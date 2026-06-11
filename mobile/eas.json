@@ -9,7 +9,7 @@
       "distribution": "internal",
       "ios": { "simulator": false },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://fitfriends.replit.app"
+        "EXPO_PUBLIC_API_URL": "https://fitfriends-z30o.onrender.com"
       }
     },
     "preview": {
@@ -17,14 +17,14 @@
       "autoIncrement": true,
       "ios": { "simulator": false },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://fitfriends.replit.app"
+        "EXPO_PUBLIC_API_URL": "https://fitfriends-z30o.onrender.com"
       }
     },
     "production": {
       "distribution": "store",
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://fitfriends.replit.app"
+        "EXPO_PUBLIC_API_URL": "https://fitfriends-z30o.onrender.com"
       }
     }
   },

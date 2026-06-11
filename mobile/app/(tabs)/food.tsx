@@ -10,7 +10,7 @@ import { apiRequest } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
 import { useHealth } from "@/hooks/use-health";
 import { todayStr, nowTimeStr, timeStrToISO, fmtTime } from "@/lib/utils";
-import { Plus, Search, X, ChevronRight, UtensilsCrossed, Trash2, ScanLine, Camera, PenLine, ChevronDown } from "lucide-react-native";
+import { Plus, Minus, Search, X, ChevronRight, UtensilsCrossed, Trash2, ScanLine, Camera, PenLine, ChevronDown } from "lucide-react-native";
 import Svg, { Circle } from "react-native-svg";
 
 const MEALS = ["breakfast", "lunch", "dinner", "snack"] as const;
@@ -196,10 +196,12 @@ export default function FoodScreen() {
   const [detailEntry, setDetailEntry]     = useState<FoodLogEntry | null>(null);
   const [detailItem,  setDetailItem]      = useState<FoodItem | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [editServings, setEditServings]   = useState("1");
 
   async function openDetail(entry: FoodLogEntry) {
     setDetailEntry(entry);
     setDetailItem(null);
+    setEditServings(String(entry.servings));
     if (entry.foodItemId) {
       setDetailLoading(true);
       try {
@@ -258,6 +260,11 @@ export default function FoodScreen() {
 
   const deleteEntry = useMutation({
     mutationFn: (id: number) => apiRequest("DELETE", `/api/food-log/${id}`),
+    onSuccess:  () => qc.invalidateQueries({ queryKey: ["/api/food-log", today] }),
+  });
+
+  const updateEntry = useMutation({
+    mutationFn: ({ id, ...body }: any) => apiRequest<FoodLogEntry>("PATCH", `/api/food-log/${id}`, body),
     onSuccess:  () => qc.invalidateQueries({ queryKey: ["/api/food-log", today] }),
   });
 
@@ -590,6 +597,26 @@ export default function FoodScreen() {
     }
   }
 
+  // Scale a logged entry's macros to a new serving amount and persist it.
+  function saveServings() {
+    const e = detailEntry;
+    if (!e) return;
+    const newSv = parseFloat(editServings);
+    if (!newSv || newSv <= 0 || Math.abs(newSv - e.servings) < 0.001) return;
+    const ratio = e.servings > 0 ? newSv / e.servings : 1;
+    updateEntry.mutate(
+      {
+        id: e.id,
+        servings: newSv,
+        caloriesActual: Math.round(e.caloriesActual * ratio),
+        proteinActual:  Math.round(e.proteinActual * ratio * 10) / 10,
+        carbsActual:    Math.round(e.carbsActual   * ratio * 10) / 10,
+        fatActual:      Math.round(e.fatActual     * ratio * 10) / 10,
+      },
+      { onSuccess: (updated) => setDetailEntry(updated) }
+    );
+  }
+
   function addManualToLog() {
     if (!manualName.trim()) return Alert.alert("Enter a food name");
     const cals = parseFloat(manualCals) || 0;
@@ -888,13 +915,17 @@ export default function FoodScreen() {
                           <Text style={{ fontSize: 11, fontFamily: "Manrope", color: PURPLE }}>F {gFat}g</Text>
                         </View>
                       </View>
-                      {/* Individual ingredient lines */}
+                      {/* Individual ingredient lines — tap to adjust serving amount */}
                       {row.entries.map(e => (
-                        <View key={e.id} style={{ paddingHorizontal: 18, paddingVertical: 6, flexDirection: "row", alignItems: "center", borderTopWidth: 1, borderTopColor: `${border}88` }}>
+                        <Pressable
+                          key={e.id}
+                          onPress={() => openDetail(e)}
+                          style={({ pressed }) => ({ paddingHorizontal: 18, paddingVertical: 6, flexDirection: "row", alignItems: "center", borderTopWidth: 1, borderTopColor: `${border}88`, opacity: pressed ? 0.6 : 1 })}
+                        >
                           <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: muted, marginRight: 10, opacity: 0.4 }} />
                           <Text numberOfLines={1} style={{ flex: 1, fontSize: 12, fontFamily: "Manrope", color: muted }}>{e.foodName}</Text>
                           <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>{Math.round(e.caloriesActual)} kcal</Text>
-                        </View>
+                        </Pressable>
                       ))}
                       {/* Full-width Remove button at the bottom */}
                       <Pressable
@@ -1078,16 +1109,21 @@ export default function FoodScreen() {
           const name = item?.name ?? e.foodName ?? `Food #${e.foodItemId}`;
           const brand = item?.brand;
 
-          // Actuals (what was actually logged for this serving count)
-          const totalCal = Math.round(e.caloriesActual);
-          const p = Math.round(e.proteinActual);
-          const c = Math.round(e.carbsActual);
-          const f = Math.round(e.fatActual);
+          // Live serving amount being edited, and its ratio against what was logged
+          const svNum          = parseFloat(editServings) || e.servings;
+          const servingsChanged = Math.abs(svNum - e.servings) > 0.001;
+          const ratio          = e.servings > 0 ? svNum / e.servings : 1;
 
-          // Per-serving from item (if available), scaled by number of servings logged
+          // Actuals (what was actually logged), scaled live to the edited serving amount
+          const totalCal = Math.round(e.caloriesActual * ratio);
+          const p = Math.round(e.proteinActual * ratio);
+          const c = Math.round(e.carbsActual * ratio);
+          const f = Math.round(e.fatActual * ratio);
+
+          // Per-serving from item (if available), scaled by the edited serving amount
           const servSizeG    = item?.servingSizeG;
           const servUnit     = item?.servingUnit ?? "g";
-          const sv           = e.servings;
+          const sv           = svNum;
           const scale1dp     = (v: number | undefined | null) => v != null ? Math.round(v * sv * 10) / 10 : null;
           const scale0dp     = (v: number | undefined | null) => v != null ? Math.round(v * sv)          : null;
           const scale2dp     = (v: number | undefined | null) => v != null ? Math.round(v * sv * 100) / 100 : null;
@@ -1122,14 +1158,63 @@ export default function FoodScreen() {
 
               <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 48 }}>
 
-                {/* Serving + loading */}
-                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: muted }}>
-                    {e.servings === 1 ? "1 serving" : `${e.servings} servings`}
-                    {servSizeG ? `  ·  ${Math.round(servSizeG * e.servings)}${servUnit}` : ""}
-                  </Text>
+                {/* Serving amount stepper + loading */}
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                    <Pressable
+                      onPress={() => setEditServings(String(Math.max(0.25, Math.round((svNum - 0.25) / 0.25) * 0.25)))}
+                      hitSlop={8}
+                      style={({ pressed }) => ({
+                        width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center",
+                        backgroundColor: card, borderWidth: 1, borderColor: border, opacity: pressed ? 0.6 : 1,
+                      })}
+                    >
+                      <Minus size={14} color={text} />
+                    </Pressable>
+                    <TextInput
+                      value={editServings}
+                      onChangeText={setEditServings}
+                      onBlur={() => { if (!parseFloat(editServings)) setEditServings(String(e.servings)); }}
+                      keyboardType="decimal-pad"
+                      style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: text, minWidth: 36, textAlign: "center", paddingVertical: 4 }}
+                    />
+                    <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: muted }}>
+                      {svNum === 1 ? "serving" : "servings"}
+                      {servSizeG ? `  ·  ${Math.round(servSizeG * svNum)}${servUnit}` : ""}
+                    </Text>
+                    <Pressable
+                      onPress={() => setEditServings(String(Math.round((svNum + 0.25) / 0.25) * 0.25))}
+                      hitSlop={8}
+                      style={({ pressed }) => ({
+                        width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center",
+                        backgroundColor: card, borderWidth: 1, borderColor: border, opacity: pressed ? 0.6 : 1,
+                      })}
+                    >
+                      <Plus size={14} color={text} />
+                    </Pressable>
+                  </View>
                   {detailLoading && <ActivityIndicator size="small" color={accent} />}
                 </View>
+
+                {/* Save button — only when the serving amount has been changed */}
+                {servingsChanged && (
+                  <Pressable
+                    onPress={saveServings}
+                    disabled={updateEntry.isPending}
+                    style={({ pressed }) => ({
+                      marginBottom: 16, paddingVertical: 12, borderRadius: 14, alignItems: "center",
+                      backgroundColor: accentActive, opacity: pressed || updateEntry.isPending ? 0.7 : 1,
+                    })}
+                  >
+                    {updateEntry.isPending ? (
+                      <ActivityIndicator size="small" color={isWhite ? "#fff" : palette.accentText} />
+                    ) : (
+                      <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: isWhite ? "#fff" : palette.accentText }}>
+                        Update Serving Amount
+                      </Text>
+                    )}
+                  </Pressable>
+                )}
 
                 {/* Calories hero */}
                 <View style={{ backgroundColor: card, borderRadius: 20, borderWidth: 1, borderColor: border, padding: 20, alignItems: "center", marginBottom: 12 }}>
