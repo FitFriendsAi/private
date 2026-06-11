@@ -1275,7 +1275,12 @@ export default function FoodScreen() {
                     />
                     <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: muted }}>
                       {svNum === 1 ? "serving" : "servings"}
-                      {servSizeG ? `  ·  ${Math.round(servSizeG * svNum)}${servUnit}` : ""}
+                      {/* Only append "<grams><unit>" when servingUnit is actually a short
+                          weight/volume unit — many cached items store a full description
+                          (e.g. "1 serving", "2/3 cup (55g)") in this field instead. */}
+                      {servSizeG && /^(g|kg|oz|lb|ml|l|fl ?oz)$/i.test(servUnit.trim())
+                        ? `  ·  ${Math.round(servSizeG * svNum)}${servUnit}`
+                        : ""}
                     </Text>
                     <Pressable
                       onPress={() => setEditServings(String(Math.round((svNum + 0.25) / 0.25) * 0.25))}
