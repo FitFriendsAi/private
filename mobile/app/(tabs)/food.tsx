@@ -168,6 +168,7 @@ export default function FoodScreen() {
   const [searchResults, setSearchResults]   = useState<FoodItem[]>([]);
   const [searching, setSearching]           = useState(false);
   const [selectedItem, setSelectedItem]     = useState<FoodItem | null>(null);
+  const [creatingItem, setCreatingItem]     = useState(false);
   const [servings, setServings]             = useState("1");
   const [logTime, setLogTime]               = useState(nowTimeStr);
   // ── Create / edit meal modal ──
@@ -554,13 +555,51 @@ export default function FoodScreen() {
     input.click();
   }
 
-  function addToLog() {
+  async function addToLog() {
     if (!selectedItem) return;
     const sv = parseFloat(servings) || 1;
+
+    // Search results from external sources (USDA/FatSecret/OFF/CalorieNinjas) have no
+    // food_items.id yet — persist them first so the log entry can link to full nutrition
+    // (fiber, sodium, sugar, etc.) instead of just the 4 macros stored on the log entry.
+    let foodItemId = selectedItem.id;
+    if (!foodItemId) {
+      try {
+        setCreatingItem(true);
+        const item = await apiRequest<FoodItem>("POST", "/api/food/items", {
+          name: selectedItem.name,
+          brand: selectedItem.brand || undefined,
+          servingSizeG: selectedItem.servingSizeG || 100,
+          servingUnit: selectedItem.servingUnit || "serving",
+          calories: selectedItem.calories,
+          proteinG: selectedItem.proteinG,
+          carbsG: selectedItem.carbsG,
+          fatG: selectedItem.fatG,
+          fiberG: selectedItem.fiberG,
+          sodiumMg: selectedItem.sodiumMg,
+          sugarG: selectedItem.sugarG,
+          saturatedFatG: selectedItem.saturatedFatG,
+          transFatG: selectedItem.transFatG,
+          cholesterolMg: selectedItem.cholesterolMg,
+          potassiumMg: selectedItem.potassiumMg,
+          calciumMg: selectedItem.calciumMg,
+          ironMg: selectedItem.ironMg,
+          vitaminDMcg: selectedItem.vitaminDMcg,
+          vitaminCMg: selectedItem.vitaminCMg,
+          source: selectedItem.source || "search",
+        });
+        foodItemId = item.id;
+      } catch {
+        // fall back to logging without a linked food item
+      } finally {
+        setCreatingItem(false);
+      }
+    }
+
     addEntry.mutate({
       date: today,
       mealType: activeMeal,
-      foodItemId: selectedItem.id,
+      foodItemId,
       foodName: selectedItem.name,
       servings: sv,
       caloriesActual: Math.round(selectedItem.calories * sv),
@@ -1992,11 +2031,11 @@ export default function FoodScreen() {
                   </Pressable>
                   <Pressable
                     onPress={addToLog}
-                    disabled={addEntry.isPending}
-                    style={({ pressed }) => ({ flex: 2, paddingVertical: 14, borderRadius: 14, backgroundColor: accentActive, alignItems: "center", opacity: (pressed || addEntry.isPending) ? 0.7 : 1 })}
+                    disabled={addEntry.isPending || creatingItem}
+                    style={({ pressed }) => ({ flex: 2, paddingVertical: 14, borderRadius: 14, backgroundColor: accentActive, alignItems: "center", opacity: (pressed || addEntry.isPending || creatingItem) ? 0.7 : 1 })}
                   >
                     <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 14, color: isWhite ? "#fff" : palette.accentText }}>
-                      {addEntry.isPending ? "Adding…" : `Add to ${MEAL_LABELS[activeMeal]}`}
+                      {(addEntry.isPending || creatingItem) ? "Adding…" : `Add to ${MEAL_LABELS[activeMeal]}`}
                     </Text>
                   </Pressable>
                 </View>
