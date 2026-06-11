@@ -656,6 +656,10 @@ Return ONLY valid JSON (no markdown):
 
     const ql = q.toLowerCase();
 
+    // Foods this user has logged before — boosted to the top of their results
+    // so items they (or others) already added are easy to find again.
+    const userFoodIds = await storage.getUserFoodItemIds((req.user as any).id);
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     /** Strip punctuation, lowercase, collapse spaces */
@@ -809,11 +813,15 @@ Return ONLY valid JSON (no markdown):
       const itemWords = new Set([...wordSet(brandNorm), ...wordSet(nameNorm)]);
       const sim       = nameSimilarity(brandNorm + " " + nameNorm, qNorm);
 
+      // Foods the user has eaten before, surface them ahead of equally-relevant
+      // items they've never logged — they're the most likely match.
+      const ownBoost = item.id && userFoodIds.has(item.id) ? -0.5 : 0;
+
       // Tier -1: restaurant brand exact match — always first
       if (matchedBrandNorm && brandNorm) {
         if (brandNorm.replace(/\s/g, "").includes(matchedBrandNorm.replace(/\s/g, "")) ||
             matchedBrandNorm.replace(/\s/g, "").includes(brandNorm.replace(/\s/g, ""))) {
-          return -1 + (1 - sim) * 0.9;
+          return -1 + (1 - sim) * 0.9 + ownBoost;
         }
       }
 
@@ -821,10 +829,10 @@ Return ONLY valid JSON (no markdown):
       for (const w of qWords) if (itemWords.has(w)) matches++;
       const ratio = qWords.size > 0 ? matches / qWords.size : 0;
 
-      if (ratio >= 1.0)  return 0 + (1 - sim) * 0.9;
-      if (ratio >= 0.67) return 1 + (1 - sim) * 0.9;
-      if (ratio >= 0.5)  return 2 + (1 - sim) * 0.9;
-      return 3 + (1 - ratio) - nutritionScore(item) * 0.01;
+      if (ratio >= 1.0)  return 0 + (1 - sim) * 0.9 + ownBoost;
+      if (ratio >= 0.67) return 1 + (1 - sim) * 0.9 + ownBoost;
+      if (ratio >= 0.5)  return 2 + (1 - sim) * 0.9 + ownBoost;
+      return 3 + (1 - ratio) - nutritionScore(item) * 0.01 + ownBoost;
     }
 
     // For restaurant queries, filter on food-only words (brand stripped out).
@@ -988,6 +996,10 @@ Return ONLY valid JSON (no markdown):
     if (!requireAuth(req, res)) return;
     try {
       const data = insertFoodItemSchema.parse(req.body);
+      // Pool user-submitted foods into shared records instead of creating
+      // near-duplicates every time the same item is scanned/entered again.
+      const existing = await storage.findSimilarFoodItem(data.name, data.brand);
+      if (existing) return res.json(existing);
       const item = await storage.createFoodItem(data);
       res.status(201).json(item);
     } catch (err: any) {

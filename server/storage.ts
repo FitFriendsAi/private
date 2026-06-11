@@ -126,6 +126,27 @@ export const storage = {
     const [item] = await db.insert(foodItems).values(data).returning();
     return item;
   },
+  /** Finds an existing food item with the same name + brand (case-insensitive) so
+   *  user-submitted foods (manual entries, label scans, search results) are pooled
+   *  into one shared record instead of creating near-duplicates. */
+  async findSimilarFoodItem(name: string, brand?: string | null): Promise<FoodItem | undefined> {
+    const [item] = await db.select().from(foodItems).where(
+      and(
+        sql`lower(${foodItems.name}) = lower(${name})`,
+        brand ? sql`lower(${foodItems.brand}) = lower(${brand})` : isNull(foodItems.brand)
+      )
+    ).limit(1);
+    return item;
+  },
+  /** All distinct food_item ids this user has ever logged — used to boost their
+   *  own previously-used foods in search results. */
+  async getUserFoodItemIds(userId: number): Promise<Set<number>> {
+    const rows = await db
+      .selectDistinct({ foodItemId: foodLog.foodItemId })
+      .from(foodLog)
+      .where(and(eq(foodLog.userId, userId), sql`${foodLog.foodItemId} is not null`));
+    return new Set(rows.map(r => r.foodItemId).filter((id): id is number => id != null));
+  },
   async updateFoodItem(id: number, patch: Partial<InsertFoodItem>): Promise<FoodItem | undefined> {
     const [item] = await db.update(foodItems).set(patch).where(eq(foodItems.id, id)).returning();
     return item;

@@ -683,8 +683,8 @@ export default function FoodScreen() {
     const carbsG   = parseFloat(manualCarbs)   || 0;
     const fatG     = parseFloat(manualFat)     || 0;
 
-    // If the user filled in any extra nutrition fields, save them as a custom food_items
-    // entry so the detail view can show fiber/sodium/sugar/etc. for this entry.
+    // Save as a custom food_items entry so it shows up in "My Foods" / search
+    // for next time, and so the detail view can show fiber/sodium/sugar/etc.
     const extra = {
       fiberG:         parseFloat(manualFiber)       || undefined,
       sugarG:         parseFloat(manualSugar)       || undefined,
@@ -695,26 +695,24 @@ export default function FoodScreen() {
       potassiumMg:    parseFloat(manualPotassium)   || undefined,
     };
     let foodItemId: number | undefined;
-    if (Object.values(extra).some(v => v !== undefined)) {
-      try {
-        setCreatingItem(true);
-        const item = await apiRequest<FoodItem>("POST", "/api/food/items", {
-          name: manualName.trim(),
-          servingSizeG: 1,
-          servingUnit: "serving",
-          calories: cals / sv,
-          proteinG: proteinG / sv,
-          carbsG:   carbsG   / sv,
-          fatG:     fatG     / sv,
-          ...Object.fromEntries(Object.entries(extra).map(([k, v]) => [k, v != null ? v / sv : v])),
-          source: "custom",
-        });
-        foodItemId = item.id;
-      } catch {
-        // fall back to logging without a linked food item
-      } finally {
-        setCreatingItem(false);
-      }
+    try {
+      setCreatingItem(true);
+      const item = await apiRequest<FoodItem>("POST", "/api/food/items", {
+        name: manualName.trim(),
+        servingSizeG: 1,
+        servingUnit: "serving",
+        calories: cals / sv,
+        proteinG: proteinG / sv,
+        carbsG:   carbsG   / sv,
+        fatG:     fatG     / sv,
+        ...Object.fromEntries(Object.entries(extra).map(([k, v]) => [k, v != null ? v / sv : v])),
+        source: "custom",
+      });
+      foodItemId = item.id;
+    } catch {
+      // fall back to logging without a linked food item
+    } finally {
+      setCreatingItem(false);
     }
 
     addEntry.mutate({
@@ -1898,6 +1896,24 @@ export default function FoodScreen() {
                     </Pressable>
                   ))}
                 </View>
+
+                {/* My Foods — items this user has logged before, quickly selectable again */}
+                {searchQuery.length === 0 && recentFoods.length > 0 && (
+                  <View style={{ marginBottom: 18 }}>
+                    <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 11, color: muted, letterSpacing: 0.8, marginBottom: 8 }}>MY FOODS</Text>
+                    {recentFoods.map(item => (
+                      <Pressable
+                        key={item.id}
+                        onPress={() => setSelectedItem(item)}
+                        style={({ pressed }) => ({ backgroundColor: card, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: border, marginBottom: 8, opacity: pressed ? 0.7 : 1 })}
+                      >
+                        {item.brand && <Text style={{ fontFamily: "Manrope-Bold", fontSize: 10, color: "#aaaaaa", letterSpacing: 0.6, marginBottom: 2 }}>{item.brand.toUpperCase()}</Text>}
+                        <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 14, color: text }}>{item.name}</Text>
+                        <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted, marginTop: 2 }}>{item.calories} kcal · P {item.proteinG}g · C {item.carbsG}g · F {item.fatG}g</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
 
                 {/* Popular restaurants */}
                 {searchQuery.length < 2 && (
