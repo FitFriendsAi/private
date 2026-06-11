@@ -9,10 +9,11 @@ import { useAuth } from "@/hooks/use-auth";
 import { useTheme, PALETTES } from "@/hooks/use-theme";
 import { useHealth } from "@/hooks/use-health";
 import { apiRequest } from "@/lib/api";
-import { lbsToGrams, gramsToLbs, todayStr } from "@/lib/utils";
+import { lbsToGrams, gramsToLbs, todayStr, shiftDateStr, formatDate } from "@/lib/utils";
 import {
   User, Scale, Activity, Heart, Check, LogOut,
   ChevronDown, X, Palette as PaletteIcon, RefreshCw,
+  ChevronLeft, ChevronRight, Pencil, Trash2,
 } from "lucide-react-native";
 
 // ── Height helpers ─────────────────────────────────────────────────────────
@@ -183,7 +184,6 @@ export default function SettingsScreen() {
     queryKey: ["/api/measurements"],
     queryFn: () => apiRequest("GET", "/api/measurements"),
   });
-  const lastMeasurement = measurements[0] ?? null;
 
   const [ftVal,        setFtVal]        = useState("");
   const [inVal,        setInVal]        = useState("");
@@ -256,20 +256,39 @@ export default function SettingsScreen() {
   }, [health, connectHealth, qc]);
 
   // ── Log weight ──
+  const today = todayStr();
+  const [logDate, setLogDate] = useState(today);
   const [weightInput, setWeightInput] = useState("");
+  const measurementForDate = measurements.find((m: any) => m.date === logDate) ?? null;
+
+  // Keep the input in sync with any existing entry for the selected date
+  useEffect(() => {
+    setWeightInput(measurementForDate ? String(gramsToLbs(measurementForDate.weightGrams)) : "");
+  }, [logDate, measurementForDate?.id, measurementForDate?.weightGrams]);
+
   const logWeight = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/measurements", {
-      date: todayStr(),
-      weightGrams: lbsToGrams(parseFloat(weightInput)),
-    }),
+    mutationFn: () => {
+      const weightGrams = lbsToGrams(parseFloat(weightInput));
+      if (measurementForDate) {
+        return apiRequest("PATCH", `/api/measurements/${measurementForDate.id}`, { weightGrams });
+      }
+      return apiRequest("POST", "/api/measurements", { date: logDate, weightGrams });
+    },
     onSuccess: () => {
       const kg = lbsToGrams(parseFloat(weightInput)) / 1000;
-      health.writeWeight(kg);
-      setWeightInput("");
+      if (logDate === today) health.writeWeight(kg);
       qc.invalidateQueries({ queryKey: ["/api/measurements"] });
-      Alert.alert("Logged", "Weight saved!");
+      Alert.alert("Saved", measurementForDate ? "Weight updated!" : "Weight saved!");
     },
-    onError: () => Alert.alert("Error", "Could not log weight."),
+    onError: () => Alert.alert("Error", "Could not save weight."),
+  });
+
+  const deleteMeasurement = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/measurements/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/measurements"] });
+    },
+    onError: () => Alert.alert("Error", "Could not delete entry."),
   });
 
   // ── Picker modal state ──
@@ -374,23 +393,31 @@ export default function SettingsScreen() {
             </Text>
           </View>
 
-          {/* ── Log Today's Weight ── */}
+          {/* ── Log Weight ── */}
           <View style={{ backgroundColor: card, borderRadius: 20, borderWidth: 1, borderColor: border, padding: 16, marginBottom: 14 }}>
-            <CardHeader icon={Scale} label="Log Today's Weight" iconColor={muted} text={text} />
+            <CardHeader icon={Scale} label="Log Weight" iconColor={muted} text={text} />
 
-            {/* Last recorded subtitle */}
-            {lastMeasurement && (
-              <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted, marginTop: -8, marginBottom: 14 }}>
-                Last recorded:{" "}
-                <Text style={{ fontFamily: "Manrope-Bold", color: text }}>
-                  {gramsToLbs(lastMeasurement.weightGrams)} lbs
-                </Text>
-                {" "}on{" "}
-                <Text style={{ fontFamily: "Manrope-Bold", color: text }}>
-                  {new Date(lastMeasurement.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                </Text>
+            {/* Date navigation */}
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: -8, marginBottom: 14 }}>
+              <Pressable
+                onPress={() => setLogDate(d => shiftDateStr(d, -1))}
+                hitSlop={8}
+                style={({ pressed }) => ({ padding: 6, opacity: pressed ? 0.6 : 1 })}
+              >
+                <ChevronLeft size={18} color={muted} />
+              </Pressable>
+              <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: text }}>
+                {logDate === today ? "Today" : formatDate(logDate)}
               </Text>
-            )}
+              <Pressable
+                onPress={() => setLogDate(d => shiftDateStr(d, 1))}
+                disabled={logDate >= today}
+                hitSlop={8}
+                style={({ pressed }) => ({ padding: 6, opacity: logDate >= today ? 0.25 : pressed ? 0.6 : 1 })}
+              >
+                <ChevronRight size={18} color={muted} />
+              </Pressable>
+            </View>
 
             {/* Input + button row */}
             <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
@@ -421,20 +448,48 @@ export default function SettingsScreen() {
               >
                 {logWeight.isPending
                   ? <ActivityIndicator size="small" color={text} />
-                  : <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: text }}>Log Weight</Text>
+                  : <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: text }}>{measurementForDate ? "Update Weight" : "Log Weight"}</Text>
                 }
               </Pressable>
             </View>
 
-            {/* Last entry row */}
-            {lastMeasurement && (
-              <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: border }}>
-                <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted }}>
-                  {new Date(lastMeasurement.date + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+            {/* Recent weigh-ins */}
+            {measurements.length > 0 && (
+              <View style={{ marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: border }}>
+                <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: muted, letterSpacing: 0.6, marginBottom: 8 }}>
+                  RECENT WEIGH-INS
                 </Text>
-                <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: text }}>
-                  {gramsToLbs(lastMeasurement.weightGrams)} lbs
-                </Text>
+                {measurements.slice(0, 7).map((m: any) => (
+                  <View
+                    key={m.id}
+                    style={{
+                      flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+                      paddingVertical: 8,
+                      backgroundColor: m.date === logDate ? "rgba(255,255,255,0.04)" : "transparent",
+                      borderRadius: 10, paddingHorizontal: m.date === logDate ? 8 : 0,
+                    }}
+                  >
+                    <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted, flex: 1 }}>
+                      {new Date(m.date + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                    </Text>
+                    <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: text, marginRight: 14 }}>
+                      {gramsToLbs(m.weightGrams)} lbs
+                    </Text>
+                    <Pressable onPress={() => setLogDate(m.date)} hitSlop={8} style={({ pressed }) => ({ padding: 4, opacity: pressed ? 0.6 : 1 })}>
+                      <Pencil size={14} color={muted} />
+                    </Pressable>
+                    <Pressable
+                      onPress={() => Alert.alert("Delete entry?", `Remove the ${gramsToLbs(m.weightGrams)} lbs entry from ${formatDate(m.date)}?`, [
+                        { text: "Cancel", style: "cancel" },
+                        { text: "Delete", style: "destructive", onPress: () => deleteMeasurement.mutate(m.id) },
+                      ])}
+                      hitSlop={8}
+                      style={({ pressed }) => ({ padding: 4, marginLeft: 6, opacity: pressed ? 0.6 : 1 })}
+                    >
+                      <Trash2 size={14} color="#ef4444" />
+                    </Pressable>
+                  </View>
+                ))}
               </View>
             )}
           </View>

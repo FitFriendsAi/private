@@ -28,6 +28,16 @@ export function formatDate(dateStr: string): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+/** Returns dateStr shifted by `days` (can be negative), as YYYY-MM-DD. */
+export function shiftDateStr(dateStr: string, days: number): string {
+  const d = new Date(dateStr + "T12:00:00");
+  d.setDate(d.getDate() + days);
+  const yyyy = d.getFullYear();
+  const mm   = String(d.getMonth() + 1).padStart(2, "0");
+  const dd   = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 export function formatTime(epochMs: number): string {
   return new Date(epochMs).toLocaleTimeString("en-US", {
     hour: "numeric",
@@ -44,16 +54,16 @@ export function nowTimeStr(): string {
   return `${h}:${m} ${now.getHours() < 12 ? "AM" : "PM"}`;
 }
 
-/** Convert a "H:MM AM/PM" string to a full ISO timestamp (today's date). */
-export function timeStrToISO(t: string): string {
+/** Convert a "H:MM AM/PM" string to a full ISO timestamp on `dateStr` (defaults to today). */
+export function timeStrToISO(t: string, dateStr?: string): string {
   const match = t.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
-  if (!match) return new Date().toISOString();
+  const d = dateStr ? new Date(dateStr + "T00:00:00") : new Date();
+  if (!match) return d.toISOString();
   let h   = parseInt(match[1]);
   const m = parseInt(match[2]);
   const ap = (match[3] ?? "").toUpperCase();
   if (ap === "PM" && h < 12)  h += 12;
   if (ap === "AM" && h === 12) h = 0;
-  const d = new Date();
   d.setHours(Math.min(h, 23), Math.min(m, 59), 0, 0);
   return d.toISOString();
 }

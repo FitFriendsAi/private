@@ -7,10 +7,10 @@ import { apiRequest } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
 import { useHealth } from "@/hooks/use-health";
-import { todayStr, gramsToLbs, mlToOz, ozToMl, nowTimeStr, timeStrToISO, fmtTime } from "@/lib/utils";
+import { todayStr, gramsToLbs, mlToOz, ozToMl, nowTimeStr, timeStrToISO, fmtTime, formatDate } from "@/lib/utils";
 import {
   Droplets, Pill, Heart, Zap, TrendingDown, TrendingUp,
-  ChevronRight, Dumbbell, Flame, Plus, Minus, Sparkles,
+  ChevronRight, Dumbbell, Flame, Plus, Minus, Sparkles, Trash2,
 } from "lucide-react-native";
 import Svg, { Circle, Polyline, Line as SvgLine } from "react-native-svg";
 const AnimatedPolyline = Animated.createAnimatedComponent(Polyline);
@@ -160,6 +160,7 @@ export default function DashboardScreen() {
   const [calPeriod,    setCalPeriod]    = useState<7 | 30 | 90>(30);
   const [creatOpen,    setCreatOpen]    = useState(false);
   const [creatPeriod,  setCreatPeriod]  = useState<7 | 30 | 90>(30);
+  const [creatSelectedIdx, setCreatSelectedIdx] = useState<number | null>(null);
   const [weightOpen,   setWeightOpen]   = useState(false);
   const [weightPeriod, setWeightPeriod] = useState<7 | 30 | 90>(30);
   const [macrosOpen,    setMacrosOpen]    = useState(false);
@@ -223,6 +224,20 @@ export default function DashboardScreen() {
   const calBarMax   = Math.max(...calBars.map(b => b.value), calTarget, 1);
   const creatBars   = useMemo(() => buildChartBars(creatHistory.map(d => ({ date: d.date, value: d.totalG })), creatPeriod), [creatHistory, creatPeriod]);
   const creatBarMax = Math.max(...creatBars.map(b => b.value), 10, 1);
+
+  // ── Creatine log: which date is currently shown in the dose list ──
+  const selectedCreatDate = (creatPeriod !== 90 && creatSelectedIdx !== null && creatBars[creatSelectedIdx]?.date)
+    ? creatBars[creatSelectedIdx]!.date as string
+    : today;
+
+  const { data: selectedDateSupplements = [] } = useQuery<any[]>({
+    queryKey: ["/api/supplements", selectedCreatDate],
+    queryFn:  () => apiRequest("GET", `/api/supplements?date=${selectedCreatDate}`),
+    enabled:  creatOpen && selectedCreatDate !== today,
+  });
+
+  const creatLogEntries = (selectedCreatDate === today ? supplements : selectedDateSupplements)
+    .filter((s: any) => s.supplement === "creatine");
   const weightBars  = useMemo(() => buildChartBars(
     [...measurements].reverse().map((m: any) => ({ date: m.date, value: parseFloat(gramsToLbs(m.weightGrams)) })),
     weightPeriod,
@@ -412,7 +427,10 @@ export default function DashboardScreen() {
       apiRequest("DELETE", `/api/water/${entryId}`),
     onSuccess: () => console.log("✅ water removed"),
     onError:   (e: any) => console.error("❌ removeWater failed:", e?.message ?? e),
-    onSettled: () => qc.invalidateQueries({ queryKey: ["/api/water", today] }),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["/api/water"] });
+      qc.invalidateQueries({ queryKey: ["/api/water/history"] });
+    },
   });
 
   // ── Water custom-time log ────────────────────────────────────────
@@ -421,12 +439,13 @@ export default function DashboardScreen() {
   const [waterTimeOz,    setWaterTimeOz]    = useState("8");
 
   const addWaterAtTime = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/water", {
-      date: today, amountMl: ozToMl(parseFloat(waterTimeOz) || 8),
-      loggedAt: timeStrToISO(waterTimeStr),
+    mutationFn: (date: string) => apiRequest("POST", "/api/water", {
+      date, amountMl: ozToMl(parseFloat(waterTimeOz) || 8),
+      loggedAt: timeStrToISO(waterTimeStr, date),
     }),
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: ["/api/water", today] });
+      qc.invalidateQueries({ queryKey: ["/api/water"] });
+      qc.invalidateQueries({ queryKey: ["/api/water/history"] });
       setWaterTimeOpen(false);
     },
   });
@@ -553,6 +572,19 @@ export default function DashboardScreen() {
   // Reset water bar selection when period changes
   useEffect(() => { setWaterSelectedIdx(null); }, [waterPeriod]);
 
+  // ── Water log: which date is currently shown in the log/edit list ──
+  const selectedWaterDate = (waterPeriod !== 90 && waterSelectedIdx !== null && (chartBars[waterSelectedIdx] as any)?.date)
+    ? (chartBars[waterSelectedIdx] as any).date as string
+    : today;
+
+  const { data: selectedDateWater = [] } = useQuery<any[]>({
+    queryKey: ["/api/water", selectedWaterDate],
+    queryFn:  () => apiRequest("GET", `/api/water?date=${selectedWaterDate}`),
+    enabled:  waterOpen && selectedWaterDate !== today,
+  });
+
+  const waterLogEntries = selectedWaterDate === today ? water : selectedDateWater;
+
   // Animate line draw whenever the chart data or visibility changes
   useEffect(() => {
     if (pathLength > 0 && waterOpen) {
@@ -623,6 +655,24 @@ export default function DashboardScreen() {
     onSuccess: () => console.log("✅ creatine removed"),
     onError:   (e: any) => console.error("❌ removeCreatine failed:", e?.message ?? e),
     onSettled: () => qc.invalidateQueries({ queryKey: ["/api/supplements", today] }),
+  });
+
+  // Add/remove a creatine dose for an arbitrary date (used in the expand modal
+  // when a previous day's bar is selected).
+  const addCreatineForDate = useMutation({
+    mutationFn: (date: string) => apiRequest("POST", "/api/supplements", { date, supplement: "creatine", amountG: 2.5 }),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["/api/supplements"] });
+      qc.invalidateQueries({ queryKey: ["/api/supplements/history"] });
+    },
+  });
+
+  const removeSupplementEntry = useMutation({
+    mutationFn: (entryId: number) => apiRequest("DELETE", `/api/supplements/${entryId}`),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["/api/supplements"] });
+      qc.invalidateQueries({ queryKey: ["/api/supplements/history"] });
+    },
   });
 
   // ── Palette shorthand ──
@@ -746,7 +796,10 @@ export default function DashboardScreen() {
             { label: "FAT",     val: Math.round(totals.fat),     target: Math.round(targets?.fatG     ?? 0), color: PURPLE },
           ] as const).map(m => (
             <Pressable key={m.label} onPress={() => setMacrosOpen(true)} style={({ pressed }) => ({ flex: 1, backgroundColor: card, borderRadius: 20, padding: 12, borderWidth: 1, borderColor: border, opacity: pressed ? 0.8 : 1 })}>
-              <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted, letterSpacing: 0.8 }}>{m.label}</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted, letterSpacing: 0.8 }}>{m.label}</Text>
+                <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: m.color }}>{m.target > 0 ? Math.round((m.val / m.target) * 100) : 0}%</Text>
+              </View>
               <View style={{ flexDirection: "row", alignItems: "baseline", gap: 2, marginTop: 4 }}>
                 <Text style={{ ...(DOT as any), fontSize: 20, color: m.color }}>{m.val}</Text>
                 <Text style={{ fontSize: 9, fontFamily: "Manrope-Bold", color: muted }}>/{m.target}g</Text>
@@ -1501,12 +1554,16 @@ export default function DashboardScreen() {
                   </View>
                 )}
 
-                {/* Today's log */}
-                <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: "rgba(0,0,0,0.4)", letterSpacing: 0.6, marginBottom: 10 }}>TODAY'S LOG</Text>
-                {water.length === 0 ? (
-                  <Text style={{ fontFamily: "Manrope", fontSize: 13, color: "rgba(0,0,0,0.4)" }}>Nothing logged yet today.</Text>
+                {/* Log for selected date */}
+                <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: "rgba(0,0,0,0.4)", letterSpacing: 0.6, marginBottom: 10 }}>
+                  {selectedWaterDate === today ? "TODAY'S LOG" : `LOG — ${formatDate(selectedWaterDate).toUpperCase()}`}
+                </Text>
+                {waterLogEntries.length === 0 ? (
+                  <Text style={{ fontFamily: "Manrope", fontSize: 13, color: "rgba(0,0,0,0.4)" }}>
+                    {selectedWaterDate === today ? "Nothing logged yet today." : "Nothing logged this day."}
+                  </Text>
                 ) : (
-                  [...water].reverse().map((e: any, i: number) => (
+                  [...waterLogEntries].reverse().map((e: any, i: number) => (
                     <View key={e.id ?? i} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 10, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: "rgba(0,0,0,0.1)" }}>
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                         <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: "rgba(0,0,0,0.12)", alignItems: "center", justifyContent: "center" }}>
@@ -1516,9 +1573,18 @@ export default function DashboardScreen() {
                           {mlToOz(e.amountMl)} oz
                         </Text>
                       </View>
-                      <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: "rgba(0,0,0,0.5)" }}>
-                        {fmtTime(e.loggedAt) || "—"}
-                      </Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: "rgba(0,0,0,0.5)" }}>
+                          {fmtTime(e.loggedAt) || "—"}
+                        </Text>
+                        <Pressable
+                          onPress={() => removeWater.mutate(e.id)}
+                          hitSlop={8}
+                          style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
+                        >
+                          <Trash2 size={14} color="rgba(0,0,0,0.4)" />
+                        </Pressable>
+                      </View>
                     </View>
                   ))
                 )}
@@ -1530,7 +1596,9 @@ export default function DashboardScreen() {
                     style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 14, opacity: pressed ? 0.6 : 1 })}
                   >
                     <Plus size={14} color="rgba(0,0,0,0.5)" />
-                    <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: "rgba(0,0,0,0.5)" }}>Log at custom time</Text>
+                    <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: "rgba(0,0,0,0.5)" }}>
+                      {selectedWaterDate === today ? "Log at custom time" : `Add entry for ${formatDate(selectedWaterDate)}`}
+                    </Text>
                   </Pressable>
                 ) : (
                   <View style={{ marginTop: 14, backgroundColor: "rgba(0,0,0,0.06)", borderRadius: 14, padding: 14, gap: 10 }}>
@@ -1557,7 +1625,7 @@ export default function DashboardScreen() {
                         <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: "#0a0a0a" }}>Cancel</Text>
                       </Pressable>
                       <Pressable
-                        onPress={() => addWaterAtTime.mutate()}
+                        onPress={() => addWaterAtTime.mutate(selectedWaterDate)}
                         disabled={addWaterAtTime.isPending}
                         style={({ pressed }) => ({ flex: 2, paddingVertical: 10, borderRadius: 10, alignItems: "center", backgroundColor: "#0a0a0a", opacity: (pressed || addWaterAtTime.isPending) ? 0.7 : 1 })}
                       >
@@ -1642,6 +1710,7 @@ export default function DashboardScreen() {
         title="Creatine" icon={<Pill size={18} color="#0a0a0a" />}
         period={creatPeriod} onPeriodChange={setCreatPeriod}
         chartBars={creatBars} chartMaxValue={creatBarMax}
+        onSelectedIndexChange={setCreatSelectedIdx}
         goalValue={5}
         chartLabel="DAILY DOSE"
         formatValue={(v) => `${v.toFixed(1)}g`}
@@ -1651,28 +1720,51 @@ export default function DashboardScreen() {
           { label: "TODAY",      value: creatineGrams > 0 ? `${creatineGrams.toFixed(1)}` : "0", unit: "g" },
         ]}
         logSection={
-          supplements.filter((s: any) => s.supplement === "creatine").length > 0 ? (
-            <View style={{ marginTop: 8 }}>
-              <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: "rgba(0,0,0,0.4)", letterSpacing: 0.6, marginBottom: 10 }}>TODAY'S DOSES</Text>
-              {supplements
-                .filter((s: any) => s.supplement === "creatine")
-                .map((s: any, i: number) => (
-                  <View key={s.id ?? i} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 10, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: "rgba(0,0,0,0.1)" }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                      <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: "rgba(0,0,0,0.1)", alignItems: "center", justifyContent: "center" }}>
-                        <Pill size={14} color="rgba(0,0,0,0.5)" />
-                      </View>
-                      <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 14, color: "#0a0a0a" }}>
-                        {s.amountG != null ? `${s.amountG}g` : "—"}
-                      </Text>
+          <View style={{ marginTop: 8 }}>
+            <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: "rgba(0,0,0,0.4)", letterSpacing: 0.6, marginBottom: 10 }}>
+              {selectedCreatDate === today ? "TODAY'S DOSES" : `DOSES — ${formatDate(selectedCreatDate).toUpperCase()}`}
+            </Text>
+            {creatLogEntries.length === 0 ? (
+              <Text style={{ fontFamily: "Manrope", fontSize: 13, color: "rgba(0,0,0,0.4)", marginBottom: 10 }}>
+                {selectedCreatDate === today ? "Nothing logged yet today." : "Nothing logged this day."}
+              </Text>
+            ) : (
+              creatLogEntries.map((s: any, i: number) => (
+                <View key={s.id ?? i} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 10, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: "rgba(0,0,0,0.1)" }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                    <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: "rgba(0,0,0,0.1)", alignItems: "center", justifyContent: "center" }}>
+                      <Pill size={14} color="rgba(0,0,0,0.5)" />
                     </View>
+                    <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 14, color: "#0a0a0a" }}>
+                      {s.amountG != null ? `${s.amountG}g` : "—"}
+                    </Text>
+                  </View>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
                     <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: "rgba(0,0,0,0.5)" }}>
                       {fmtTime(s.loggedAt) || "—"}
                     </Text>
+                    <Pressable
+                      onPress={() => removeSupplementEntry.mutate(s.id)}
+                      hitSlop={8}
+                      style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
+                    >
+                      <Trash2 size={14} color="rgba(0,0,0,0.4)" />
+                    </Pressable>
                   </View>
-                ))}
-            </View>
-          ) : null
+                </View>
+              ))
+            )}
+            {selectedCreatDate !== today && (
+              <Pressable
+                onPress={() => addCreatineForDate.mutate(selectedCreatDate)}
+                disabled={addCreatineForDate.isPending}
+                style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 6, opacity: (pressed || addCreatineForDate.isPending) ? 0.6 : 1 })}
+              >
+                <Plus size={14} color="rgba(0,0,0,0.5)" />
+                <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: "rgba(0,0,0,0.5)" }}>Add 2.5g dose for {formatDate(selectedCreatDate)}</Text>
+              </Pressable>
+            )}
+          </View>
         }
       >
         <View style={{ alignItems: "center", marginBottom: 28, marginTop: 8 }}>

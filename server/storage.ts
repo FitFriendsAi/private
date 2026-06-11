@@ -104,6 +104,13 @@ export const storage = {
     const [m] = await db.select().from(bodyMeasurements).where(eq(bodyMeasurements.userId, userId)).orderBy(desc(bodyMeasurements.date)).limit(1);
     return m;
   },
+  async updateMeasurement(id: number, userId: number, data: Partial<InsertBodyMeasurement>): Promise<BodyMeasurement | undefined> {
+    const [m] = await db.update(bodyMeasurements).set(data).where(and(eq(bodyMeasurements.id, id), eq(bodyMeasurements.userId, userId))).returning();
+    return m;
+  },
+  async deleteMeasurement(id: number, userId: number): Promise<void> {
+    await db.delete(bodyMeasurements).where(and(eq(bodyMeasurements.id, id), eq(bodyMeasurements.userId, userId)));
+  },
 
   // ── Food Items ─────────────────────────────────────────────────────────────
   async getFoodItemById(id: number): Promise<FoodItem | undefined> {

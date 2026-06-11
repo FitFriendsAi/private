@@ -9,8 +9,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
 import { useHealth } from "@/hooks/use-health";
-import { todayStr, nowTimeStr, timeStrToISO, fmtTime } from "@/lib/utils";
-import { Plus, Minus, Search, X, ChevronRight, UtensilsCrossed, Trash2, ScanLine, Camera, PenLine, ChevronDown } from "lucide-react-native";
+import { todayStr, nowTimeStr, timeStrToISO, fmtTime, shiftDateStr, formatDate } from "@/lib/utils";
+import { Plus, Minus, Search, X, ChevronRight, UtensilsCrossed, Trash2, ScanLine, Camera, PenLine, ChevronDown, ChevronLeft } from "lucide-react-native";
 import Svg, { Circle } from "react-native-svg";
 
 const MEALS = ["breakfast", "lunch", "dinner", "snack"] as const;
@@ -158,6 +158,9 @@ export default function FoodScreen() {
   const qc = useQueryClient();
   const health = useHealth();
 
+  // ── Selected day for the food log (defaults to today, can navigate to past days) ──
+  const [selectedDate, setSelectedDate] = useState(today);
+
   // ── Tab: "log" | "meals" ──
   const [tab, setTab] = useState<"log" | "meals">("log");
 
@@ -219,8 +222,8 @@ export default function FoodScreen() {
 
   // ── Queries ──
   const { data: foodLog = [] } = useQuery<FoodLogEntry[]>({
-    queryKey: ["/api/food-log", today],
-    queryFn:  () => apiRequest("GET", `/api/food-log?date=${today}`),
+    queryKey: ["/api/food-log", selectedDate],
+    queryFn:  () => apiRequest("GET", `/api/food-log?date=${selectedDate}`),
   });
   const { data: targets } = useQuery<any>({
     queryKey: ["/api/targets"],
@@ -239,9 +242,10 @@ export default function FoodScreen() {
   const addEntry = useMutation({
     mutationFn: (data: any) => apiRequest("POST", "/api/food-log", data),
     onSuccess: (_res, data) => {
-      qc.invalidateQueries({ queryKey: ["/api/food-log", today] });
-      // Write nutrition to Apple Health silently
-      if (health.authorized) {
+      qc.invalidateQueries({ queryKey: ["/api/food-log", selectedDate] });
+      // Write nutrition to Apple Health silently (only for today's entries —
+      // Health writes use the current timestamp, so backdated entries would be misattributed)
+      if (health.authorized && selectedDate === today) {
         const mealLabel = (data.mealType as string);
         const mealType =
           mealLabel === "breakfast" ? "Breakfast" :
@@ -262,19 +266,19 @@ export default function FoodScreen() {
 
   const deleteEntry = useMutation({
     mutationFn: (id: number) => apiRequest("DELETE", `/api/food-log/${id}`),
-    onSuccess:  () => qc.invalidateQueries({ queryKey: ["/api/food-log", today] }),
+    onSuccess:  () => qc.invalidateQueries({ queryKey: ["/api/food-log", selectedDate] }),
   });
 
   const updateEntry = useMutation({
     mutationFn: ({ id, ...body }: any) => apiRequest<FoodLogEntry>("PATCH", `/api/food-log/${id}`, body),
-    onSuccess:  () => qc.invalidateQueries({ queryKey: ["/api/food-log", today] }),
+    onSuccess:  () => qc.invalidateQueries({ queryKey: ["/api/food-log", selectedDate] }),
   });
 
   const logMeal = useMutation({
     mutationFn: ({ mealId, mealType }: { mealId: number; mealType: MealType }) =>
-      apiRequest("POST", `/api/meals/${mealId}/log`, { date: today, mealType }),
+      apiRequest("POST", `/api/meals/${mealId}/log`, { date: selectedDate, mealType }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/api/food-log", today] });
+      qc.invalidateQueries({ queryKey: ["/api/food-log", selectedDate] });
       setTab("log");
     },
   });
@@ -616,7 +620,7 @@ export default function FoodScreen() {
     setCreatingItem(false);
 
     addEntry.mutate({
-      date: today,
+      date: selectedDate,
       mealType: activeMeal,
       foodItemId,
       foodName: selectedItem.name,
@@ -625,7 +629,7 @@ export default function FoodScreen() {
       proteinActual:  Math.round(selectedItem.proteinG * sv * 10) / 10,
       carbsActual:    Math.round(selectedItem.carbsG   * sv * 10) / 10,
       fatActual:      Math.round(selectedItem.fatG     * sv * 10) / 10,
-      loggedAt: timeStrToISO(logTime),
+      loggedAt: timeStrToISO(logTime, selectedDate),
     });
   }
 
@@ -716,14 +720,14 @@ export default function FoodScreen() {
     }
 
     addEntry.mutate({
-      date: today, mealType: activeMeal,
+      date: selectedDate, mealType: activeMeal,
       foodItemId,
       foodName: manualName.trim(), servings: sv,
       caloriesActual: cals,
       proteinActual: proteinG,
       carbsActual:   carbsG,
       fatActual:     fatG,
-      loggedAt: timeStrToISO(logTime),
+      loggedAt: timeStrToISO(logTime, selectedDate),
     });
   }
 
@@ -914,7 +918,26 @@ export default function FoodScreen() {
         <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, paddingTop: 4 }}>
           <View>
             <Text style={{ fontSize: 28, fontFamily: "Manrope-ExtraBold", color: text, letterSpacing: -0.5 }}>Food Log</Text>
-            <Text style={{ fontSize: 13, fontFamily: "Manrope", color: muted, marginTop: 2 }}>Today</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 }}>
+              <Pressable
+                onPress={() => setSelectedDate(d => shiftDateStr(d, -1))}
+                hitSlop={8}
+                style={({ pressed }) => ({ padding: 2, opacity: pressed ? 0.6 : 1 })}
+              >
+                <ChevronLeft size={16} color={muted} />
+              </Pressable>
+              <Text style={{ fontSize: 13, fontFamily: "Manrope", color: muted }}>
+                {selectedDate === today ? "Today" : formatDate(selectedDate)}
+              </Text>
+              <Pressable
+                onPress={() => setSelectedDate(d => shiftDateStr(d, 1))}
+                disabled={selectedDate >= today}
+                hitSlop={8}
+                style={({ pressed }) => ({ padding: 2, opacity: selectedDate >= today ? 0.25 : pressed ? 0.6 : 1 })}
+              >
+                <ChevronRight size={16} color={muted} />
+              </Pressable>
+            </View>
           </View>
           <Pressable
             onPress={() => openAddForMeal(activeMeal)}
@@ -934,7 +957,9 @@ export default function FoodScreen() {
         <View style={{ backgroundColor: "#ffffff", borderRadius: 24, padding: 20, marginBottom: 16, flexDirection: "row", alignItems: "center", gap: 20 }}>
           <CalorieDonut eaten={Math.round(totals.calories)} goal={calGoal} />
           <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: "#888888", letterSpacing: 0.8, marginBottom: 4 }}>EATEN · TODAY</Text>
+            <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: "#888888", letterSpacing: 0.8, marginBottom: 4 }}>
+              EATEN · {selectedDate === today ? "TODAY" : formatDate(selectedDate).toUpperCase()}
+            </Text>
             <View style={{ flexDirection: "row", alignItems: "baseline", gap: 4, marginBottom: 14 }}>
               <Text style={{ ...(DOT as any), fontSize: 26, color: "#0a0a0a", lineHeight: 28 }}>{Math.round(totals.calories)}</Text>
               <Text style={{ fontSize: 12, fontFamily: "Manrope-Bold", color: "#888888" }}>/ {calGoal}</Text>
@@ -970,7 +995,7 @@ export default function FoodScreen() {
               }}
             >
               <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: tab === t ? "#0a0a0a" : muted }}>
-                {t === "log" ? "Today's Log" : "Saved Meals"}
+                {t === "log" ? (selectedDate === today ? "Today's Log" : `${formatDate(selectedDate)} Log`) : "Saved Meals"}
               </Text>
             </Pressable>
           ))}
@@ -1389,7 +1414,7 @@ export default function FoodScreen() {
                 {/* Remove button */}
                 <Pressable
                   onPress={() => {
-                    Alert.alert("Remove item?", `Remove ${name} from today's log?`, [
+                    Alert.alert("Remove item?", `Remove ${name} from ${selectedDate === today ? "today's" : formatDate(selectedDate) + "'s"} log?`, [
                       { text: "Cancel", style: "cancel" },
                       { text: "Remove", style: "destructive", onPress: () => {
                         deleteEntry.mutate(e.id);

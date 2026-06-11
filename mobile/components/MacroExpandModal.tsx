@@ -55,6 +55,7 @@ export function MacroExpandModal({
   const [showing,     setShowing]    = useState(false);
   const [chartW,      setChartW]     = useState(0);
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
+  const [showPercent, setShowPercent] = useState(false);
 
   useEffect(() => { setSelectedIdx(null); }, [period]);
 
@@ -79,16 +80,23 @@ export function MacroExpandModal({
   const scale        = expandAnim.interpolate({ inputRange: [0, 1], outputRange: [0.06, 1] });
   const borderRadius = expandAnim.interpolate({ inputRange: [0, 0.7, 1], outputRange: [999, 40, 0] });
 
-  const proteinBars = useMemo(() => buildChartBars(history.map(d => ({ date: d.date, value: d.protein })), period), [history, period]);
-  const carbsBars   = useMemo(() => buildChartBars(history.map(d => ({ date: d.date, value: d.carbs   })), period), [history, period]);
-  const fatBars     = useMemo(() => buildChartBars(history.map(d => ({ date: d.date, value: d.fat     })), period), [history, period]);
+  const proteinBarsG = useMemo(() => buildChartBars(history.map(d => ({ date: d.date, value: d.protein })), period), [history, period]);
+  const carbsBarsG   = useMemo(() => buildChartBars(history.map(d => ({ date: d.date, value: d.carbs   })), period), [history, period]);
+  const fatBarsG     = useMemo(() => buildChartBars(history.map(d => ({ date: d.date, value: d.fat     })), period), [history, period]);
+
+  const toPercent = useCallback((bars: typeof proteinBarsG, target: number) =>
+    bars.map(b => ({ ...b, tooltipValue: b.value, value: target > 0 ? (b.value / target) * 100 : 0 })), []);
+
+  const proteinBars = useMemo(() => showPercent ? toPercent(proteinBarsG, targetProtein) : proteinBarsG, [proteinBarsG, showPercent, targetProtein, toPercent]);
+  const carbsBars   = useMemo(() => showPercent ? toPercent(carbsBarsG, targetCarbs)     : carbsBarsG,   [carbsBarsG, showPercent, targetCarbs, toPercent]);
+  const fatBars     = useMemo(() => showPercent ? toPercent(fatBarsG, targetFat)         : fatBarsG,     [fatBarsG, showPercent, targetFat, toPercent]);
 
   const macroMax = useMemo(() => Math.max(
     ...proteinBars.map(b => b.value),
     ...carbsBars.map(b => b.value),
     ...fatBars.map(b => b.value),
-    1,
-  ), [proteinBars, carbsBars, fatBars]);
+    showPercent ? 100 : 1,
+  ), [proteinBars, carbsBars, fatBars, showPercent]);
 
   const { ptsP, ptsC, ptsF, pathLen } = useMemo(() => {
     if (chartW <= 0 || proteinBars.length === 0) return { ptsP: "", ptsC: "", ptsF: "", pathLen: 0 };
@@ -121,14 +129,15 @@ export function MacroExpandModal({
   const dashOffset = (a: Animated.Value) => (a as any).interpolate({ inputRange: [0, 1], outputRange: [pathLen, 0] });
   const barGap = period === 30 ? 2 : 3;
 
-  const nonZero = (bars: typeof proteinBars) => bars.filter(b => b.value > 0);
+  const nonZero = (bars: typeof proteinBars) => bars.filter(b => b.value > 0 && !b.isToday);
   const avg = (bars: typeof proteinBars) => nonZero(bars).length ? Math.round(nonZero(bars).reduce((s, b) => s + b.value, 0) / nonZero(bars).length) : 0;
   const avgProtein = avg(proteinBars), avgCarbs = avg(carbsBars), avgFat = avg(fatBars);
 
+  const pctSuffix = showPercent ? "%" : "";
   const yTicks = [
-    { label: yFmt(macroMax),     top: 4  },
-    { label: yFmt(macroMax / 2), top: 41 },
-    { label: "0",                top: 76 },
+    { label: yFmt(macroMax) + pctSuffix,     top: 4  },
+    { label: yFmt(macroMax / 2) + pctSuffix, top: 41 },
+    { label: "0" + pctSuffix,                top: 76 },
   ];
 
   function renderTooltip() {
@@ -155,16 +164,16 @@ export function MacroExpandModal({
       <View pointerEvents="none" style={{ position: "absolute", left: tipX, top: tipTop, width: tipW, alignItems: "center" }}>
         <View style={{ backgroundColor: "rgba(20,20,20,0.95)", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, width: tipW }}>
           {[
-            { label: "Protein", value: Math.round(pb.value || 0), color: LIME },
-            { label: "Carbs",   value: Math.round(cb?.value || 0), color: BLUE },
-            { label: "Fat",     value: Math.round(fb?.value || 0), color: PURPLE },
+            { label: "Protein", value: pb.value || 0, color: LIME },
+            { label: "Carbs",   value: cb?.value || 0, color: BLUE },
+            { label: "Fat",     value: fb?.value || 0, color: PURPLE },
           ].map(r => (
             <View key={r.label} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 3 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
                 <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: r.color }} />
                 <Text style={{ fontFamily: "Manrope-Bold", fontSize: 10, color: "rgba(255,255,255,0.6)" }}>{r.label}</Text>
               </View>
-              <Text style={{ fontFamily: "Manrope-Bold", fontSize: 10, color: r.color }}>{r.value}g</Text>
+              <Text style={{ fontFamily: "Manrope-Bold", fontSize: 10, color: r.color }}>{Math.round(r.value)}{showPercent ? "%" : "g"}</Text>
             </View>
           ))}
         </View>
@@ -200,24 +209,27 @@ export function MacroExpandModal({
                     { label: "PROTEIN", val: todayProtein, target: targetProtein, color: LIME },
                     { label: "CARBS",   val: todayCarbs,   target: targetCarbs,   color: BLUE },
                     { label: "FAT",     val: todayFat,     target: targetFat,     color: PURPLE },
-                  ].map(m => (
-                    <View key={m.label} style={{ flex: 1, backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 18, padding: 14, alignItems: "center" }}>
-                      <Text style={{ fontFamily: "Manrope-Bold", fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: 0.7, marginBottom: 6 }}>{m.label}</Text>
-                      <Text style={{ fontFamily: "Doto", fontSize: 28, color: m.color, lineHeight: 32 }}>{m.val}</Text>
-                      <Text style={{ fontFamily: "Manrope-Bold", fontSize: 9, color: "rgba(255,255,255,0.3)", marginTop: 2 }}>/ {m.target}g</Text>
-                      <View style={{ width: "100%", height: 3, backgroundColor: "rgba(255,255,255,0.1)", borderRadius: 2, marginTop: 8, overflow: "hidden" }}>
-                        <View style={{ width: `${Math.min(m.target > 0 ? (m.val / m.target) * 100 : 0, 100)}%`, height: "100%", backgroundColor: m.color, borderRadius: 2 }} />
+                  ].map(m => {
+                    const pct = m.target > 0 ? Math.round((m.val / m.target) * 100) : 0;
+                    return (
+                      <View key={m.label} style={{ flex: 1, backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 18, padding: 14, alignItems: "center" }}>
+                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: 0.7, marginBottom: 6 }}>{m.label}</Text>
+                        <Text style={{ fontFamily: "Doto", fontSize: 28, color: m.color, lineHeight: 32 }}>{showPercent ? pct : m.val}</Text>
+                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 9, color: "rgba(255,255,255,0.3)", marginTop: 2 }}>{showPercent ? "% of target" : `/ ${m.target}g`}</Text>
+                        <View style={{ width: "100%", height: 3, backgroundColor: "rgba(255,255,255,0.1)", borderRadius: 2, marginTop: 8, overflow: "hidden" }}>
+                          <View style={{ width: `${Math.min(pct, 100)}%`, height: "100%", backgroundColor: m.color, borderRadius: 2 }} />
+                        </View>
                       </View>
-                    </View>
-                  ))}
+                    );
+                  })}
                 </View>
 
                 {/* Avg stats */}
                 <View style={{ flexDirection: "row", gap: 10, marginBottom: 24 }}>
                   {[
-                    { label: "AVG PROTEIN", value: avgProtein || "—", unit: "g/day", color: LIME },
-                    { label: "AVG CARBS",   value: avgCarbs   || "—", unit: "g/day", color: BLUE },
-                    { label: "AVG FAT",     value: avgFat     || "—", unit: "g/day", color: PURPLE },
+                    { label: "AVG PROTEIN", value: avgProtein || "—", unit: showPercent ? "% of target" : "g/day", color: LIME },
+                    { label: "AVG CARBS",   value: avgCarbs   || "—", unit: showPercent ? "% of target" : "g/day", color: BLUE },
+                    { label: "AVG FAT",     value: avgFat     || "—", unit: showPercent ? "% of target" : "g/day", color: PURPLE },
                   ].map(s => (
                     <View key={s.label} style={{ flex: 1, backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 14, padding: 10, alignItems: "center" }}>
                       <Text style={{ fontFamily: "Doto", fontSize: 22, color: s.color, lineHeight: 26 }}>{String(s.value)}</Text>
@@ -228,7 +240,7 @@ export function MacroExpandModal({
                 </View>
 
                 {/* Period selector */}
-                <View style={{ flexDirection: "row", backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 12, padding: 3, marginBottom: 20 }}>
+                <View style={{ flexDirection: "row", backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 12, padding: 3, marginBottom: 12 }}>
                   {([7, 30, 90] as const).map(p => (
                     <Pressable key={p} onPress={() => onPeriodChange(p)} style={{
                       flex: 1, paddingVertical: 7, borderRadius: 10, alignItems: "center",
@@ -241,9 +253,25 @@ export function MacroExpandModal({
                   ))}
                 </View>
 
+                {/* Grams / Percent toggle */}
+                <View style={{ flexDirection: "row", backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 12, padding: 3, marginBottom: 20, alignSelf: "flex-start" }}>
+                  {([{ key: false, label: "Grams" }, { key: true, label: "Percent" }] as const).map(opt => (
+                    <Pressable key={opt.label} onPress={() => setShowPercent(opt.key)} style={{
+                      paddingVertical: 7, paddingHorizontal: 16, borderRadius: 10, alignItems: "center",
+                      backgroundColor: showPercent === opt.key ? "rgba(255,255,255,0.15)" : "transparent",
+                    }}>
+                      <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: showPercent === opt.key ? "#ffffff" : "rgba(255,255,255,0.4)" }}>
+                        {opt.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+
                 {/* Chart label */}
                 <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: "rgba(255,255,255,0.35)", letterSpacing: 0.6, marginBottom: 10 }}>
-                  {period === 90 ? "MACROS (WEEKLY AVG)" : "DAILY MACROS (g)"}
+                  {showPercent
+                    ? (period === 90 ? "MACROS % OF TARGET (WEEKLY AVG)" : "DAILY MACROS (% OF TARGET)")
+                    : (period === 90 ? "MACROS (WEEKLY AVG)" : "DAILY MACROS (g)")}
                 </Text>
 
                 {/* Y-axis + Chart */}

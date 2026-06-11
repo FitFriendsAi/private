@@ -54,6 +54,8 @@ interface Props {
   stats: StatCard[];
   children?: React.ReactNode;
   logSection?: React.ReactNode;
+  /** Called whenever the tapped/selected bar changes (null when deselected). */
+  onSelectedIndexChange?: (idx: number | null) => void;
 }
 
 export function ExpandCardModal({
@@ -64,7 +66,7 @@ export function ExpandCardModal({
   chartBars, chartMaxValue, chartMinValue, goalValue, chartLabel,
   glowColor = "white",
   formatValue,
-  stats, children, logSection,
+  stats, children, logSection, onSelectedIndexChange,
 }: Props) {
   // ── Derived colours ──────────────────────────────────────────────
   const fg             = isDark ? "rgba(255,255,255," : "rgba(0,0,0,";
@@ -94,6 +96,9 @@ export function ExpandCardModal({
 
   // Reset selection on period change
   useEffect(() => { setSelectedIdx(null); }, [period]);
+
+  // Notify parent of selection changes
+  useEffect(() => { onSelectedIndexChange?.(selectedIdx); }, [selectedIdx, onSelectedIndexChange]);
 
   // Animate in
   useEffect(() => {

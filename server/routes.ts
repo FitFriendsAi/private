@@ -646,6 +646,28 @@ Return ONLY valid JSON (no markdown):
     }
   });
 
+  app.patch("/api/measurements/:id", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    try {
+      const userId = (req.user as any).id;
+      const data = insertBodyMeasurementSchema.omit({ userId: true }).partial().parse(req.body);
+      const m = await storage.updateMeasurement(Number(req.params.id), userId, data);
+      if (!m) return res.status(404).json({ message: "Measurement not found" });
+      await recalculateTargets(userId);
+      res.json(m);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/measurements/:id", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = (req.user as any).id;
+    await storage.deleteMeasurement(Number(req.params.id), userId);
+    await recalculateTargets(userId);
+    res.sendStatus(204);
+  });
+
   // ── Food Search / Barcode / Vision ──────────────────────────────────────────
   app.get("/api/food/search", async (req, res) => {
     if (!requireAuth(req, res)) return;

@@ -10,6 +10,8 @@ export interface ChartBar {
   label: string;
   showLabel: boolean;
   isToday: boolean;
+  /** YYYY-MM-DD date this bar represents (omitted for weekly-averaged 90-day bars). */
+  date?: string;
 }
 
 /**
@@ -49,6 +51,7 @@ export function buildChartBars(
           label:        MONTH_ABBR[month],
           showLabel,
           isToday: d.date === todayStr,
+          date: d.date,
         };
       });
   }
@@ -97,7 +100,7 @@ export function buildChartBars(
       label = String(d.getDate());
       showLabel = idx % 5 === 0 || idx === period - 1;
     }
-    return { value: byDate[ds] ?? 0, label, showLabel, isToday };
+    return { value: byDate[ds] ?? 0, label, showLabel, isToday, date: ds };
   });
 }
 
