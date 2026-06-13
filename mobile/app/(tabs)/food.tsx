@@ -9,7 +9,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
 import { useHealth } from "@/hooks/use-health";
-import { todayStr, nowTimeStr, timeStrToISO, fmtTime, shiftDateStr, formatDate, FOOD_UNITS, unitToServings, hasGramBasis, type FoodUnit } from "@/lib/utils";
+import { todayStr, nowTimeStr, timeStrToISO, fmtTime, shiftDateStr, formatDate, FOOD_UNITS, unitToServings, hasGramBasis, resolveServingGrams, type FoodUnit } from "@/lib/utils";
 import { Plus, Minus, Search, X, ChevronRight, UtensilsCrossed, Trash2, ScanLine, Camera, PenLine, ChevronDown, ChevronLeft, Sparkles, Upload } from "lucide-react-native";
 
 /** A food line-item estimated by Claude from text or a photo (macros are TOTALS for the amount eaten). */
@@ -646,8 +646,10 @@ export default function FoodScreen() {
 
   async function addToLog() {
     if (!selectedItem) return;
-    // Convert the entered amount + unit into the serving multiplier the log stores.
-    const sv = unitToServings(parseFloat(amount) || 0, unit, selectedItem.servingSizeG) || 1;
+    // Convert the entered amount + unit into the serving multiplier the log stores,
+    // using the reconciled grams-per-serving (handles bad/dropped-unit serving sizes).
+    const servG = resolveServingGrams(selectedItem.servingSizeG, selectedItem.servingUnit, selectedItem.name);
+    const sv = unitToServings(parseFloat(amount) || 0, unit, servG) || 1;
 
     setCreatingItem(true);
     const foodItemId = await ensureFoodItemId(selectedItem);
@@ -2427,8 +2429,11 @@ export default function FoodScreen() {
             {/* ── Serving selector (after item picked from search / barcode / scan) ── */}
             {selectedItem && (() => {
               const amt        = parseFloat(amount) || 0;
-              const sv         = unitToServings(amt, unit, selectedItem.servingSizeG);
-              const showUnits  = hasGramBasis(selectedItem.servingSizeG);
+              // Reconcile the serving's true gram weight (search data often drops the unit,
+              // e.g. a "12 oz" drink stored as servingSizeG = 12).
+              const servG      = resolveServingGrams(selectedItem.servingSizeG, selectedItem.servingUnit, selectedItem.name);
+              const sv         = unitToServings(amt, unit, servG);
+              const showUnits  = hasGramBasis(servG);
               const unitChoices: readonly FoodUnit[] = showUnits ? FOOD_UNITS : ["serving"];
               const pv = {
                 cal: Math.round(selectedItem.calories * sv),
@@ -2442,7 +2447,7 @@ export default function FoodScreen() {
                   <Text style={{ fontFamily: "Manrope-Bold", fontSize: 16, color: text }}>{selectedItem.name}</Text>
                   {selectedItem.brand && <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted }}>{selectedItem.brand}</Text>}
                   <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted, marginTop: 4 }}>
-                    Per serving{showUnits ? ` (${Math.round(selectedItem.servingSizeG)} g)` : ""}: {selectedItem.calories} kcal · {selectedItem.proteinG}g protein
+                    Per serving{showUnits ? ` (${Math.round(servG)} g)` : ""}: {selectedItem.calories} kcal · {selectedItem.proteinG}g protein
                   </Text>
                 </View>
 
