@@ -399,7 +399,7 @@ export default function FoodScreen() {
     setManualFiber(""); setManualSugar(""); setManualSodium(""); setManualSatFat("");
     setManualTransFat(""); setManualCholesterol(""); setManualPotassium("");
     setBarcodeError(""); setBarcodeManualCode(""); setBarcodeLoading(false);
-    setScanLabelError(""); setScanLabelLoading(false);
+    setScanLabelError(""); setScanLabelLoading(false); setScanPreview(null);
     setMealText(""); setParsing(false); setParseError(""); setParsedItems(null); setLoggingQuick(false);
   }
 
@@ -848,6 +848,10 @@ export default function FoodScreen() {
       if (!file) return;
       setBarcodeLoading(true);
       setBarcodeError("");
+      // Show the captured photo under the scanning animation while we decode + look up
+      const pr = new FileReader();
+      pr.onload = () => setScanPreview(pr.result as string);
+      pr.readAsDataURL(file);
       const objectUrl = URL.createObjectURL(file);
       try {
         // ① Native BarcodeDetector — fastest, available in Chrome & iOS 17.4+
@@ -883,6 +887,7 @@ export default function FoodScreen() {
         );
       } finally {
         setBarcodeLoading(false);
+        setScanPreview(null);
       }
     };
     input.click();
@@ -2527,9 +2532,9 @@ export default function FoodScreen() {
 
           {/* Scanning animation while Claude reads a label / meal photo */}
           <ScanningOverlay
-            visible={(scanLabelLoading || parsing) && !!scanPreview}
+            visible={(scanLabelLoading || parsing || barcodeLoading) && !!scanPreview}
             imageUri={scanPreview}
-            label={scanLabelLoading ? "Reading nutrition label…" : "Estimating macros…"}
+            label={scanLabelLoading ? "Reading nutrition label…" : barcodeLoading ? "Scanning barcode…" : "Estimating macros…"}
             accent={accentActive}
             text={text}
             muted={muted}
