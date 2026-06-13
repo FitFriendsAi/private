@@ -9,6 +9,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
 import { useHealth } from "@/hooks/use-health";
+import { ScanningOverlay } from "@/components/ScanningOverlay";
 import { todayStr, nowTimeStr, timeStrToISO, fmtTime, shiftDateStr, formatDate, FOOD_UNITS, unitToServings, hasGramBasis, resolveServingGrams, type FoodUnit } from "@/lib/utils";
 import { Plus, Minus, Search, X, ChevronRight, UtensilsCrossed, Trash2, ScanLine, Camera, PenLine, ChevronDown, ChevronLeft, Sparkles, Upload } from "lucide-react-native";
 
@@ -372,6 +373,8 @@ export default function FoodScreen() {
   // ── Scan label state ──────────────────────────────────────────────────────
   const [scanLabelLoading, setScanLabelLoading] = useState(false);
   const [scanLabelError, setScanLabelError]     = useState("");
+  // Data-URL of the image currently being read, shown under the scanning animation
+  const [scanPreview, setScanPreview]           = useState<string | null>(null);
 
   // Manual entry state
   const [manualName, setManualName]       = useState("");
@@ -904,6 +907,7 @@ export default function FoodScreen() {
     try {
       // Resize before sending — full-res phone photos (8–15 MB) exceed Claude's limit
       const { base64, mediaType } = await resizeFileForUpload(file, 1600, 0.85);
+      setScanPreview(`data:${mediaType};base64,${base64}`); // show it under the scan animation
       // Claude Vision extracts nutrition facts — give it more time than the default 10s
       const data = await apiRequest<any>("POST", "/api/food/scan-label", { imageBase64: base64, mediaType }, 45_000);
       // Persist as a food item so the log entry has a real id
@@ -926,6 +930,7 @@ export default function FoodScreen() {
       setScanLabelError("Couldn't read the label. Try a clearer, well-lit photo.");
     } finally {
       setScanLabelLoading(false);
+      setScanPreview(null);
     }
   }
 
@@ -988,6 +993,7 @@ export default function FoodScreen() {
       setParsedItems(null);
       try {
         const { base64, mediaType } = await resizeFileForUpload(file, 1600, 0.85);
+        setScanPreview(`data:${mediaType};base64,${base64}`); // drive the scanning animation
         const res = await apiRequest<{ items: ParsedMealItem[] }>("POST", "/api/food/parse-photo", { imageBase64: base64, mediaType }, 45_000);
         if (!res.items?.length) {
           setParseError("Couldn't identify any foods in that photo. Try a clearer, well-lit shot.");
@@ -998,6 +1004,7 @@ export default function FoodScreen() {
         setParseError("Couldn't read that photo. Try again.");
       } finally {
         setParsing(false);
+        setScanPreview(null);
       }
     };
     input.click();
@@ -2517,6 +2524,18 @@ export default function FoodScreen() {
             })()}
 
           </ScrollView>
+
+          {/* Scanning animation while Claude reads a label / meal photo */}
+          <ScanningOverlay
+            visible={(scanLabelLoading || parsing) && !!scanPreview}
+            imageUri={scanPreview}
+            label={scanLabelLoading ? "Reading nutrition label…" : "Estimating macros…"}
+            accent={accentActive}
+            text={text}
+            muted={muted}
+            card={card}
+            border={border}
+          />
         </View>
       </Modal>
 
