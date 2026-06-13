@@ -10,7 +10,7 @@ import { apiRequest } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
 import { useHealth } from "@/hooks/use-health";
 import { todayStr, nowTimeStr, timeStrToISO, fmtTime, shiftDateStr, formatDate, FOOD_UNITS, unitToServings, hasGramBasis, type FoodUnit } from "@/lib/utils";
-import { Plus, Minus, Search, X, ChevronRight, UtensilsCrossed, Trash2, ScanLine, Camera, PenLine, ChevronDown, ChevronLeft, Sparkles } from "lucide-react-native";
+import { Plus, Minus, Search, X, ChevronRight, UtensilsCrossed, Trash2, ScanLine, Camera, PenLine, ChevronDown, ChevronLeft, Sparkles, Upload } from "lucide-react-native";
 
 /** A food line-item estimated by Claude from text or a photo (macros are TOTALS for the amount eaten). */
 type ParsedMealItem = {
@@ -883,42 +883,70 @@ export default function FoodScreen() {
     input.click();
   }
 
-  // ── Open camera to photograph a nutrition label (web only) ────────────────
+  /** Hidden file input WITHOUT a capture attribute, so mobile users can pick an
+   *  existing image from their library/files instead of being forced to the camera. */
+  function createUploadInput(accept = "image/*"): HTMLInputElement {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = accept;
+    input.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0;";
+    document.body.appendChild(input); // must be in DOM or iOS won't fire change event
+    return input;
+  }
+
+  // Send a nutrition-label image to Claude Vision, persist the result as a food
+  // item, and open it in the serving selector. Shared by camera + upload paths.
+  async function processLabelFile(file: File) {
+    setScanLabelLoading(true);
+    setScanLabelError("");
+    try {
+      // Resize before sending — full-res phone photos (8–15 MB) exceed Claude's limit
+      const { base64, mediaType } = await resizeFileForUpload(file, 1600, 0.85);
+      // Claude Vision extracts nutrition facts — give it more time than the default 10s
+      const data = await apiRequest<any>("POST", "/api/food/scan-label", { imageBase64: base64, mediaType }, 45_000);
+      // Persist as a food item so the log entry has a real id
+      const item = await apiRequest<FoodItem>("POST", "/api/food/items", {
+        name: data.name || "Scanned Food",
+        brand: data.brand || undefined,
+        servingSizeG: data.servingSizeG || 100,
+        servingUnit: data.servingUnit || "serving",
+        calories: data.calories || 0,
+        proteinG: data.proteinG || 0,
+        carbsG: data.carbsG || 0,
+        fatG: data.fatG || 0,
+        fiberG: data.fiberG || undefined,
+        sodiumMg: data.sodiumMg || undefined,
+        sugarG: data.sugarG || undefined,
+        source: "custom",
+      });
+      setSelectedItem(item);
+    } catch {
+      setScanLabelError("Couldn't read the label. Try a clearer, well-lit photo.");
+    } finally {
+      setScanLabelLoading(false);
+    }
+  }
+
+  // ── Photograph a nutrition label with the camera (web only) ───────────────
   function openScanLabel() {
     if (Platform.OS !== "web") return;
     const input = createCameraInput();
     input.onchange = async (e: Event) => {
       document.body.removeChild(input);
       const file = (e.target as HTMLInputElement).files?.[0];
-      if (!file) return;
-      setScanLabelLoading(true);
-      setScanLabelError("");
-      try {
-        // Resize before sending — full-res iPhone photos (8–15 MB) exceed Claude's limit
-        const { base64, mediaType } = await resizeFileForUpload(file, 1600, 0.85);
-        // Claude Vision extracts nutrition facts — give it more time than the default 10s
-        const data = await apiRequest<any>("POST", "/api/food/scan-label", { imageBase64: base64, mediaType }, 45_000);
-        // Persist as a food item so the log entry has a real id
-        const item = await apiRequest<FoodItem>("POST", "/api/food/items", {
-          name: data.name || "Scanned Food",
-          brand: data.brand || undefined,
-          servingSizeG: data.servingSizeG || 100,
-          servingUnit: data.servingUnit || "serving",
-          calories: data.calories || 0,
-          proteinG: data.proteinG || 0,
-          carbsG: data.carbsG || 0,
-          fatG: data.fatG || 0,
-          fiberG: data.fiberG || undefined,
-          sodiumMg: data.sodiumMg || undefined,
-          sugarG: data.sugarG || undefined,
-          source: "custom",
-        });
-        setSelectedItem(item);
-      } catch {
-        setScanLabelError("Couldn't read the label. Try a clearer, well-lit photo.");
-      } finally {
-        setScanLabelLoading(false);
-      }
+      if (file) await processLabelFile(file);
+    };
+    input.click();
+  }
+
+  // ── Upload an existing nutrition-label image from library/files (web only) ──
+  function openUploadLabel() {
+    if (Platform.OS !== "web") return;
+    const input = createUploadInput();
+    input.onchange = async (e: Event) => {
+      document.body.removeChild(input);
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (file) await processLabelFile(file);
     };
     input.click();
   }
@@ -1935,7 +1963,7 @@ export default function FoodScreen() {
                   </View>
 
                 {/* Barcode + Scan Label buttons */}
-                <View style={{ flexDirection: "row", gap: 12, marginBottom: scanLabelError ? 8 : 24 }}>
+                <View style={{ flexDirection: "row", gap: 12, marginBottom: 12 }}>
                   <Pressable
                     onPress={() => setAddView("barcode")}
                     style={({ pressed }) => ({
@@ -1963,6 +1991,20 @@ export default function FoodScreen() {
                     </Text>
                   </Pressable>
                 </View>
+
+                {/* Upload an existing label image (from library / files) */}
+                <Pressable
+                  onPress={openUploadLabel}
+                  disabled={scanLabelLoading}
+                  style={({ pressed }) => ({
+                    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7,
+                    paddingVertical: 11, marginBottom: scanLabelError ? 8 : 22,
+                    opacity: (pressed || scanLabelLoading) ? 0.6 : 1,
+                  })}
+                >
+                  <Upload size={15} color={muted} />
+                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: muted }}>Upload a label image</Text>
+                </Pressable>
 
                 {/* Scan label feedback */}
                 {scanLabelLoading && (
