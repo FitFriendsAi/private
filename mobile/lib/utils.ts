@@ -23,6 +23,40 @@ export function ozToMl(oz: number): number {
   return Math.round(oz * 29.5735);
 }
 
+// ── Food measurement units ────────────────────────────────────────────────
+// Lets users log a food by weight/volume (e.g. "8 oz of milk", "40 g cereal")
+// instead of "servings". We convert the amount → grams, then divide by the
+// item's per-serving gram weight to get the serving multiplier the log uses.
+// Volume units approximate 1 ml ≈ 1 g (accurate for water/milk-like foods).
+export const FOOD_UNITS = ["serving", "g", "oz", "lb", "ml", "fl oz", "cup", "tbsp", "tsp"] as const;
+export type FoodUnit = typeof FOOD_UNITS[number];
+
+const UNIT_GRAMS: Record<Exclude<FoodUnit, "serving">, number> = {
+  g: 1,
+  oz: 28.3495,       // weight ounce
+  lb: 453.592,
+  ml: 1,             // volume ≈ 1 g/ml
+  "fl oz": 29.5735,
+  cup: 236.588,
+  tbsp: 14.7868,
+  tsp: 4.92892,
+};
+
+/** Convert an amount in `unit` to the serving multiplier for an item whose one
+ *  serving weighs `servingSizeG` grams. "serving" passes the amount through. */
+export function unitToServings(amount: number, unit: FoodUnit, servingSizeG: number): number {
+  if (!amount || amount <= 0) return 0;
+  if (unit === "serving") return amount;
+  if (!servingSizeG || servingSizeG <= 0) return amount;
+  return (amount * UNIT_GRAMS[unit]) / servingSizeG;
+}
+
+/** True when the item has a real gram basis, so weight/volume units are meaningful.
+ *  Manual "per serving" entries store servingSizeG = 1 and should stay servings-only. */
+export function hasGramBasis(servingSizeG: number | null | undefined): boolean {
+  return typeof servingSizeG === "number" && servingSizeG >= 2;
+}
+
 export function formatDate(dateStr: string): string {
   const d = new Date(dateStr + "T12:00:00");
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });

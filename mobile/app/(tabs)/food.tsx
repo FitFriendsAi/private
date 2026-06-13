@@ -9,7 +9,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
 import { useHealth } from "@/hooks/use-health";
-import { todayStr, nowTimeStr, timeStrToISO, fmtTime, shiftDateStr, formatDate } from "@/lib/utils";
+import { todayStr, nowTimeStr, timeStrToISO, fmtTime, shiftDateStr, formatDate, FOOD_UNITS, unitToServings, hasGramBasis, type FoodUnit } from "@/lib/utils";
 import { Plus, Minus, Search, X, ChevronRight, UtensilsCrossed, Trash2, ScanLine, Camera, PenLine, ChevronDown, ChevronLeft, Sparkles } from "lucide-react-native";
 
 /** A food line-item estimated by Claude from text or a photo (macros are TOTALS for the amount eaten). */
@@ -188,6 +188,9 @@ export default function FoodScreen() {
   const [selectedItem, setSelectedItem]     = useState<FoodItem | null>(null);
   const [creatingItem, setCreatingItem]     = useState(false);
   const [servings, setServings]             = useState("1");
+  // Amount + unit for logging a selected food (unit "serving" = the classic multiplier)
+  const [amount, setAmount]                 = useState("1");
+  const [unit, setUnit]                     = useState<FoodUnit>("serving");
   const [logTime, setLogTime]               = useState(nowTimeStr);
   // ── Create / edit meal modal ──
   const [showCreateMeal, setShowCreateMeal]         = useState(false);
@@ -234,6 +237,11 @@ export default function FoodScreen() {
       }
     }
   }
+
+  // Reset amount/unit each time a different food is selected for logging
+  useEffect(() => {
+    if (selectedItem) { setAmount("1"); setUnit("serving"); }
+  }, [selectedItem?.id, selectedItem?.name]);
 
   // ── Queries ──
   const { data: foodLog = [] } = useQuery<FoodLogEntry[]>({
@@ -326,6 +334,7 @@ export default function FoodScreen() {
     setSearchQuery("");
     setSearchResults([]);
     setServings("1");
+    setAmount("1"); setUnit("serving");
     setLogTime(nowTimeStr());
     setSearchFilter("all");
     resetAddModal();
@@ -337,6 +346,7 @@ export default function FoodScreen() {
     setSearchQuery("");
     setSearchResults([]);
     setServings("1");
+    setAmount("1"); setUnit("serving");
     setLogTime(nowTimeStr());
     resetAddModal();
     setShowAdd(true);
@@ -636,7 +646,8 @@ export default function FoodScreen() {
 
   async function addToLog() {
     if (!selectedItem) return;
-    const sv = parseFloat(servings) || 1;
+    // Convert the entered amount + unit into the serving multiplier the log stores.
+    const sv = unitToServings(parseFloat(amount) || 0, unit, selectedItem.servingSizeG) || 1;
 
     setCreatingItem(true);
     const foodItemId = await ensureFoodItemId(selectedItem);
@@ -2372,23 +2383,63 @@ export default function FoodScreen() {
             )}
 
             {/* ── Serving selector (after item picked from search / barcode / scan) ── */}
-            {selectedItem && (
+            {selectedItem && (() => {
+              const amt        = parseFloat(amount) || 0;
+              const sv         = unitToServings(amt, unit, selectedItem.servingSizeG);
+              const showUnits  = hasGramBasis(selectedItem.servingSizeG);
+              const unitChoices: readonly FoodUnit[] = showUnits ? FOOD_UNITS : ["serving"];
+              const pv = {
+                cal: Math.round(selectedItem.calories * sv),
+                p:   Math.round(selectedItem.proteinG * sv * 10) / 10,
+                c:   Math.round(selectedItem.carbsG   * sv * 10) / 10,
+                f:   Math.round(selectedItem.fatG     * sv * 10) / 10,
+              };
+              return (
               <>
                 <View style={{ backgroundColor: card, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: border, marginBottom: 20 }}>
                   <Text style={{ fontFamily: "Manrope-Bold", fontSize: 16, color: text }}>{selectedItem.name}</Text>
                   {selectedItem.brand && <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted }}>{selectedItem.brand}</Text>}
                   <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted, marginTop: 4 }}>
-                    Per serving: {selectedItem.calories} kcal · {selectedItem.proteinG}g protein
+                    Per serving{showUnits ? ` (${Math.round(selectedItem.servingSizeG)} g)` : ""}: {selectedItem.calories} kcal · {selectedItem.proteinG}g protein
                   </Text>
                 </View>
 
-                <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: muted, letterSpacing: 0.8, marginBottom: 8 }}>SERVINGS</Text>
+                <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: muted, letterSpacing: 0.8, marginBottom: 8 }}>AMOUNT</Text>
                 <TextInput
-                  value={servings}
-                  onChangeText={setServings}
+                  value={amount}
+                  onChangeText={setAmount}
                   keyboardType="decimal-pad"
-                  style={{ backgroundColor: card, borderRadius: 12, padding: 14, color: text, fontFamily: "Manrope-ExtraBold", fontSize: 24, borderWidth: 1, borderColor: border, textAlign: "center", marginBottom: 14 }}
+                  style={{ backgroundColor: card, borderRadius: 12, padding: 14, color: text, fontFamily: "Manrope-ExtraBold", fontSize: 24, borderWidth: 1, borderColor: border, textAlign: "center", marginBottom: 10 }}
                 />
+
+                {/* Unit selector */}
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 2 }} style={{ marginBottom: 12 }}>
+                  {unitChoices.map(u => (
+                    <Pressable
+                      key={u}
+                      onPress={() => setUnit(u)}
+                      style={({ pressed }) => ({
+                        paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+                        backgroundColor: unit === u ? accentActive : card,
+                        borderWidth: 1, borderColor: unit === u ? accentActive : border,
+                        opacity: pressed ? 0.7 : 1,
+                      })}
+                    >
+                      <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: unit === u ? (isWhite ? "#fff" : palette.accentText) : muted }}>
+                        {u === "serving" ? (amt === 1 ? "serving" : "servings") : u}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+
+                {/* Live macro preview */}
+                <View style={{ backgroundColor: card, borderRadius: 12, borderWidth: 1, borderColor: border, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 20 }}>
+                  <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 18, color: text }}>{pv.cal} kcal</Text>
+                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12.5, color: muted, marginTop: 3 }}>
+                    P {pv.p}g · C {pv.c}g · F {pv.f}g
+                    {unit !== "serving" && sv > 0 ? `  ·  ≈ ${sv >= 0.1 ? sv.toFixed(2).replace(/\.?0+$/, "") : sv.toFixed(3)} serving${sv === 1 ? "" : "s"}` : ""}
+                  </Text>
+                </View>
 
                 <View style={{ marginBottom: 20 }}>
                   <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: muted, letterSpacing: 0.8, marginBottom: 8 }}>TIME</Text>
@@ -2406,8 +2457,8 @@ export default function FoodScreen() {
                   </Pressable>
                   <Pressable
                     onPress={addToLog}
-                    disabled={addEntry.isPending || creatingItem}
-                    style={({ pressed }) => ({ flex: 2, paddingVertical: 14, borderRadius: 14, backgroundColor: accentActive, alignItems: "center", opacity: (pressed || addEntry.isPending || creatingItem) ? 0.7 : 1 })}
+                    disabled={addEntry.isPending || creatingItem || sv <= 0}
+                    style={({ pressed }) => ({ flex: 2, paddingVertical: 14, borderRadius: 14, backgroundColor: accentActive, alignItems: "center", opacity: (pressed || addEntry.isPending || creatingItem || sv <= 0) ? 0.7 : 1 })}
                   >
                     <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 14, color: isWhite ? "#fff" : palette.accentText }}>
                       {(addEntry.isPending || creatingItem) ? "Adding…" : `Add to ${MEAL_LABELS[activeMeal]}`}
@@ -2415,7 +2466,8 @@ export default function FoodScreen() {
                   </Pressable>
                 </View>
               </>
-            )}
+              );
+            })()}
 
           </ScrollView>
         </View>
