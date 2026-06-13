@@ -185,6 +185,12 @@ export default function SettingsScreen() {
     queryFn: () => apiRequest("GET", "/api/measurements"),
   });
 
+  // Adaptive TDEE: measured maintenance calories (back-solved from intake + weight trend)
+  const { data: tdee } = useQuery<any>({
+    queryKey: ["/api/tdee"],
+    queryFn: () => apiRequest("GET", "/api/tdee"),
+  });
+
   const [ftVal,        setFtVal]        = useState("");
   const [inVal,        setInVal]        = useState("");
   const [birthDate,    setBirthDate]    = useState("");
@@ -216,6 +222,7 @@ export default function SettingsScreen() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/profile"] });
       qc.invalidateQueries({ queryKey: ["/api/targets"] });
+      qc.invalidateQueries({ queryKey: ["/api/tdee"] });
       Alert.alert("Saved", "Profile updated.");
     },
     onError: () => Alert.alert("Error", "Could not save profile."),
@@ -278,6 +285,8 @@ export default function SettingsScreen() {
       const kg = lbsToGrams(parseFloat(weightInput)) / 1000;
       if (logDate === today) health.writeWeight(kg);
       qc.invalidateQueries({ queryKey: ["/api/measurements"] });
+      qc.invalidateQueries({ queryKey: ["/api/tdee"] });
+      qc.invalidateQueries({ queryKey: ["/api/targets"] });
       Alert.alert("Saved", measurementForDate ? "Weight updated!" : "Weight saved!");
     },
     onError: () => Alert.alert("Error", "Could not save weight."),
@@ -287,6 +296,8 @@ export default function SettingsScreen() {
     mutationFn: (id: number) => apiRequest("DELETE", `/api/measurements/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/measurements"] });
+      qc.invalidateQueries({ queryKey: ["/api/tdee"] });
+      qc.invalidateQueries({ queryKey: ["/api/targets"] });
     },
     onError: () => Alert.alert("Error", "Could not delete entry."),
   });
@@ -391,6 +402,52 @@ export default function SettingsScreen() {
                 {PALETTES.find(p => p.id === paletteId)?.label ?? "White"}
               </Text>
             </Text>
+          </View>
+
+          {/* ── Energy Expenditure (Adaptive TDEE) ── */}
+          <View style={{ backgroundColor: card, borderRadius: 20, borderWidth: 1, borderColor: border, padding: 16, marginBottom: 14 }}>
+            <CardHeader icon={Activity} label="Energy Expenditure" iconColor={muted} text={text} />
+
+            <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8 }}>
+              <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 34, color: text, lineHeight: 38 }}>
+                {tdee?.tdee != null ? Math.round(tdee.tdee).toLocaleString() : "—"}
+              </Text>
+              <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 14, color: muted, marginBottom: 5 }}>kcal / day</Text>
+            </View>
+
+            {tdee?.method === "adaptive" && tdee?.adaptive ? (
+              <>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8 }}>
+                  <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20, backgroundColor: `${accent}22` }}>
+                    <Text style={{ fontFamily: "Manrope-Bold", fontSize: 10, color: accent, letterSpacing: 0.4 }}>
+                      MEASURED · {String(tdee.adaptive.confidence).toUpperCase()} CONFIDENCE
+                    </Text>
+                  </View>
+                </View>
+                <Text style={{ fontFamily: "Manrope", fontSize: 12.5, color: muted, marginTop: 10, lineHeight: 18 }}>
+                  Back-solved from {tdee.adaptive.loggedDays} days of food logs and your weight trend of{" "}
+                  <Text style={{ color: text, fontFamily: "Manrope-SemiBold" }}>
+                    {tdee.adaptive.weightSlopeKgPerWeek > 0 ? "+" : ""}
+                    {(weightUnit === "kg"
+                      ? tdee.adaptive.weightSlopeKgPerWeek
+                      : Math.round(tdee.adaptive.weightSlopeKgPerWeek * 2.20462 * 10) / 10
+                    )} {weightUnit}/week
+                  </Text>
+                  . Your calorie target now adapts to this instead of a formula estimate.
+                </Text>
+                {tdee?.formulaTdee != null && (
+                  <Text style={{ fontFamily: "Manrope", fontSize: 11.5, color: muted, marginTop: 6 }}>
+                    Formula estimate: {Math.round(tdee.formulaTdee).toLocaleString()} kcal
+                  </Text>
+                )}
+              </>
+            ) : (
+              <Text style={{ fontFamily: "Manrope", fontSize: 12.5, color: muted, marginTop: 8, lineHeight: 18 }}>
+                {tdee?.tdee != null
+                  ? "Estimated from your profile. Keep logging food and weigh in regularly — after ~2 weeks this becomes a measured number personalized to your metabolism."
+                  : "Add your height, birth date, and a weight entry to estimate your daily energy expenditure."}
+              </Text>
+            )}
           </View>
 
           {/* ── Log Weight ── */}

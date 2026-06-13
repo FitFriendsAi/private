@@ -25,6 +25,10 @@ export const userProfiles = pgTable("user_profiles", {
   activityLevel: text("activity_level").default("moderate"), // sedentary|light|moderate|active|very_active
   weightUnitPref: text("weight_unit_pref").default("lbs"), // lbs | kg
   volumeUnitPref: text("volume_unit_pref").default("oz"), // oz | ml
+  // Adaptive TDEE: measured maintenance calories back-solved from logged intake
+  // + weight trend. Null until there's enough data; targets fall back to formula.
+  estimatedTdee: real("estimated_tdee"),
+  tdeeUpdatedAt: timestamp("tdee_updated_at"),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 

@@ -10,7 +10,22 @@ import { apiRequest } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
 import { useHealth } from "@/hooks/use-health";
 import { todayStr, nowTimeStr, timeStrToISO, fmtTime, shiftDateStr, formatDate } from "@/lib/utils";
-import { Plus, Minus, Search, X, ChevronRight, UtensilsCrossed, Trash2, ScanLine, Camera, PenLine, ChevronDown, ChevronLeft } from "lucide-react-native";
+import { Plus, Minus, Search, X, ChevronRight, UtensilsCrossed, Trash2, ScanLine, Camera, PenLine, ChevronDown, ChevronLeft, Sparkles } from "lucide-react-native";
+
+/** A food line-item estimated by Claude from text or a photo (macros are TOTALS for the amount eaten). */
+type ParsedMealItem = {
+  name: string;
+  brand?: string;
+  quantity: string;
+  servingSizeG: number;
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  fiberG?: number;
+  sodiumMg?: number;
+  sugarG?: number;
+};
 import Svg, { Circle } from "react-native-svg";
 
 const MEALS = ["breakfast", "lunch", "dinner", "snack"] as const;
@@ -328,9 +343,16 @@ export default function FoodScreen() {
   }
 
 
-  // ── Add food modal view: "home" | "search" | "manual" | "barcode" ─────────
-  const [addView, setAddView] = useState<"home" | "search" | "manual" | "barcode">("home");
+  // ── Add food modal view: "home" | "search" | "manual" | "barcode" | "describe" ──
+  const [addView, setAddView] = useState<"home" | "search" | "manual" | "barcode" | "describe">("home");
   const [showMealPicker, setShowMealPicker] = useState(false);
+
+  // ── AI meal logging (natural-language + plate photo) ──────────────────────
+  const [mealText, setMealText]         = useState("");
+  const [parsing, setParsing]           = useState(false);
+  const [parseError, setParseError]     = useState("");
+  const [parsedItems, setParsedItems]   = useState<ParsedMealItem[] | null>(null);
+  const [loggingQuick, setLoggingQuick] = useState(false);
 
   // ── Barcode scanner state ─────────────────────────────────────────────────
   const [barcodeError, setBarcodeError]           = useState("");
@@ -365,6 +387,7 @@ export default function FoodScreen() {
     setManualTransFat(""); setManualCholesterol(""); setManualPotassium("");
     setBarcodeError(""); setBarcodeManualCode(""); setBarcodeLoading(false);
     setScanLabelError(""); setScanLabelLoading(false);
+    setMealText(""); setParsing(false); setParseError(""); setParsedItems(null); setLoggingQuick(false);
   }
 
   // ── Search filter: "all" | "restaurant" ──────────────────────────────────
@@ -887,6 +910,90 @@ export default function FoodScreen() {
       }
     };
     input.click();
+  }
+
+  // ── AI meal logging ─────────────────────────────────────────────────────────
+  // Parse a free-text meal description into individual food items with macros.
+  async function parseMealDescription() {
+    const text = mealText.trim();
+    if (!text) return;
+    setParsing(true);
+    setParseError("");
+    setParsedItems(null);
+    try {
+      const res = await apiRequest<{ items: ParsedMealItem[] }>("POST", "/api/food/parse-text", { text }, 45_000);
+      if (!res.items?.length) {
+        setParseError("Couldn't identify any foods. Try describing amounts, e.g. “2 eggs, 1 cup rice”.");
+      } else {
+        setParsedItems(res.items);
+      }
+    } catch {
+      setParseError("Couldn't estimate that meal. Please try again.");
+    } finally {
+      setParsing(false);
+    }
+  }
+
+  // Photograph a plated meal → estimated food items (web only).
+  function openSnapMeal() {
+    if (Platform.OS !== "web") return;
+    const input = createCameraInput();
+    input.onchange = async (e: Event) => {
+      document.body.removeChild(input);
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      setParsing(true);
+      setParseError("");
+      setParsedItems(null);
+      try {
+        const { base64, mediaType } = await resizeFileForUpload(file, 1600, 0.85);
+        const res = await apiRequest<{ items: ParsedMealItem[] }>("POST", "/api/food/parse-photo", { imageBase64: base64, mediaType }, 45_000);
+        if (!res.items?.length) {
+          setParseError("Couldn't identify any foods in that photo. Try a clearer, well-lit shot.");
+        } else {
+          setParsedItems(res.items);
+        }
+      } catch {
+        setParseError("Couldn't read that photo. Try again.");
+      } finally {
+        setParsing(false);
+      }
+    };
+    input.click();
+  }
+
+  // Log the reviewed AI items to the current meal/date in one batch.
+  async function confirmQuickLog() {
+    const items = parsedItems ?? [];
+    if (items.length === 0) return;
+    setLoggingQuick(true);
+    try {
+      await apiRequest("POST", "/api/food-log/quick", { date: selectedDate, mealType: activeMeal, items }, 45_000);
+      qc.invalidateQueries({ queryKey: ["/api/food-log", selectedDate] });
+      qc.invalidateQueries({ queryKey: ["/api/food/recent"] });
+      // Mirror manual logging: write totals to Apple Health for today only
+      if (health.authorized && selectedDate === today) {
+        const total = items.reduce(
+          (s, it) => ({
+            calories: s.calories + Math.round(it.calories || 0),
+            proteinG: s.proteinG + Math.round(it.proteinG || 0),
+            carbsG:   s.carbsG   + Math.round(it.carbsG   || 0),
+            fatG:     s.fatG     + Math.round(it.fatG     || 0),
+          }),
+          { calories: 0, proteinG: 0, carbsG: 0, fatG: 0 },
+        );
+        const mealType =
+          activeMeal === "breakfast" ? "Breakfast" :
+          activeMeal === "lunch"     ? "Lunch"     :
+          activeMeal === "dinner"    ? "Dinner"    : "Snack";
+        health.writeFood({ mealName: mealType, mealType, ...total });
+      }
+      closeAddModal();
+    } catch {
+      setParseError("Couldn't save those items. Please try again.");
+    } finally {
+      setLoggingQuick(false);
+    }
   }
 
   const { card, cardBorder: border, text, muted, bg, accent, accentText } = palette;
@@ -1858,6 +1965,25 @@ export default function FoodScreen() {
                   </Text>
                 ) : null}
 
+                {/* AI quick-log: describe or photograph a meal */}
+                <Pressable
+                  onPress={() => { setAddView("describe"); setParseError(""); setParsedItems(null); }}
+                  style={({ pressed }) => ({
+                    flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 12,
+                    backgroundColor: `${accentActive}14`, borderRadius: 16, borderWidth: 1, borderColor: `${accentActive}55`,
+                    paddingHorizontal: 16, paddingVertical: 16, opacity: pressed ? 0.7 : 1,
+                  })}
+                >
+                  <Sparkles size={22} color={accentActive} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontFamily: "Manrope-Bold", fontSize: 15, color: text }}>Describe or snap a meal</Text>
+                    <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted, marginTop: 1 }}>
+                      “2 eggs, toast & coffee” — AI estimates the macros
+                    </Text>
+                  </View>
+                  <ChevronRight size={18} color={muted} />
+                </Pressable>
+
                 {/* OR SEARCH divider */}
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 16 }}>
                   <View style={{ flex: 1, height: 1, backgroundColor: border }} />
@@ -2048,6 +2174,123 @@ export default function FoodScreen() {
                     {(addEntry.isPending || creatingItem) ? "Adding…" : `Add to ${MEAL_LABELS[activeMeal]}`}
                   </Text>
                 </Pressable>
+              </>
+            )}
+
+            {/* ── DESCRIBE / SNAP MEAL view (AI) ── */}
+            {addView === "describe" && !selectedItem && (
+              <>
+                <Pressable onPress={() => { setAddView("home"); setMealText(""); setParsedItems(null); setParseError(""); }} style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 16 }}>
+                  <ChevronDown size={16} color={muted} style={{ transform: [{ rotate: "90deg" }] }} />
+                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: muted }}>Back</Text>
+                </Pressable>
+
+                {/* ── Review parsed items ── */}
+                {parsedItems ? (
+                  <>
+                    <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 11, color: muted, letterSpacing: 0.8, marginBottom: 10 }}>
+                      REVIEW · {MEAL_LABELS[activeMeal].toUpperCase()}
+                    </Text>
+                    {parsedItems.map((it, idx) => (
+                      <View key={idx} style={{ backgroundColor: card, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: border, marginBottom: 8, flexDirection: "row", alignItems: "center", gap: 10 }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 14, color: text }}>{it.name}</Text>
+                          <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted, marginTop: 2 }}>
+                            {it.quantity} · {Math.round(it.calories)} kcal · P {it.proteinG}g · C {it.carbsG}g · F {it.fatG}g
+                          </Text>
+                        </View>
+                        <Pressable
+                          onPress={() => setParsedItems(prev => {
+                            const next = (prev ?? []).filter((_, i) => i !== idx);
+                            return next.length ? next : null;
+                          })}
+                          hitSlop={8}
+                          style={({ pressed }) => ({ padding: 4, opacity: pressed ? 0.5 : 1 })}
+                        >
+                          <Trash2 size={16} color={muted} />
+                        </Pressable>
+                      </View>
+                    ))}
+
+                    {/* Totals */}
+                    <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 4, marginBottom: 16, paddingHorizontal: 4 }}>
+                      <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: text }}>Total</Text>
+                      <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: muted }}>
+                        {Math.round(parsedItems.reduce((s, it) => s + (it.calories || 0), 0))} kcal ·
+                        {" "}P {Math.round(parsedItems.reduce((s, it) => s + (it.proteinG || 0), 0))}g ·
+                        {" "}C {Math.round(parsedItems.reduce((s, it) => s + (it.carbsG || 0), 0))}g ·
+                        {" "}F {Math.round(parsedItems.reduce((s, it) => s + (it.fatG || 0), 0))}g
+                      </Text>
+                    </View>
+
+                    {parseError ? (
+                      <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: "#ef4444", textAlign: "center", marginBottom: 12 }}>{parseError}</Text>
+                    ) : null}
+
+                    <Pressable
+                      onPress={confirmQuickLog}
+                      disabled={loggingQuick || parsedItems.length === 0}
+                      style={({ pressed }) => ({ backgroundColor: accentActive, borderRadius: 16, paddingVertical: 16, alignItems: "center", opacity: (pressed || loggingQuick) ? 0.6 : 1 })}
+                    >
+                      <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 15, color: isWhite ? "#fff" : palette.accentText }}>
+                        {loggingQuick ? "Logging…" : `Log ${parsedItems.length} item${parsedItems.length === 1 ? "" : "s"} to ${MEAL_LABELS[activeMeal]}`}
+                      </Text>
+                    </Pressable>
+                    <Pressable onPress={() => { setParsedItems(null); setParseError(""); }} style={({ pressed }) => ({ paddingVertical: 14, alignItems: "center", opacity: pressed ? 0.6 : 1 })}>
+                      <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: muted }}>Start over</Text>
+                    </Pressable>
+                  </>
+                ) : parsing ? (
+                  <View style={{ alignItems: "center", paddingVertical: 48 }}>
+                    <ActivityIndicator size="large" color={accentActive} />
+                    <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 14, color: muted, marginTop: 14 }}>
+                      Claude is estimating the macros…
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 11, color: muted, letterSpacing: 0.8, marginBottom: 8 }}>DESCRIBE YOUR MEAL</Text>
+                    <TextInput
+                      value={mealText}
+                      onChangeText={setMealText}
+                      placeholder={"e.g. 2 scrambled eggs, 2 slices wheat toast with butter, and a black coffee"}
+                      placeholderTextColor={muted}
+                      multiline
+                      autoFocus
+                      style={{ backgroundColor: card, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: border, fontFamily: "Manrope", fontSize: 15, color: text, minHeight: 100, textAlignVertical: "top" }}
+                    />
+
+                    {parseError ? (
+                      <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: "#ef4444", textAlign: "center", marginTop: 12 }}>{parseError}</Text>
+                    ) : null}
+
+                    <Pressable
+                      onPress={parseMealDescription}
+                      disabled={!mealText.trim()}
+                      style={({ pressed }) => ({ backgroundColor: accentActive, borderRadius: 16, paddingVertical: 16, alignItems: "center", marginTop: 14, flexDirection: "row", justifyContent: "center", gap: 8, opacity: (pressed || !mealText.trim()) ? 0.6 : 1 })}
+                    >
+                      <Sparkles size={18} color={isWhite ? "#fff" : palette.accentText} />
+                      <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 15, color: isWhite ? "#fff" : palette.accentText }}>Estimate macros</Text>
+                    </Pressable>
+
+                    {Platform.OS === "web" && (
+                      <>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginVertical: 18 }}>
+                          <View style={{ flex: 1, height: 1, backgroundColor: border }} />
+                          <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 11, color: muted, letterSpacing: 1 }}>OR</Text>
+                          <View style={{ flex: 1, height: 1, backgroundColor: border }} />
+                        </View>
+                        <Pressable
+                          onPress={openSnapMeal}
+                          style={({ pressed }) => ({ backgroundColor: card, borderRadius: 16, borderWidth: 1, borderColor: border, paddingVertical: 18, alignItems: "center", gap: 8, opacity: pressed ? 0.7 : 1 })}
+                        >
+                          <Camera size={26} color={text} />
+                          <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: text }}>Snap a photo of your plate</Text>
+                        </Pressable>
+                      </>
+                    )}
+                  </>
+                )}
               </>
             )}
 

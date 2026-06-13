@@ -5,8 +5,8 @@ import { storage } from "./storage.js";
 import { hashPassword, verifyPassword } from "./auth.js";
 import { passport } from "./auth.js";
 import { lookupBarcode, lookupBarcodeFS, autocompleteFatSecret, searchFoodByName, searchOFF, searchUSDA, searchFatSecret, searchCalorieNinjas, searchBrandOFF, enrichMissingNutrition } from "./services/food-lookup.js";
-import { parseNutritionLabel } from "./services/vision.js";
-import { calculateMacroTargets, getAgeFromBirthDate } from "./services/goal-engine.js";
+import { parseNutritionLabel, parseMealText, parseMealPhoto, type ParsedMealItem } from "./services/vision.js";
+import { calculateMacroTargets, getAgeFromBirthDate, estimateAdaptiveTDEE, calculateBMR, calculateTDEE, type AdaptiveTDEEResult, type ActivityLevel, type Sex } from "./services/goal-engine.js";
 import { fetchExerciseGif } from "./services/exercise-gif.js";
 import { sendInviteEmail, sendInviteSms } from "./services/notifications.js";
 import {
@@ -68,7 +68,26 @@ async function recalculateTargets(userId: number) {
     }
   }
 
-  const targets = calculateMacroTargets({ weightKg, heightCm, ageYears, sex, activityLevel, goalType, targetWeightKg, deadlineDays });
+  // ── Adaptive TDEE ──────────────────────────────────────────────────────────
+  // Back-solve real maintenance calories from logged intake + weight trend.
+  // When we have enough data we trust the measured number over the formula and
+  // persist it so the dashboard can show it; otherwise fall back to the formula.
+  const [intake, weightRows] = await Promise.all([
+    storage.getDailyCalorieTotals(userId, 28),
+    storage.getMeasurements(userId, 60),
+  ]);
+  const adaptive = estimateAdaptiveTDEE({
+    intake,
+    weights: weightRows.map(w => ({ date: String(w.date).slice(0, 10), weightKg: w.weightGrams / 1000 })),
+  });
+  if (adaptive) {
+    await storage.upsertProfile(userId, { estimatedTdee: adaptive.tdee, tdeeUpdatedAt: new Date() });
+  }
+
+  const targets = calculateMacroTargets({
+    weightKg, heightCm, ageYears, sex, activityLevel, goalType, targetWeightKg, deadlineDays,
+    overrideTdee: adaptive?.tdee,
+  });
   await storage.upsertNutritionTarget(userId, { effectiveDate: new Date().toISOString().slice(0, 10), ...targets });
 }
 
@@ -982,6 +1001,28 @@ Return ONLY valid JSON (no markdown):
     res.json(result);
   });
 
+  // Natural-language meal logging: "2 eggs, toast with butter, black coffee"
+  // → structured food items with estimated macros for the user to review.
+  app.post("/api/food/parse-text", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+    if (!text) return res.status(400).json({ message: "text required" });
+    if (text.length > 1000) return res.status(400).json({ message: "text too long" });
+    const items = await parseMealText(text);
+    if (items === null) return res.status(422).json({ message: "Could not understand that meal" });
+    res.json({ items });
+  });
+
+  // Plated-meal photo → estimated food items (visual portion estimation).
+  app.post("/api/food/parse-photo", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const { imageBase64, mediaType } = req.body;
+    if (!imageBase64 || !mediaType) return res.status(400).json({ message: "imageBase64 and mediaType required" });
+    const items = await parseMealPhoto(imageBase64, mediaType);
+    if (items === null) return res.status(422).json({ message: "Could not read that photo" });
+    res.json({ items });
+  });
+
   app.get("/api/food/recent", async (req, res) => {
     if (!requireAuth(req, res)) return;
     const items = await storage.getRecentFoodItems((req.user as any).id, 20);
@@ -1116,6 +1157,61 @@ Return ONLY valid JSON (no markdown):
     }
   });
 
+  // Batch-log AI-parsed meal items (from /parse-text or /parse-photo) after the
+  // user reviews them. Each item is saved as a cached food (source "ai") and a
+  // log entry with servings = 1 (macros already represent the amount eaten).
+  app.post("/api/food-log/quick", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    try {
+      const userId = (req.user as any).id;
+      const { date, mealType, items } = req.body as { date?: string; mealType?: string; items?: ParsedMealItem[] };
+      const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"];
+      if (!date || !mealType || !MEAL_TYPES.includes(mealType))
+        return res.status(400).json({ message: "date and valid mealType required" });
+      if (!Array.isArray(items) || items.length === 0)
+        return res.status(400).json({ message: "items[] required" });
+
+      const created = [];
+      for (const it of items) {
+        const calories = Math.round(Number(it.calories) || 0);
+        if (!it.name || calories <= 0) continue;
+        const num = (v: any) => Math.max(0, Math.round((Number(v) || 0) * 10) / 10);
+        const foodItem = await storage.createFoodItem({
+          name: String(it.name),
+          brand: it.brand || undefined,
+          servingSizeG: Math.max(1, Math.round(Number(it.servingSizeG) || 100)),
+          servingUnit: it.quantity ? String(it.quantity) : "1 serving",
+          calories,
+          proteinG: num(it.proteinG),
+          carbsG: num(it.carbsG),
+          fatG: num(it.fatG),
+          fiberG: it.fiberG != null ? num(it.fiberG) : undefined,
+          sodiumMg: it.sodiumMg != null ? Math.round(Number(it.sodiumMg) || 0) : undefined,
+          sugarG: it.sugarG != null ? num(it.sugarG) : undefined,
+          source: "ai",
+        });
+        const entry = await storage.createFoodLogEntry({
+          userId,
+          date,
+          mealType,
+          foodItemId: foodItem.id,
+          foodName: foodItem.name,
+          servings: 1,
+          caloriesActual: calories,
+          proteinActual: num(it.proteinG),
+          carbsActual: num(it.carbsG),
+          fatActual: num(it.fatG),
+          fiberActual: it.fiberG != null ? num(it.fiberG) : undefined,
+        });
+        created.push(entry);
+      }
+      if (created.length === 0) return res.status(422).json({ message: "No valid items to log" });
+      res.status(201).json(created);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
   app.patch("/api/food-log/:id", async (req, res) => {
     if (!requireAuth(req, res)) return;
     const entry = await storage.updateFoodLogEntry(Number(req.params.id), (req.user as any).id, req.body);
@@ -1195,6 +1291,47 @@ Return ONLY valid JSON (no markdown):
     } catch (err: any) {
       res.status(400).json({ message: err.message });
     }
+  });
+
+  // ── Adaptive TDEE ─────────────────────────────────────────────────────────
+  // Live energy-expenditure breakdown for the dashboard: the measured TDEE
+  // (back-solved from intake + weight trend) alongside the formula estimate,
+  // plus which one is currently driving the user's calorie target.
+  app.get("/api/tdee", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = (req.user as any).id;
+
+    const [profile, latest, intake, weightRows] = await Promise.all([
+      storage.getProfile(userId),
+      storage.getLatestMeasurement(userId),
+      storage.getDailyCalorieTotals(userId, 28),
+      storage.getMeasurements(userId, 60),
+    ]);
+
+    // Formula estimate (needs profile + a weight)
+    let formulaTdee: number | null = null;
+    if (profile?.birthDate && profile?.heightCm && latest) {
+      const bmr = calculateBMR(
+        latest.weightGrams / 1000,
+        profile.heightCm,
+        getAgeFromBirthDate(profile.birthDate),
+        (profile.sex as Sex) ?? "male",
+      );
+      formulaTdee = calculateTDEE(bmr, (profile.activityLevel as ActivityLevel) ?? "moderate");
+    }
+
+    const adaptive: AdaptiveTDEEResult | null = estimateAdaptiveTDEE({
+      intake,
+      weights: weightRows.map(w => ({ date: String(w.date).slice(0, 10), weightKg: w.weightGrams / 1000 })),
+    });
+
+    res.json({
+      method: adaptive ? "adaptive" : "formula",
+      tdee: adaptive?.tdee ?? formulaTdee,
+      formulaTdee,
+      adaptive, // null when insufficient data; the client uses this to explain progress
+      updatedAt: profile?.tdeeUpdatedAt ?? null,
+    });
   });
 
   // ── Water ───────────────────────────────────────────────────────────────────

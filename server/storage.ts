@@ -194,6 +194,28 @@ export const storage = {
    *  Always returns a COMPLETE scaffold of every period bucket (zeros for days with no data),
    *  so the x-axis is fully populated regardless of logging history.
    */
+  /** Daily calorie totals over the last `days` days (only days with entries are
+   *  returned). Used by the adaptive-TDEE estimator. */
+  async getDailyCalorieTotals(userId: number, days = 28): Promise<{ date: string; calories: number }[]> {
+    const from = new Date();
+    from.setDate(from.getDate() - days);
+    const fromStr = from.toISOString().slice(0, 10);
+    const rows = await db
+      .select({
+        date:     foodLog.date,
+        calories: sql<number>`coalesce(sum(${foodLog.caloriesActual}), 0)`,
+      })
+      .from(foodLog)
+      .where(and(eq(foodLog.userId, userId), gte(foodLog.date, fromStr)))
+      .groupBy(foodLog.date)
+      .orderBy(foodLog.date);
+    return rows.map(r => {
+      const raw = r.date as unknown;
+      const date = raw instanceof Date ? raw.toISOString().slice(0, 10) : String(raw).slice(0, 10);
+      return { date, calories: Number(r.calories) };
+    });
+  },
+
   async getFoodLogSummary(
     userId: number,
     period: string,
