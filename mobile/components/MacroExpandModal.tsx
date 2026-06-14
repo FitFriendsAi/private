@@ -84,12 +84,30 @@ export function MacroExpandModal({
   const carbsBarsG   = useMemo(() => buildChartBars(history.map(d => ({ date: d.date, value: d.carbs   })), period), [history, period]);
   const fatBarsG     = useMemo(() => buildChartBars(history.map(d => ({ date: d.date, value: d.fat     })), period), [history, period]);
 
-  const toPercent = useCallback((bars: typeof proteinBarsG, target: number) =>
-    bars.map(b => ({ ...b, tooltipValue: b.value, value: target > 0 ? (b.value / target) * 100 : 0 })), []);
+  // Percent mode = each macro's share of that day's TOTAL macro calories
+  // (protein/carbs 4 kcal/g, fat 9 kcal/g) — matches the home macro cards.
+  // Computed across all three macros per bar so the shares add to 100%.
+  const { proteinBars, carbsBars, fatBars } = useMemo(() => {
+    if (!showPercent) return { proteinBars: proteinBarsG, carbsBars: carbsBarsG, fatBars: fatBarsG };
+    const p: typeof proteinBarsG = [], c: typeof carbsBarsG = [], f: typeof fatBarsG = [];
+    for (let i = 0; i < proteinBarsG.length; i++) {
+      const pCal = proteinBarsG[i].value * 4;
+      const cCal = (carbsBarsG[i]?.value ?? 0) * 4;
+      const fCal = (fatBarsG[i]?.value ?? 0) * 9;
+      const total = pCal + cCal + fCal;
+      const share = (x: number) => total > 0 ? (x / total) * 100 : 0;
+      p.push({ ...proteinBarsG[i], value: share(pCal) });
+      c.push({ ...carbsBarsG[i],   value: share(cCal) });
+      f.push({ ...fatBarsG[i],     value: share(fCal) });
+    }
+    return { proteinBars: p, carbsBars: c, fatBars: f };
+  }, [showPercent, proteinBarsG, carbsBarsG, fatBarsG]);
 
-  const proteinBars = useMemo(() => showPercent ? toPercent(proteinBarsG, targetProtein) : proteinBarsG, [proteinBarsG, showPercent, targetProtein, toPercent]);
-  const carbsBars   = useMemo(() => showPercent ? toPercent(carbsBarsG, targetCarbs)     : carbsBarsG,   [carbsBarsG, showPercent, targetCarbs, toPercent]);
-  const fatBars     = useMemo(() => showPercent ? toPercent(fatBarsG, targetFat)         : fatBarsG,     [fatBarsG, showPercent, targetFat, toPercent]);
+  const todayShares = useMemo(() => {
+    const p = todayProtein * 4, c = todayCarbs * 4, f = todayFat * 9, t = p + c + f;
+    const s = (x: number) => t > 0 ? Math.round((x / t) * 100) : 0;
+    return { protein: s(p), carbs: s(c), fat: s(f) };
+  }, [todayProtein, todayCarbs, todayFat]);
 
   const macroMax = useMemo(() => Math.max(
     ...proteinBars.map(b => b.value),
@@ -206,18 +224,19 @@ export function MacroExpandModal({
                 {/* Today hero */}
                 <View style={{ flexDirection: "row", gap: 10, marginBottom: 24, marginTop: 8 }}>
                   {[
-                    { label: "PROTEIN", val: todayProtein, target: targetProtein, color: LIME },
-                    { label: "CARBS",   val: todayCarbs,   target: targetCarbs,   color: BLUE },
-                    { label: "FAT",     val: todayFat,     target: targetFat,     color: PURPLE },
+                    { label: "PROTEIN", val: todayProtein, target: targetProtein, color: LIME,   share: todayShares.protein },
+                    { label: "CARBS",   val: todayCarbs,   target: targetCarbs,   color: BLUE,   share: todayShares.carbs },
+                    { label: "FAT",     val: todayFat,     target: targetFat,     color: PURPLE, share: todayShares.fat },
                   ].map(m => {
-                    const pct = m.target > 0 ? Math.round((m.val / m.target) * 100) : 0;
+                    const pctTarget = m.target > 0 ? Math.round((m.val / m.target) * 100) : 0;
+                    const barPct = showPercent ? m.share : pctTarget;
                     return (
                       <View key={m.label} style={{ flex: 1, backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 18, padding: 14, alignItems: "center" }}>
                         <Text style={{ fontFamily: "Manrope-Bold", fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: 0.7, marginBottom: 6 }}>{m.label}</Text>
-                        <Text style={{ fontFamily: "Doto", fontSize: 28, color: m.color, lineHeight: 32 }}>{showPercent ? pct : m.val}</Text>
-                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 9, color: "rgba(255,255,255,0.3)", marginTop: 2 }}>{showPercent ? "% of target" : `/ ${m.target}g`}</Text>
+                        <Text style={{ fontFamily: "Doto", fontSize: 28, color: m.color, lineHeight: 32 }}>{showPercent ? m.share : m.val}</Text>
+                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 9, color: "rgba(255,255,255,0.3)", marginTop: 2 }}>{showPercent ? "% of macros" : `/ ${m.target}g`}</Text>
                         <View style={{ width: "100%", height: 3, backgroundColor: "rgba(255,255,255,0.1)", borderRadius: 2, marginTop: 8, overflow: "hidden" }}>
-                          <View style={{ width: `${Math.min(pct, 100)}%`, height: "100%", backgroundColor: m.color, borderRadius: 2 }} />
+                          <View style={{ width: `${Math.min(barPct, 100)}%`, height: "100%", backgroundColor: m.color, borderRadius: 2 }} />
                         </View>
                       </View>
                     );
@@ -227,9 +246,9 @@ export function MacroExpandModal({
                 {/* Avg stats */}
                 <View style={{ flexDirection: "row", gap: 10, marginBottom: 24 }}>
                   {[
-                    { label: "AVG PROTEIN", value: avgProtein || "—", unit: showPercent ? "% of target" : "g/day", color: LIME },
-                    { label: "AVG CARBS",   value: avgCarbs   || "—", unit: showPercent ? "% of target" : "g/day", color: BLUE },
-                    { label: "AVG FAT",     value: avgFat     || "—", unit: showPercent ? "% of target" : "g/day", color: PURPLE },
+                    { label: "AVG PROTEIN", value: avgProtein || "—", unit: showPercent ? "% of macros" : "g/day", color: LIME },
+                    { label: "AVG CARBS",   value: avgCarbs   || "—", unit: showPercent ? "% of macros" : "g/day", color: BLUE },
+                    { label: "AVG FAT",     value: avgFat     || "—", unit: showPercent ? "% of macros" : "g/day", color: PURPLE },
                   ].map(s => (
                     <View key={s.label} style={{ flex: 1, backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 14, padding: 10, alignItems: "center" }}>
                       <Text style={{ fontFamily: "Doto", fontSize: 22, color: s.color, lineHeight: 26 }}>{String(s.value)}</Text>
@@ -270,7 +289,7 @@ export function MacroExpandModal({
                 {/* Chart label */}
                 <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: "rgba(255,255,255,0.35)", letterSpacing: 0.6, marginBottom: 10 }}>
                   {showPercent
-                    ? (period === 90 ? "MACROS % OF TARGET (WEEKLY AVG)" : "DAILY MACROS (% OF TARGET)")
+                    ? (period === 90 ? "MACRO SHARE % (WEEKLY AVG)" : "DAILY MACRO SHARE (%)")
                     : (period === 90 ? "MACROS (WEEKLY AVG)" : "DAILY MACROS (g)")}
                 </Text>
 
