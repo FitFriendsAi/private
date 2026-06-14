@@ -52,7 +52,8 @@ const TICKS = Array.from({ length: 60 }, (_, i) => {
 // ── Types ─────────────────────────────────────────────────────────
 interface Exercise { id: number; name: string; primaryMuscle: string; category: string; }
 interface PrevPerf  { date: string; sets: { reps: number; weightGrams: number }[]; }
-type SetEntry       = { reps: string; weight: string; done: boolean; };
+type FieldSource    = "prev" | "user" | "empty";
+type SetEntry       = { reps: string; weight: string; done: boolean; repsSource: FieldSource; weightSource: FieldSource; };
 interface ActiveEx  { exercise: Exercise; sets: SetEntry[]; }
 
 // ── Helpers ───────────────────────────────────────────────────────
@@ -125,7 +126,13 @@ export default function WorkoutSessionScreen() {
         },
         sets: Array.from(
           { length: te.targetSets ?? 3 },
-          () => ({ reps: te.targetReps ? String(te.targetReps) : "", weight: "", done: false })
+          (): SetEntry => ({
+            reps: te.targetReps ? String(te.targetReps) : "",
+            weight: "",
+            done: false,
+            repsSource: te.targetReps ? "user" : "empty",
+            weightSource: "empty",
+          })
         ),
       }));
     setExercises(initial);
@@ -136,14 +143,39 @@ export default function WorkoutSessionScreen() {
         const hist = await apiRequest<any>(
           "GET", `/api/exercises/${ae.exercise.id}/history?limit=1`
         );
-        if (hist?.date) {
-          setPrevPerf(prev => ({ ...prev, [ae.exercise.id]: hist }));
+        const last = hist?.[0];
+        if (last?.date) {
+          setPrevPerf(prev => ({ ...prev, [ae.exercise.id]: { date: last.date, sets: last.setsData } }));
         }
       } catch {
         // No previous data — that's fine
       }
     });
   }, [template]);
+
+  // Pre-fill empty weight/reps fields with previous performance, once it loads
+  useEffect(() => {
+    setExercises(prev => prev.map(ae => {
+      const p = prevPerf[ae.exercise.id];
+      if (!p) return ae;
+      let changed = false;
+      const sets = ae.sets.map((s, si) => {
+        const pSet = p.sets[si];
+        if (!pSet) return s;
+        let next = s;
+        if (s.weight === "" && s.weightSource !== "user") {
+          next = { ...next, weight: String(gramsToLbs(pSet.weightGrams)), weightSource: "prev" };
+          changed = true;
+        }
+        if (s.reps === "" && s.repsSource !== "user") {
+          next = { ...next, reps: String(pSet.reps), repsSource: "prev" };
+          changed = true;
+        }
+        return next;
+      });
+      return changed ? { ...ae, sets } : ae;
+    }));
+  }, [prevPerf]);
 
   // ── Elapsed timer ──
   useEffect(() => {
@@ -184,7 +216,11 @@ export default function WorkoutSessionScreen() {
         i !== ei ? ae : {
           ...ae,
           sets: ae.sets.map((s, j) =>
-            j !== si ? s : { ...s, [field]: val }
+            j !== si ? s : {
+              ...s,
+              [field]: val,
+              [field === "reps" ? "repsSource" : "weightSource"]: "user",
+            }
           ),
         }
       )
@@ -198,7 +234,11 @@ export default function WorkoutSessionScreen() {
         const last = ae.sets[ae.sets.length - 1];
         return {
           ...ae,
-          sets: [...ae.sets, { reps: last?.reps ?? "", weight: last?.weight ?? "", done: false }],
+          sets: [...ae.sets, {
+            reps: last?.reps ?? "", weight: last?.weight ?? "", done: false,
+            repsSource: last?.reps ? "user" : "empty",
+            weightSource: last?.weight ? "user" : "empty",
+          }],
         };
       })
     );
@@ -221,14 +261,17 @@ export default function WorkoutSessionScreen() {
     setExercises(prev => [
       ...prev,
       { exercise: ex, sets: [
-        { reps: "", weight: "", done: false },
-        { reps: "", weight: "", done: false },
-        { reps: "", weight: "", done: false },
+        { reps: "", weight: "", done: false, repsSource: "empty", weightSource: "empty" },
+        { reps: "", weight: "", done: false, repsSource: "empty", weightSource: "empty" },
+        { reps: "", weight: "", done: false, repsSource: "empty", weightSource: "empty" },
       ]},
     ]);
     // Fetch previous performance for new exercise
     apiRequest<any>("GET", `/api/exercises/${ex.id}/history?limit=1`)
-      .then(hist => { if (hist?.date) setPrevPerf(p => ({ ...p, [ex.id]: hist })); })
+      .then(hist => {
+        const last = hist?.[0];
+        if (last?.date) setPrevPerf(p => ({ ...p, [ex.id]: { date: last.date, sets: last.setsData } }));
+      })
       .catch(() => {});
     setShowAddEx(false);
     setExSearch("");
@@ -241,7 +284,8 @@ export default function WorkoutSessionScreen() {
       for (const { exercise, sets } of exercises) {
         for (let i = 0; i < sets.length; i++) {
           const s = sets[i];
-          if (!s.reps && !s.weight) continue;
+          // Skip sets that are still showing prefilled/empty defaults and weren't confirmed
+          if (!s.done && s.weightSource !== "user" && s.repsSource !== "user") continue;
           await apiRequest("POST", "/api/workouts/sets", {
             workoutId:   Number(workoutId),
             exerciseId:  exercise.id,
@@ -395,6 +439,9 @@ export default function WorkoutSessionScreen() {
                   <Text style={{ width: 20, fontFamily: "Manrope-Bold", fontSize: 9, color: muted, textAlign: "center", letterSpacing: 0.5 }}>
                     SET
                   </Text>
+                  <Text style={{ width: 52, flexShrink: 0, fontFamily: "Manrope-Bold", fontSize: 9, color: muted, textAlign: "center", letterSpacing: 0.5 }}>
+                    PREV
+                  </Text>
                   <Text style={{ flex: 1, minWidth: 0, fontFamily: "Manrope-Bold", fontSize: 9, color: muted, textAlign: "center", letterSpacing: 0.5 }}>
                     LBS
                   </Text>
@@ -422,6 +469,15 @@ export default function WorkoutSessionScreen() {
                         {si + 1}
                       </Text>
 
+                      {/* Previous performance for this set — fixed width */}
+                      <Text style={{
+                        width: 52, flexShrink: 0,
+                        fontFamily: "Manrope-SemiBold", fontSize: 12,
+                        color: muted, textAlign: "center",
+                      }} numberOfLines={1}>
+                        {pSet ? `${gramsToLbs(pSet.weightGrams)}×${pSet.reps}` : "—"}
+                      </Text>
+
                       {/* Weight — shrinkable */}
                       <TextInput
                         value={s.weight}
@@ -433,7 +489,8 @@ export default function WorkoutSessionScreen() {
                           flex: 1, minWidth: 0,
                           backgroundColor: s.done ? "rgba(200,232,76,0.07)" : "#111111",
                           borderRadius: 10, paddingVertical: 10, paddingHorizontal: 4,
-                          textAlign: "center", fontFamily: "Manrope-Bold", fontSize: 14, color: text,
+                          textAlign: "center", fontFamily: "Manrope-Bold", fontSize: 14,
+                          color: s.weightSource === "prev" ? "rgba(255,255,255,0.35)" : text,
                           borderWidth: 1, borderColor: s.done ? "rgba(200,232,76,0.3)" : border,
                         }}
                       />
@@ -449,7 +506,8 @@ export default function WorkoutSessionScreen() {
                           flex: 1, minWidth: 0,
                           backgroundColor: s.done ? "rgba(200,232,76,0.07)" : "#111111",
                           borderRadius: 10, paddingVertical: 10, paddingHorizontal: 4,
-                          textAlign: "center", fontFamily: "Manrope-Bold", fontSize: 14, color: text,
+                          textAlign: "center", fontFamily: "Manrope-Bold", fontSize: 14,
+                          color: s.repsSource === "prev" ? "rgba(255,255,255,0.35)" : text,
                           borderWidth: 1, borderColor: s.done ? "rgba(200,232,76,0.3)" : border,
                         }}
                       />
