@@ -248,6 +248,7 @@ export default function FriendProfileScreen() {
   const { card, cardBorder: border, text, muted, bg } = palette;
 
   const [period, setPeriod]             = useState<Period>("1M");
+  const [h2hMode, setH2hMode]           = useState<"fair" | "absolute">("fair");
   const [compareMode, setCompareMode]   = useState(false);
   const [showExPicker, setShowExPicker] = useState(false);
   const [selectedEx, setSelectedEx]     = useState<any>(null);
@@ -368,9 +369,13 @@ export default function FriendProfileScreen() {
   const friendName = friendCard?.name ?? "Friend";
   const myInitial  = (myName[0] ?? "Y").toUpperCase();
 
-  const roundDisplay = (key: string, m: any) => {
+  const roundDisplay = (key: string, m: any, mode: "fair" | "absolute") => {
     if (key === "consistency") return { big: `${m.activeDays}`, small: `active days · ${m.streak}d streak` };
-    if (key === "progress")    return { big: `${m.progressPct > 0 ? "+" : ""}${m.progressPct}%`, small: "est. 1RM gain" };
+    if (key === "progress") {
+      if (mode === "absolute") return { big: `${m.progressAbsLbs > 0 ? "+" : ""}${m.progressAbsLbs}`, small: "lbs gained (est. 1RM)" };
+      return { big: `${m.progressPct > 0 ? "+" : ""}${m.progressPct}%`, small: "est. 1RM gain" };
+    }
+    if (mode === "absolute") return { big: `${m.bestLiftLbs || "—"} lb`, small: m.bestLiftName ? `best: ${m.bestLiftName}` : "no lifts yet" };
     return { big: `${m.bestWilks || "—"}`, small: m.bestWilksLift ? `best: ${m.bestWilksLift}` : "no lifts yet" };
   };
 
@@ -455,7 +460,11 @@ export default function FriendProfileScreen() {
         <View style={{ paddingHorizontal: 16, gap: 12 }}>
 
           {/* ── HEAD-TO-HEAD ── */}
-          {compare && (
+          {compare && (() => {
+            const rounds  = h2hMode === "absolute" ? compare.roundsAbsolute : compare.rounds;
+            const overall = h2hMode === "absolute" ? compare.overallAbsolute : compare.overall;
+            const liftWinnerKey = h2hMode === "absolute" ? "winnerAbsolute" : "winner";
+            return (
             <View style={{ backgroundColor: card, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: border }}>
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -463,12 +472,31 @@ export default function FriendProfileScreen() {
                   <Text style={{ fontFamily: "Manrope-Bold", fontSize: 16, color: text }}>Head-to-Head</Text>
                 </View>
                 <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20,
-                  backgroundColor: compare.overall.winner === "me" ? `${LIME}22` : compare.overall.winner === "friend" ? `${PINK}22` : "#2a2a2a" }}>
+                  backgroundColor: overall.winner === "me" ? `${LIME}22` : overall.winner === "friend" ? `${PINK}22` : "#2a2a2a" }}>
                   <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11,
-                    color: compare.overall.winner === "me" ? LIME : compare.overall.winner === "friend" ? PINK : muted }}>
-                    {compare.overall.winner === "me" ? "You lead" : compare.overall.winner === "friend" ? `${friendName} leads` : "Tied"} {compare.overall.me}–{compare.overall.friend}
+                    color: overall.winner === "me" ? LIME : overall.winner === "friend" ? PINK : muted }}>
+                    {overall.winner === "me" ? "You lead" : overall.winner === "friend" ? `${friendName} leads` : "Tied"} {overall.me}–{overall.friend}
                   </Text>
                 </View>
+              </View>
+
+              {/* Fair vs. absolute toggle */}
+              <View style={{ flexDirection: "row", backgroundColor: "#1e1e1e", borderRadius: 12, padding: 3, marginBottom: 12 }}>
+                {(["fair", "absolute"] as const).map(m => (
+                  <Pressable
+                    key={m}
+                    onPress={() => setH2hMode(m)}
+                    style={({ pressed }) => ({
+                      flex: 1, paddingVertical: 7, borderRadius: 9, alignItems: "center",
+                      backgroundColor: h2hMode === m ? "#ffffff" : "transparent",
+                      opacity: pressed ? 0.8 : 1,
+                    })}
+                  >
+                    <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: h2hMode === m ? "#0a0a0a" : muted }}>
+                      {m === "fair" ? "Fair (normalized)" : "Actual numbers"}
+                    </Text>
+                  </Pressable>
+                ))}
               </View>
 
               {/* Column headers */}
@@ -478,9 +506,9 @@ export default function FriendProfileScreen() {
                 <Text style={{ width: 70, textAlign: "center", fontFamily: "Manrope-Bold", fontSize: 10, color: muted }} numberOfLines={1}>{friendName.toUpperCase()}</Text>
               </View>
 
-              {compare.rounds.map((r: any) => {
-                const dm = roundDisplay(r.key, compare.me);
-                const df = roundDisplay(r.key, compare.friend);
+              {rounds.map((r: any) => {
+                const dm = roundDisplay(r.key, compare.me, h2hMode);
+                const df = roundDisplay(r.key, compare.friend, h2hMode);
                 return (
                   <View key={r.key} style={{ flexDirection: "row", alignItems: "center", paddingVertical: 8, borderTopWidth: 1, borderTopColor: border }}>
                     <View style={{ flex: 1, paddingRight: 6 }}>
@@ -499,17 +527,23 @@ export default function FriendProfileScreen() {
 
               {compare.sharedLifts?.length > 0 && (
                 <View style={{ marginTop: 10, paddingTop: 12, borderTopWidth: 1, borderTopColor: border }}>
-                  <Text style={{ fontFamily: "Manrope-Bold", fontSize: 10, color: muted, letterSpacing: 0.6, marginBottom: 4 }}>SHARED LIFTS · WILKS</Text>
+                  <Text style={{ fontFamily: "Manrope-Bold", fontSize: 10, color: muted, letterSpacing: 0.6, marginBottom: 4 }}>
+                    SHARED LIFTS · {h2hMode === "absolute" ? "EST. 1RM (LB)" : "WILKS"}
+                  </Text>
                   {compare.sharedLifts.map((l: any, i: number) => (
                     <View key={i} style={{ flexDirection: "row", alignItems: "center", paddingVertical: 6 }}>
                       <Text style={{ flex: 1, paddingRight: 6, fontFamily: "Manrope-SemiBold", fontSize: 12, color: text }} numberOfLines={1}>{l.name}</Text>
                       <View style={{ width: 70, alignItems: "center" }}>
-                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: l.winner === "me" ? LIME : muted }}>{l.meWilks}</Text>
-                        <Text style={{ fontFamily: "Manrope", fontSize: 9, color: muted }}>{l.meLbs} lb</Text>
+                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: l[liftWinnerKey] === "me" ? LIME : muted }}>
+                          {h2hMode === "absolute" ? `${l.meLbs} lb` : l.meWilks}
+                        </Text>
+                        {h2hMode === "fair" && <Text style={{ fontFamily: "Manrope", fontSize: 9, color: muted }}>{l.meLbs} lb</Text>}
                       </View>
                       <View style={{ width: 70, alignItems: "center" }}>
-                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: l.winner === "friend" ? PINK : muted }}>{l.friendWilks}</Text>
-                        <Text style={{ fontFamily: "Manrope", fontSize: 9, color: muted }}>{l.friendLbs} lb</Text>
+                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: l[liftWinnerKey] === "friend" ? PINK : muted }}>
+                          {h2hMode === "absolute" ? `${l.friendLbs} lb` : l.friendWilks}
+                        </Text>
+                        {h2hMode === "fair" && <Text style={{ fontFamily: "Manrope", fontSize: 9, color: muted }}>{l.friendLbs} lb</Text>}
                       </View>
                     </View>
                   ))}
@@ -517,10 +551,13 @@ export default function FriendProfileScreen() {
               )}
 
               <Text style={{ fontFamily: "Manrope", fontSize: 10, color: muted, marginTop: 10, lineHeight: 14 }}>
-                Strength is Wilks-normalized for bodyweight & sex. Progress is your own % gain — so size & experience don't skew the comparison.
+                {h2hMode === "absolute"
+                  ? "Showing raw numbers — actual weight lifted and lbs gained, unadjusted for bodyweight, sex, or experience."
+                  : "Strength is Wilks-normalized for bodyweight & sex. Progress is your own % gain — so size & experience don't skew the comparison."}
               </Text>
             </View>
-          )}
+            );
+          })()}
 
           {/* ── BODY WEIGHT CARD ── */}
           <View style={{ backgroundColor: card, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: border }}>

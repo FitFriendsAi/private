@@ -7,7 +7,7 @@ import { passport } from "./auth.js";
 import { lookupBarcode, lookupBarcodeFS, autocompleteFatSecret, searchFoodByName, searchOFF, searchUSDA, searchFatSecret, searchCalorieNinjas, searchBrandOFF, enrichMissingNutrition } from "./services/food-lookup.js";
 import { parseNutritionLabel, parseMealText, parseMealPhoto, type ParsedMealItem } from "./services/vision.js";
 import { calculateMacroTargets, getAgeFromBirthDate, estimateAdaptiveTDEE, calculateBMR, calculateTDEE, type AdaptiveTDEEResult, type ActivityLevel, type Sex } from "./services/goal-engine.js";
-import { wilksScore, sessionBests, currentBests, avgProgressPct, streakFromDates } from "./services/scoring.js";
+import { wilksScore, sessionBests, currentBests, avgProgressPct, avgProgressAbsKg, streakFromDates } from "./services/scoring.js";
 import { fetchExerciseGif } from "./services/exercise-gif.js";
 import { sendInviteEmail, sendInviteSms } from "./services/notifications.js";
 import {
@@ -2051,9 +2051,11 @@ Return ONLY valid JSON (no markdown, no explanation):
     const cur   = currentBests(bests); // Map<exerciseId, {name, e1rmKg}>
 
     let bestWilks = 0, bestWilksLift = "";
+    let bestLiftKg = 0, bestLiftName = "";
     for (const { name, e1rmKg } of cur.values()) {
       const w = wilksScore(e1rmKg, bwKg, sex);
       if (w > bestWilks) { bestWilks = w; bestWilksLift = name; }
+      if (e1rmKg > bestLiftKg) { bestLiftKg = e1rmKg; bestLiftName = name; }
     }
 
     // Active + training days within the window
@@ -2071,9 +2073,12 @@ Return ONLY valid JSON (no markdown, no explanation):
       streak:       streakFromDates(activeDates),
       activeDays,
       trainingDays,
-      progressPct:  avgProgressPct(bests, sinceStr),
+      progressPct:    avgProgressPct(bests, sinceStr),
+      progressAbsLbs: Math.round(avgProgressAbsKg(bests, sinceStr) * 2.20462 * 10) / 10,
       bestWilks:    Math.round(bestWilks * 10) / 10,
       bestWilksLift,
+      bestLiftLbs:  Math.round(bestLiftKg * 2.20462),
+      bestLiftName,
       bestLifts:    cur, // for shared-lift comparison
     };
   }
@@ -2147,39 +2152,58 @@ Return ONLY valid JSON (no markdown, no explanation):
 
     const decide = (a: number, b: number) => a > b ? "me" : b > a ? "friend" : "tie";
 
+    // Consistency: active days in window, tie-broken by current streak — same in either mode.
+    const consistencyRound = { key: "consistency", label: "Consistency",
+      winner: me.activeDays !== fr.activeDays ? decide(me.activeDays, fr.activeDays) : decide(me.streak, fr.streak) };
+
+    // Fair mode: normalized for bodyweight/sex (Wilks) and relative to each person's own baseline (%).
     const rounds = [
-      // Consistency: active days in window, tie-broken by current streak
-      { key: "consistency", label: "Consistency",
-        winner: me.activeDays !== fr.activeDays ? decide(me.activeDays, fr.activeDays) : decide(me.streak, fr.streak) },
-      { key: "progress",    label: "Progress",
+      consistencyRound,
+      { key: "progress", label: "Progress",
         winner: decide(me.progressPct, fr.progressPct) },
-      { key: "strength",    label: "Strength (Wilks)",
+      { key: "strength", label: "Strength (Wilks)",
         winner: decide(me.bestWilks, fr.bestWilks) },
     ];
 
-    // Shared lifts both have logged — Wilks-normalized so it's size-fair.
+    // Absolute mode: raw numbers — actual weight lifted, actual lbs gained.
+    const roundsAbsolute = [
+      consistencyRound,
+      { key: "progress", label: "Progress",
+        winner: decide(me.progressAbsLbs, fr.progressAbsLbs) },
+      { key: "strength", label: "Strength",
+        winner: decide(me.bestLiftLbs, fr.bestLiftLbs) },
+    ];
+
+    // Shared lifts both have logged — includes both Wilks (fair) and raw lbs (absolute).
     const sharedLifts: any[] = [];
     for (const [exId, mine] of me.bestLifts) {
       const theirs = fr.bestLifts.get(exId);
       if (!theirs) continue;
       const meWilks = Math.round(wilksScore(mine.e1rmKg, me.bwKg, me.sex) * 10) / 10;
       const frWilks = Math.round(wilksScore(theirs.e1rmKg, fr.bwKg, fr.sex) * 10) / 10;
+      const meLbs = Math.round(mine.e1rmKg * 2.20462);
+      const friendLbs = Math.round(theirs.e1rmKg * 2.20462);
       sharedLifts.push({
         name: mine.name,
-        meLbs:     Math.round(mine.e1rmKg * 2.20462),
-        friendLbs: Math.round(theirs.e1rmKg * 2.20462),
+        meLbs, friendLbs,
         meWilks, friendWilks: frWilks,
         winner: decide(meWilks, frWilks),
+        winnerAbsolute: decide(meLbs, friendLbs),
       });
     }
     sharedLifts.sort((a, b) => Math.max(b.meWilks, b.friendWilks) - Math.max(a.meWilks, a.friendWilks));
 
-    const meWins = rounds.filter(r => r.winner === "me").length;
-    const frWins = rounds.filter(r => r.winner === "friend").length;
+    const tally = (rs: typeof rounds) => {
+      const meWins = rs.filter(r => r.winner === "me").length;
+      const frWins = rs.filter(r => r.winner === "friend").length;
+      return { me: meWins, friend: frWins, winner: meWins > frWins ? "me" : frWins > meWins ? "friend" : "tie" } as const;
+    };
 
     const strip = (m: typeof me) => ({
       name: m.name, streak: m.streak, activeDays: m.activeDays, trainingDays: m.trainingDays,
-      progressPct: m.progressPct, bestWilks: m.bestWilks, bestWilksLift: m.bestWilksLift,
+      progressPct: m.progressPct, progressAbsLbs: m.progressAbsLbs,
+      bestWilks: m.bestWilks, bestWilksLift: m.bestWilksLift,
+      bestLiftLbs: m.bestLiftLbs, bestLiftName: m.bestLiftName,
     });
 
     res.json({
@@ -2187,8 +2211,10 @@ Return ONLY valid JSON (no markdown, no explanation):
       me: strip(me),
       friend: strip(fr),
       rounds,
+      roundsAbsolute,
       sharedLifts: sharedLifts.slice(0, 8),
-      overall: { me: meWins, friend: frWins, winner: meWins > frWins ? "me" : frWins > meWins ? "friend" : "tie" },
+      overall: tally(rounds),
+      overallAbsolute: tally(roundsAbsolute),
     });
   });
 

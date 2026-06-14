@@ -103,6 +103,19 @@ export function avgProgressPct(bests: Map<number, ExerciseBests>, sinceDate: str
   return Math.round((gains.reduce((s, g) => s + g, 0) / gains.length) * 10) / 10;
 }
 
+/** Average absolute gain (kg) in est-1RM within a window — same exercise/session
+ *  filter as avgProgressPct, but unnormalized (raw kg, not %). */
+export function avgProgressAbsKg(bests: Map<number, ExerciseBests>, sinceDate: string): number {
+  const gains: number[] = [];
+  for (const { sessions } of bests.values()) {
+    const inWin = sessions.filter(s => s.date >= sinceDate);
+    if (inWin.length < 2) continue;
+    gains.push(inWin[inWin.length - 1].e1rmKg - inWin[0].e1rmKg);
+  }
+  if (gains.length === 0) return 0;
+  return Math.round((gains.reduce((s, g) => s + g, 0) / gains.length) * 10) / 10;
+}
+
 // ── Points ───────────────────────────────────────────────────────────────────
 export const POINTS = { perWorkout: 100, perProteinDay: 50, perPR: 150, perStreakDay: 25 };
 

@@ -240399,6 +240399,16 @@ function avgProgressPct(bests, sinceDate) {
   if (gains.length === 0) return 0;
   return Math.round(gains.reduce((s2, g2) => s2 + g2, 0) / gains.length * 10) / 10;
 }
+function avgProgressAbsKg(bests, sinceDate) {
+  const gains = [];
+  for (const { sessions } of bests.values()) {
+    const inWin = sessions.filter((s2) => s2.date >= sinceDate);
+    if (inWin.length < 2) continue;
+    gains.push(inWin[inWin.length - 1].e1rmKg - inWin[0].e1rmKg);
+  }
+  if (gains.length === 0) return 0;
+  return Math.round(gains.reduce((s2, g2) => s2 + g2, 0) / gains.length * 10) / 10;
+}
 var POINTS = { perWorkout: 100, perProteinDay: 50, perPR: 150, perStreakDay: 25 };
 function computePointsTotal(p3) {
   return p3.workouts * POINTS.perWorkout + p3.proteinDays * POINTS.perProteinDay + p3.prs * POINTS.perPR + p3.streak * POINTS.perStreakDay;
@@ -256790,11 +256800,16 @@ Return ONLY valid JSON (no markdown, no explanation):
     const bests = sessionBests(strengthSets);
     const cur = currentBests(bests);
     let bestWilks = 0, bestWilksLift = "";
+    let bestLiftKg = 0, bestLiftName = "";
     for (const { name, e1rmKg } of cur.values()) {
       const w2 = wilksScore(e1rmKg, bwKg, sex);
       if (w2 > bestWilks) {
         bestWilks = w2;
         bestWilksLift = name;
+      }
+      if (e1rmKg > bestLiftKg) {
+        bestLiftKg = e1rmKg;
+        bestLiftName = name;
       }
     }
     const windowDays = Math.min(periodDays, 3650);
@@ -256813,8 +256828,11 @@ Return ONLY valid JSON (no markdown, no explanation):
       activeDays,
       trainingDays,
       progressPct: avgProgressPct(bests, sinceStr),
+      progressAbsLbs: Math.round(avgProgressAbsKg(bests, sinceStr) * 2.20462 * 10) / 10,
       bestWilks: Math.round(bestWilks * 10) / 10,
       bestWilksLift,
+      bestLiftLbs: Math.round(bestLiftKg * 2.20462),
+      bestLiftName,
       bestLifts: cur
       // for shared-lift comparison
     };
@@ -256877,13 +256895,13 @@ Return ONLY valid JSON (no markdown, no explanation):
       compareMetrics(friendId, periodDays)
     ]);
     const decide = (a2, b2) => a2 > b2 ? "me" : b2 > a2 ? "friend" : "tie";
+    const consistencyRound = {
+      key: "consistency",
+      label: "Consistency",
+      winner: me2.activeDays !== fr2.activeDays ? decide(me2.activeDays, fr2.activeDays) : decide(me2.streak, fr2.streak)
+    };
     const rounds = [
-      // Consistency: active days in window, tie-broken by current streak
-      {
-        key: "consistency",
-        label: "Consistency",
-        winner: me2.activeDays !== fr2.activeDays ? decide(me2.activeDays, fr2.activeDays) : decide(me2.streak, fr2.streak)
-      },
+      consistencyRound,
       {
         key: "progress",
         label: "Progress",
@@ -256895,40 +256913,64 @@ Return ONLY valid JSON (no markdown, no explanation):
         winner: decide(me2.bestWilks, fr2.bestWilks)
       }
     ];
+    const roundsAbsolute = [
+      consistencyRound,
+      {
+        key: "progress",
+        label: "Progress",
+        winner: decide(me2.progressAbsLbs, fr2.progressAbsLbs)
+      },
+      {
+        key: "strength",
+        label: "Strength",
+        winner: decide(me2.bestLiftLbs, fr2.bestLiftLbs)
+      }
+    ];
     const sharedLifts = [];
     for (const [exId, mine] of me2.bestLifts) {
       const theirs = fr2.bestLifts.get(exId);
       if (!theirs) continue;
       const meWilks = Math.round(wilksScore(mine.e1rmKg, me2.bwKg, me2.sex) * 10) / 10;
       const frWilks = Math.round(wilksScore(theirs.e1rmKg, fr2.bwKg, fr2.sex) * 10) / 10;
+      const meLbs = Math.round(mine.e1rmKg * 2.20462);
+      const friendLbs = Math.round(theirs.e1rmKg * 2.20462);
       sharedLifts.push({
         name: mine.name,
-        meLbs: Math.round(mine.e1rmKg * 2.20462),
-        friendLbs: Math.round(theirs.e1rmKg * 2.20462),
+        meLbs,
+        friendLbs,
         meWilks,
         friendWilks: frWilks,
-        winner: decide(meWilks, frWilks)
+        winner: decide(meWilks, frWilks),
+        winnerAbsolute: decide(meLbs, friendLbs)
       });
     }
     sharedLifts.sort((a2, b2) => Math.max(b2.meWilks, b2.friendWilks) - Math.max(a2.meWilks, a2.friendWilks));
-    const meWins = rounds.filter((r2) => r2.winner === "me").length;
-    const frWins = rounds.filter((r2) => r2.winner === "friend").length;
+    const tally = (rs) => {
+      const meWins = rs.filter((r2) => r2.winner === "me").length;
+      const frWins = rs.filter((r2) => r2.winner === "friend").length;
+      return { me: meWins, friend: frWins, winner: meWins > frWins ? "me" : frWins > meWins ? "friend" : "tie" };
+    };
     const strip2 = (m3) => ({
       name: m3.name,
       streak: m3.streak,
       activeDays: m3.activeDays,
       trainingDays: m3.trainingDays,
       progressPct: m3.progressPct,
+      progressAbsLbs: m3.progressAbsLbs,
       bestWilks: m3.bestWilks,
-      bestWilksLift: m3.bestWilksLift
+      bestWilksLift: m3.bestWilksLift,
+      bestLiftLbs: m3.bestLiftLbs,
+      bestLiftName: m3.bestLiftName
     });
     res.json({
       period: periodDays,
       me: strip2(me2),
       friend: strip2(fr2),
       rounds,
+      roundsAbsolute,
       sharedLifts: sharedLifts.slice(0, 8),
-      overall: { me: meWins, friend: frWins, winner: meWins > frWins ? "me" : frWins > meWins ? "friend" : "tie" }
+      overall: tally(rounds),
+      overallAbsolute: tally(roundsAbsolute)
     });
   });
   app2.get("/api/friends/requests", async (req, res) => {
