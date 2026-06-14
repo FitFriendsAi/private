@@ -196,7 +196,15 @@ export async function startLiveScan(opts: { mode: LiveScanMode; accent?: string 
         video.srcObject = stream;
         video.play().catch(() => {});
 
-        // Detect a sharp, still frame: low frame-to-frame difference held for ~1s.
+        // Auto-capture when the frame settles. Thresholds are lenient — normal
+        // hand-held footage (and sensor noise) sits well under STABLE_DIFF, so it
+        // fires within ~0.5s of the user roughly steadying on the label. A hard
+        // FORCE_AFTER cap guarantees it always captures rather than hanging.
+        const STABLE_DIFF   = 24;    // mean per-pixel diff considered "steady"
+        const HOLD_MS       = 450;   // how long it must stay steady
+        const MIN_ELAPSED   = 1000;  // don't fire instantly on open
+        const FORCE_AFTER   = 6000;  // capture no matter what after this
+
         const small = document.createElement("canvas");
         small.width = 64; small.height = 48;
         const sctx = small.getContext("2d", { willReadFrequently: true })!;
@@ -204,31 +212,32 @@ export async function startLiveScan(opts: { mode: LiveScanMode; accent?: string 
         let stableSince = 0;
         const startedAt = performance.now();
 
+        const capture = () => {
+          status.textContent = "Captured";
+          finish({ type: "image", file: dataUrlToFile(snapshot(), "label.jpg") });
+        };
+
         const loop = () => {
           if (settled) return;
           if (video.readyState >= 2 && video.videoWidth) {
+            const now = performance.now();
             sctx.drawImage(video, 0, 0, 64, 48);
             const cur = sctx.getImageData(0, 0, 64, 48).data;
             if (prev) {
               let diff = 0;
               for (let i = 0; i < cur.length; i += 4) diff += Math.abs(cur[i] - prev[i]);
               const meanDiff = diff / (64 * 48);
-              const now = performance.now();
-              if (meanDiff < 6) {
+              if (now - startedAt > MIN_ELAPSED && meanDiff < STABLE_DIFF) {
                 if (!stableSince) stableSince = now;
-                else if (now - stableSince > 900 && now - startedAt > 1800) {
-                  status.textContent = "Captured";
-                  finish({ type: "image", file: dataUrlToFile(snapshot(), "label.jpg") });
-                  return;
-                } else {
-                  status.textContent = "Hold steady…";
-                }
+                else if (now - stableSince > HOLD_MS) { capture(); return; }
+                status.textContent = "Hold steady…";
               } else {
                 stableSince = 0;
                 status.textContent = "Point at the nutrition label";
               }
             }
             prev = new Uint8ClampedArray(cur);
+            if (now - startedAt > FORCE_AFTER) { capture(); return; } // safety net
           }
           raf = requestAnimationFrame(loop);
         };
