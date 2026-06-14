@@ -1,3 +1,26 @@
+import { Alert, Platform } from "react-native";
+
+/**
+ * Web-safe confirmation dialog. On react-native-web, `Alert.alert`'s button
+ * callbacks never fire, so a destructive Alert silently does nothing. Use the
+ * browser's `window.confirm` on web and a native Alert elsewhere.
+ */
+export function confirmAction(
+  title: string,
+  message: string,
+  onConfirm: () => void,
+  confirmLabel = "Confirm",
+): void {
+  if (Platform.OS === "web") {
+    if (typeof window !== "undefined" && window.confirm(message)) onConfirm();
+  } else {
+    Alert.alert(title, message, [
+      { text: "Cancel", style: "cancel" },
+      { text: confirmLabel, style: "destructive", onPress: onConfirm },
+    ]);
+  }
+}
+
 /** Returns today's date as YYYY-MM-DD in the device's local timezone. */
 export function todayStr(): string {
   const d = new Date();

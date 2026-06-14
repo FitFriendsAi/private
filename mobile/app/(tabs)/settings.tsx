@@ -9,7 +9,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useTheme, PALETTES } from "@/hooks/use-theme";
 import { useHealth } from "@/hooks/use-health";
 import { apiRequest } from "@/lib/api";
-import { lbsToGrams, gramsToLbs, todayStr, shiftDateStr, formatDate } from "@/lib/utils";
+import { lbsToGrams, gramsToLbs, todayStr, shiftDateStr, formatDate, confirmAction } from "@/lib/utils";
 import {
   User, Scale, Activity, Heart, Check, LogOut,
   ChevronDown, X, Palette as PaletteIcon, RefreshCw,
@@ -351,10 +351,7 @@ export default function SettingsScreen() {
             ))}
             {/* Sign out */}
             <Pressable
-              onPress={() => Alert.alert("Sign out", "Are you sure?", [
-                { text: "Cancel", style: "cancel" },
-                { text: "Sign out", style: "destructive", onPress: logout },
-              ])}
+              onPress={() => confirmAction("Sign out", "Are you sure?", logout, "Sign out")}
               style={({ pressed }) => ({
                 flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
                 marginTop: 12, paddingVertical: 10, borderRadius: 12,
@@ -536,10 +533,7 @@ export default function SettingsScreen() {
                       <Pencil size={14} color={muted} />
                     </Pressable>
                     <Pressable
-                      onPress={() => Alert.alert("Delete entry?", `Remove the ${gramsToLbs(m.weightGrams)} lbs entry from ${formatDate(m.date)}?`, [
-                        { text: "Cancel", style: "cancel" },
-                        { text: "Delete", style: "destructive", onPress: () => deleteMeasurement.mutate(m.id) },
-                      ])}
+                      onPress={() => confirmAction("Delete entry?", `Remove the ${gramsToLbs(m.weightGrams)} lbs entry from ${formatDate(m.date)}?`, () => deleteMeasurement.mutate(m.id), "Delete")}
                       hitSlop={8}
                       style={({ pressed }) => ({ padding: 4, marginLeft: 6, opacity: pressed ? 0.6 : 1 })}
                     >

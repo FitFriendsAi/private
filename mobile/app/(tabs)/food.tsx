@@ -11,7 +11,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { useHealth } from "@/hooks/use-health";
 import { ScanningOverlay } from "@/components/ScanningOverlay";
 import { startLiveScan } from "@/lib/live-scan";
-import { todayStr, nowTimeStr, timeStrToISO, fmtTime, shiftDateStr, formatDate, FOOD_UNITS, unitToServings, hasGramBasis, resolveServingGrams, type FoodUnit } from "@/lib/utils";
+import { todayStr, nowTimeStr, timeStrToISO, fmtTime, shiftDateStr, formatDate, FOOD_UNITS, unitToServings, hasGramBasis, resolveServingGrams, confirmAction, type FoodUnit } from "@/lib/utils";
 import { Plus, Minus, Search, X, ChevronRight, UtensilsCrossed, Trash2, ScanLine, Camera, PenLine, ChevronDown, ChevronLeft, Sparkles, Upload } from "lucide-react-native";
 
 /** A food line-item estimated by Claude from text or a photo (macros are TOTALS for the amount eaten). */
@@ -1356,10 +1356,7 @@ export default function FoodScreen() {
                           <PenLine size={15} color={muted} />
                         </Pressable>
                         <Pressable
-                          onPress={() => Alert.alert("Delete meal", `Delete "${meal.name}"?`, [
-                            { text: "Cancel", style: "cancel" },
-                            { text: "Delete", style: "destructive", onPress: () => deleteMeal.mutate(meal.id) },
-                          ])}
+                          onPress={() => confirmAction("Delete meal", `Delete "${meal.name}"?`, () => deleteMeal.mutate(meal.id), "Delete")}
                           hitSlop={8}
                           style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, padding: 4 })}
                         >
@@ -1620,14 +1617,16 @@ export default function FoodScreen() {
                 {/* Remove button */}
                 <Pressable
                   onPress={() => {
-                    Alert.alert("Remove item?", `Remove ${name} from ${selectedDate === today ? "today's" : formatDate(selectedDate) + "'s"} log?`, [
-                      { text: "Cancel", style: "cancel" },
-                      { text: "Remove", style: "destructive", onPress: () => {
+                    confirmAction(
+                      "Remove item?",
+                      `Remove ${name} from ${selectedDate === today ? "today's" : formatDate(selectedDate) + "'s"} log?`,
+                      () => {
                         deleteEntry.mutate(e.id);
                         setDetailEntry(null);
                         setDetailItem(null);
-                      }},
-                    ]);
+                      },
+                      "Remove",
+                    );
                   }}
                   style={({ pressed }) => ({
                     marginTop: 8, paddingVertical: 14, borderRadius: 16, alignItems: "center",
