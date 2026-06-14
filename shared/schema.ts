@@ -185,7 +185,7 @@ export const exercises = pgTable("exercises", {
   primaryMuscle: text("primary_muscle").notNull(),
   secondaryMuscles: jsonb("secondary_muscles").$type<string[]>().default([]),
   category: text("category").notNull(), // compound | isolation | cardio | bodyweight
-  equipment: text("equipment"), // barbell | dumbbell | machine | cable | bodyweight | none
+  equipment: text("equipment"), // barbell | dumbbell | machine | cable | bodyweight | smith_machine | none
   isCustom: boolean("is_custom").default(false),
   userId: integer("user_id"), // null = global, set = user-specific
   gifUrl: text("gif_url"),    // cached from ExerciseDB API
