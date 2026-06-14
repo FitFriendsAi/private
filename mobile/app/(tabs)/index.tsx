@@ -16,7 +16,12 @@ import Svg, { Circle, Polyline, Line as SvgLine } from "react-native-svg";
 const AnimatedPolyline = Animated.createAnimatedComponent(Polyline);
 import { ExpandCardModal } from "@/components/ExpandCardModal";
 import { MacroExpandModal } from "@/components/MacroExpandModal";
+import { CelebrationModal } from "@/components/CelebrationModal";
 import { buildChartBars, type ChartBar } from "@/lib/chart-utils";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+const STREAK_MILESTONES = [3, 7, 14, 30, 60, 100, 365];
+const LAST_CELEBRATED_STREAK_KEY = "lastCelebratedStreak";
 
 const HR_RED = "#c0202c";
 
@@ -167,6 +172,7 @@ export default function DashboardScreen() {
   const [macrosPeriod,  setMacrosPeriod]  = useState<7 | 30 | 90>(30);
   const [workoutOpen,   setWorkoutOpen]   = useState(false);
   const [workoutPeriod, setWorkoutPeriod] = useState<7 | 30 | 90>(30);
+  const [streakCelebration, setStreakCelebration] = useState<number | null>(null);
 
   // History queries (enabled only when respective modal is open)
   const { data: calHistory = [] }   = useQuery<{ date: string; calories: number; protein: number; carbs: number; fat: number }[]>({
@@ -342,6 +348,19 @@ export default function DashboardScreen() {
     if (workoutDates.has(ds)) streak++;
     else if (i > 0) break;
   }
+
+  // Streak milestone celebration
+  useEffect(() => {
+    if (!STREAK_MILESTONES.includes(streak)) return;
+    (async () => {
+      const stored = await AsyncStorage.getItem(LAST_CELEBRATED_STREAK_KEY);
+      const last = stored ? parseInt(stored, 10) : 0;
+      if (streak > last) {
+        setStreakCelebration(streak);
+        await AsyncStorage.setItem(LAST_CELEBRATED_STREAK_KEY, String(streak));
+      }
+    })();
+  }, [streak]);
 
   const activeGoals = (goals as any[]).filter((g: any) => g.isActive);
 
@@ -1923,6 +1942,14 @@ export default function DashboardScreen() {
         history={macroHistory}
         todayProtein={Math.round(totals.protein)} todayCarbs={Math.round(totals.carbs)} todayFat={Math.round(totals.fat)}
         targetProtein={Math.round(targets?.proteinG ?? 0)} targetCarbs={Math.round(targets?.carbsG ?? 0)} targetFat={Math.round(targets?.fatG ?? 0)}
+      />
+
+      {/* ── Streak milestone celebration ─────────────────────────── */}
+      <CelebrationModal
+        visible={streakCelebration !== null}
+        title="Streak Milestone!"
+        lines={[`🔥 ${streakCelebration}-day streak!`]}
+        onDismiss={() => setStreakCelebration(null)}
       />
 
       {/* ── Water goal editor modal ─────────────────────────────── */}

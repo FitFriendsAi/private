@@ -1,12 +1,13 @@
-import { useState, useMemo } from "react";
-import { View, Text, ScrollView, Pressable, Modal } from "react-native";
+import { useState, useMemo, useCallback } from "react";
+import { View, Text, ScrollView, Pressable, Modal, Image, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import * as ImagePicker from "expo-image-picker";
 import { apiRequest } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
 import { gramsToLbs, todayStr } from "@/lib/utils";
 import Svg, { Circle, Polyline, Rect, Line } from "react-native-svg";
-import { Scale, Dumbbell, ChevronDown, X, BarChart2, LineChart as LineChartIcon } from "lucide-react-native";
+import { Scale, Dumbbell, ChevronDown, X, BarChart2, LineChart as LineChartIcon, Camera, Plus, Columns2 } from "lucide-react-native";
 
 const LIME   = "#c8e84c";
 const BLUE   = "#9bd1ff";
@@ -656,6 +657,11 @@ export default function ProgressScreen() {
   const [macroChartType, setMacroChartType] = useState<"bar" | "line">("bar");
   const [weightChartW, setWeightChartW]     = useState(0);
   const [strengthChartW, setStrengthChartW] = useState(0);
+  const [photoViewerIdx, setPhotoViewerIdx] = useState<number | null>(null);
+  const [compareMode, setCompareMode]       = useState(false);
+  const [compareSelection, setCompareSelection] = useState<number[]>([]);
+
+  const qc = useQueryClient();
 
   // ── Queries ──
   const { data: targets }           = useQuery<any>({ queryKey: ["/api/targets"], queryFn: () => apiRequest("GET", "/api/targets") });
@@ -681,6 +687,42 @@ export default function ProgressScreen() {
     queryFn:  () => apiRequest("GET", `/api/food-log/summary?period=${period}`),
     staleTime: 60_000,
   });
+
+  // Progress photos
+  const { data: progressPhotos = [] } = useQuery<any[]>({
+    queryKey: ["/api/progress-photos"],
+    queryFn:  () => apiRequest("GET", "/api/progress-photos"),
+  });
+
+  const uploadPhotoMutation = useMutation({
+    mutationFn: (imageData: string) => apiRequest("POST", "/api/progress-photos", { date: today, imageData }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/progress-photos"] }),
+    onError: (e: any) => Alert.alert("Upload failed", e?.message ?? "Please try again."),
+  });
+
+  const deletePhotoMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/progress-photos/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/progress-photos"] }),
+    onError: (e: any) => Alert.alert("Delete failed", e?.message ?? "Please try again."),
+  });
+
+  const pickProgressPhoto = useCallback(async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Allow photo library access to add a progress photo.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.6,
+      base64: true,
+    });
+    const asset = result.canceled ? null : result.assets[0];
+    if (asset?.base64) {
+      const mime = asset.mimeType ?? "image/jpeg";
+      uploadPhotoMutation.mutate(`data:${mime};base64,${asset.base64}`);
+    }
+  }, [uploadPhotoMutation]);
 
   // ── Derived ──
   const calGoal     = targets?.calories ?? 2200;
@@ -1104,6 +1146,79 @@ export default function ProgressScreen() {
           })()}
         </View>
 
+        {/* ── PROGRESS PHOTOS ── */}
+        <View style={{ marginTop: 22 }}>
+          <SectionLabel
+            icon={Camera}
+            label="PROGRESS PHOTOS"
+            right={
+              progressPhotos.length >= 2 ? (
+                <Pressable
+                  onPress={() => { setCompareMode(m => !m); setCompareSelection([]); }}
+                  style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 4, opacity: pressed ? 0.7 : 1 })}
+                >
+                  <Columns2 size={14} color={compareMode ? LIME : text} />
+                  <Text style={{ fontSize: 12, fontFamily: "Manrope-Bold", color: compareMode ? LIME : text }}>
+                    Compare
+                  </Text>
+                </Pressable>
+              ) : undefined
+            }
+          />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
+            <Pressable
+              onPress={pickProgressPhoto}
+              style={({ pressed }) => ({
+                width: 100, height: 130, borderRadius: 14, borderWidth: 1, borderColor: border,
+                borderStyle: "dashed", alignItems: "center", justifyContent: "center",
+                backgroundColor: card, opacity: pressed ? 0.7 : 1,
+              })}
+            >
+              <Plus size={24} color={muted} />
+              <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: muted, marginTop: 6 }}>Add Photo</Text>
+            </Pressable>
+
+            {progressPhotos.map((p: any, i: number) => {
+              const isSelected = compareSelection.includes(p.id);
+              return (
+                <Pressable
+                  key={p.id}
+                  onPress={() => {
+                    if (compareMode) {
+                      setCompareSelection(sel => {
+                        if (sel.includes(p.id)) return sel.filter(id => id !== p.id);
+                        if (sel.length >= 2) return [sel[1], p.id];
+                        return [...sel, p.id];
+                      });
+                    } else {
+                      setPhotoViewerIdx(i);
+                    }
+                  }}
+                  style={({ pressed }) => ({ width: 100, opacity: pressed ? 0.7 : 1 })}
+                >
+                  <View style={{
+                    width: 100, height: 130, borderRadius: 14, overflow: "hidden",
+                    borderWidth: isSelected ? 2 : 1, borderColor: isSelected ? LIME : border,
+                  }}>
+                    <Image source={{ uri: p.imageData }} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
+                  </View>
+                  <Text style={{ fontSize: 10, fontFamily: "Manrope", color: muted, marginTop: 4, textAlign: "center" }}>
+                    {p.date}
+                  </Text>
+                </Pressable>
+              );
+            })}
+
+            {progressPhotos.length === 0 && (
+              <View style={{ width: 220, height: 130, alignItems: "center", justifyContent: "center" }}>
+                <Text style={{ fontSize: 12, fontFamily: "Manrope", color: muted, textAlign: "center" }}>
+                  Add photos to track your{"\n"}visual progress over time
+                </Text>
+              </View>
+            )}
+          </ScrollView>
+        </View>
+
       </ScrollView>
 
       {/* ── Exercise picker modal ── */}
@@ -1166,6 +1281,76 @@ export default function ProgressScreen() {
               </Text>
             )}
           </ScrollView>
+        </View>
+      </Modal>
+
+      {/* ── Photo viewer modal ── */}
+      <Modal visible={photoViewerIdx !== null} animationType="fade" transparent onRequestClose={() => setPhotoViewerIdx(null)}>
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.92)" }}>
+          <SafeAreaView style={{ flex: 1 }}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 16 }}>
+              <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: "#ffffff" }}>
+                {photoViewerIdx !== null ? progressPhotos[photoViewerIdx]?.date : ""}
+              </Text>
+              <Pressable onPress={() => setPhotoViewerIdx(null)}>
+                <X size={24} color="#ffffff" />
+              </Pressable>
+            </View>
+            {photoViewerIdx !== null && progressPhotos[photoViewerIdx] && (
+              <Image
+                source={{ uri: progressPhotos[photoViewerIdx].imageData }}
+                style={{ flex: 1, width: "100%" }}
+                resizeMode="contain"
+              />
+            )}
+            <Pressable
+              onPress={() => {
+                const photo = photoViewerIdx !== null ? progressPhotos[photoViewerIdx] : null;
+                if (!photo) return;
+                Alert.alert("Delete photo?", "This can't be undone.", [
+                  { text: "Cancel", style: "cancel" },
+                  { text: "Delete", style: "destructive", onPress: () => {
+                    deletePhotoMutation.mutate(photo.id);
+                    setPhotoViewerIdx(null);
+                  }},
+                ]);
+              }}
+              style={({ pressed }) => ({
+                margin: 16, backgroundColor: "rgba(255,255,255,0.1)", borderRadius: 14,
+                paddingVertical: 14, alignItems: "center", opacity: pressed ? 0.7 : 1,
+              })}
+            >
+              <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: "#ff6b6b" }}>Delete Photo</Text>
+            </Pressable>
+          </SafeAreaView>
+        </View>
+      </Modal>
+
+      {/* ── Compare modal ── */}
+      <Modal visible={compareSelection.length === 2} animationType="slide" transparent onRequestClose={() => setCompareSelection([])}>
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.92)" }}>
+          <SafeAreaView style={{ flex: 1 }}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 16 }}>
+              <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: "#ffffff" }}>Compare</Text>
+              <Pressable onPress={() => { setCompareSelection([]); setCompareMode(false); }}>
+                <X size={24} color="#ffffff" />
+              </Pressable>
+            </View>
+            <View style={{ flex: 1, flexDirection: "row", gap: 4 }}>
+              {compareSelection.map(id => {
+                const photo = progressPhotos.find((p: any) => p.id === id);
+                if (!photo) return null;
+                return (
+                  <View key={id} style={{ flex: 1 }}>
+                    <Image source={{ uri: photo.imageData }} style={{ flex: 1, width: "100%" }} resizeMode="cover" />
+                    <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: "#ffffff", textAlign: "center", paddingVertical: 8 }}>
+                      {photo.date}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          </SafeAreaView>
         </View>
       </Modal>
     </SafeAreaView>

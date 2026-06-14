@@ -12,10 +12,10 @@
  *  - Finish → saves sets, patches workout with duration
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View, Text, ScrollView, Pressable, TextInput, Modal,
-  ActivityIndicator, KeyboardAvoidingView, Platform,
+  ActivityIndicator, KeyboardAvoidingView, Platform, Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -24,7 +24,9 @@ import { apiRequest } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
 import { useHealth } from "@/hooks/use-health";
 import { gramsToLbs, lbsToGrams } from "@/lib/utils";
-import { ArrowLeft, Check, Plus, X, Search, Timer, ChevronDown, Maximize2 } from "lucide-react-native";
+import { suggestNextWeight, estimate1RM } from "@shared/training";
+import { CelebrationModal } from "@/components/CelebrationModal";
+import { ArrowLeft, Check, Plus, X, Search, Timer, ChevronDown, Maximize2, Lightbulb } from "lucide-react-native";
 import Svg, { Circle, Line, G } from "react-native-svg";
 
 // ── Rest timer ring constants ──────────────────────────────────────
@@ -50,7 +52,7 @@ const TICKS = Array.from({ length: 60 }, (_, i) => {
 });
 
 // ── Types ─────────────────────────────────────────────────────────
-interface Exercise { id: number; name: string; primaryMuscle: string; category: string; }
+interface Exercise { id: number; name: string; primaryMuscle: string; category: string; equipment?: string; }
 interface PrevPerf  { date: string; sets: { reps: number; weightGrams: number }[]; }
 type FieldSource    = "prev" | "user" | "empty";
 type SetEntry       = { reps: string; weight: string; done: boolean; repsSource: FieldSource; weightSource: FieldSource; };
@@ -90,6 +92,9 @@ export default function WorkoutSessionScreen() {
   const [prevPerf,     setPrevPerf]     = useState<Record<number, PrevPerf>>({});
   const [confirm,      setConfirm]      = useState<{ title: string; body: string; onOk: () => void } | null>(null);
   const [restMinimized, setRestMinimized] = useState(false);
+  const [targetRepsByExerciseId, setTargetRepsByExerciseId] = useState<Record<number, string>>({});
+  const [dismissedSuggestions, setDismissedSuggestions] = useState<Record<number, boolean>>({});
+  const [celebration, setCelebration] = useState<{ title: string; lines: string[] } | null>(null);
 
   // ── Workout meta ──
   const { data: workout } = useQuery<any>({
@@ -123,6 +128,7 @@ export default function WorkoutSessionScreen() {
           name:          te.exerciseName ?? te.name ?? "Exercise",
           primaryMuscle: te.primaryMuscle ?? "",
           category:      te.category ?? "",
+          equipment:     te.equipment ?? "",
         },
         sets: Array.from(
           { length: te.targetSets ?? 3 },
@@ -136,6 +142,11 @@ export default function WorkoutSessionScreen() {
         ),
       }));
     setExercises(initial);
+    setTargetRepsByExerciseId(
+      Object.fromEntries(
+        template.exercises.map((te: any) => [te.exerciseId, te.targetReps ?? "8-12"])
+      )
+    );
 
     // Fetch previous performance for each exercise
     initial.forEach(async (ae) => {
@@ -176,6 +187,22 @@ export default function WorkoutSessionScreen() {
       return changed ? { ...ae, sets } : ae;
     }));
   }, [prevPerf]);
+
+  // ── Progressive-overload suggestions ──
+  const suggestions = useMemo(() => {
+    const out: Record<number, { weightGrams: number; note: string }> = {};
+    for (const ae of exercises) {
+      const prev = prevPerf[ae.exercise.id];
+      if (!prev?.sets?.length) continue;
+      const suggestion = suggestNextWeight(
+        prev.sets,
+        targetRepsByExerciseId[ae.exercise.id],
+        ae.exercise.equipment
+      );
+      if (suggestion) out[ae.exercise.id] = suggestion;
+    }
+    return out;
+  }, [exercises, prevPerf, targetRepsByExerciseId]);
 
   // ── Elapsed timer ──
   useEffect(() => {
@@ -286,8 +313,7 @@ export default function WorkoutSessionScreen() {
           const s = sets[i];
           // Skip sets that are still showing prefilled/empty defaults and weren't confirmed
           if (!s.done && s.weightSource !== "user" && s.repsSource !== "user") continue;
-          await apiRequest("POST", "/api/workouts/sets", {
-            workoutId:   Number(workoutId),
+          await apiRequest("POST", `/api/workouts/${workoutId}/sets`, {
             exerciseId:  exercise.id,
             setNumber:   i + 1,
             reps:        parseInt(s.reps) || 0,
@@ -310,13 +336,39 @@ export default function WorkoutSessionScreen() {
         health.writeWorkout({ startDate, durationMinutes });
       }
       qc.invalidateQueries({ queryKey: ["/api/workouts"] });
-      router.replace("/(tabs)/workouts");
+
+      // Detect PRs: best est-1RM this session vs. best from last session
+      const prLines: string[] = [];
+      for (const { exercise, sets } of exercises) {
+        const prev = prevPerf[exercise.id];
+        if (!prev?.sets?.length) continue;
+        const priorBest = Math.max(...prev.sets.map(s => estimate1RM(s.weightGrams, s.reps)));
+        let thisBest = 0, thisBestSet: SetEntry | null = null;
+        for (const s of sets.filter(x => x.done)) {
+          const e1 = estimate1RM(lbsToGrams(parseFloat(s.weight) || 0), parseInt(s.reps) || 0);
+          if (e1 > thisBest) { thisBest = e1; thisBestSet = s; }
+        }
+        if (thisBestSet && thisBest > priorBest) {
+          prLines.push(`🎉 New PR: ${exercise.name} — ${thisBestSet.weight} × ${thisBestSet.reps}`);
+        }
+      }
+
+      if (prLines.length > 0) {
+        setCelebration({ title: "Personal Records!", lines: prLines });
+      } else {
+        router.replace("/(tabs)/workouts");
+      }
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "Could not save workout.");
     } finally {
       setSaving(false);
     }
-  }, [exercises, elapsed, workoutId, qc, router]);
+  }, [exercises, prevPerf, elapsed, workoutId, qc, router]);
+
+  const dismissCelebration = useCallback(() => {
+    setCelebration(null);
+    router.replace("/(tabs)/workouts");
+  }, [router]);
 
   const confirmFinish = () => {
     const doneSets = exercises.reduce((s, ae) => s + ae.sets.filter(x => x.done).length, 0);
@@ -415,6 +467,25 @@ export default function WorkoutSessionScreen() {
                     <X size={16} color={muted} />
                   </Pressable>
                 </View>
+
+                {/* Progressive-overload suggestion */}
+                {suggestions[ae.exercise.id] && !dismissedSuggestions[ae.exercise.id] && (
+                  <Pressable
+                    onPress={() => setDismissedSuggestions(prev => ({ ...prev, [ae.exercise.id]: true }))}
+                    style={({ pressed }) => ({
+                      flexDirection: "row", alignItems: "center", gap: 6,
+                      backgroundColor: "rgba(200,232,76,0.08)", borderRadius: 10,
+                      paddingVertical: 6, paddingHorizontal: 10, marginBottom: 8,
+                      opacity: pressed ? 0.7 : 1,
+                    })}
+                  >
+                    <Lightbulb size={12} color="#C8E84C" />
+                    <Text style={{ flex: 1, fontFamily: "Manrope-SemiBold", fontSize: 11, color: "#C8E84C" }}>
+                      Try {gramsToLbs(suggestions[ae.exercise.id].weightGrams)} lbs — {suggestions[ae.exercise.id].note.charAt(0).toLowerCase() + suggestions[ae.exercise.id].note.slice(1)}
+                    </Text>
+                    <X size={12} color="#C8E84C" />
+                  </Pressable>
+                )}
 
                 {/* Column headers */}
                 <View style={{ flexDirection: "row", gap: 6, marginBottom: 4, width: "100%" }}>
@@ -746,6 +817,14 @@ export default function WorkoutSessionScreen() {
           </View>
         );
       })()}
+
+      {/* ── PR Celebration ── */}
+      <CelebrationModal
+        visible={!!celebration}
+        title={celebration?.title ?? ""}
+        lines={celebration?.lines ?? []}
+        onDismiss={dismissCelebration}
+      />
 
       {/* ── Confirm Dialog ── */}
       <Modal visible={!!confirm} transparent animationType="fade">

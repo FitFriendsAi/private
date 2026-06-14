@@ -11,8 +11,10 @@ import { wilksScore, sessionBests, currentBests, avgProgressPct, avgProgressAbsK
 import { fetchExerciseGif } from "./services/exercise-gif.js";
 import { sendInviteEmail, sendInviteSms } from "./services/notifications.js";
 import { rollForward, completeCurrentDay, buildDaysFromSchedule, type ActiveRoutineState } from "./services/active-routine.js";
+import { generateAdaptiveProposals } from "./services/training-coach.js";
 import {
   insertUserSchema, insertUserProfileSchema, insertGoalSchema, insertBodyMeasurementSchema,
+  insertProgressPhotoSchema,
   insertFoodItemSchema, insertFoodLogSchema, insertWaterLogSchema, insertSupplementLogSchema,
   insertExerciseSchema, insertWorkoutTemplateSchema, insertTemplateExerciseSchema,
   insertWorkoutSchema, insertWorkoutSetSchema, insertHeartRateLogSchema,
@@ -686,6 +688,36 @@ Return ONLY valid JSON (no markdown):
     const userId = (req.user as any).id;
     await storage.deleteMeasurement(Number(req.params.id), userId);
     await recalculateTargets(userId);
+    res.sendStatus(204);
+  });
+
+  // ── Progress Photos ──────────────────────────────────────────────────────────
+  const MAX_PROGRESS_PHOTO_BYTES = 5 * 1024 * 1024;
+
+  app.get("/api/progress-photos", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    res.json(await storage.getProgressPhotos((req.user as any).id));
+  });
+
+  app.post("/api/progress-photos", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    try {
+      const userId = (req.user as any).id;
+      const data = insertProgressPhotoSchema.omit({ userId: true }).parse(req.body);
+      if (data.imageData.length > MAX_PROGRESS_PHOTO_BYTES) {
+        return res.status(413).json({ message: "Image too large" });
+      }
+      const p = await storage.createProgressPhoto({ ...data, userId });
+      res.status(201).json(p);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/progress-photos/:id", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = (req.user as any).id;
+    await storage.deleteProgressPhoto(Number(req.params.id), userId);
     res.sendStatus(204);
   });
 
@@ -1601,28 +1633,41 @@ Return ONLY valid JSON (no markdown):
 
   app.patch("/api/workouts/:id", async (req, res) => {
     if (!requireAuth(req, res)) return;
-    const userId = (req.user as any).id;
-    const w = await storage.updateWorkout(Number(req.params.id), userId, req.body);
-    if (!w) return res.sendStatus(404);
+    try {
+      const userId = (req.user as any).id;
 
-    // If this workout was just completed and matches the active routine's
-    // "next up" day, advance the routine to the following day.
-    if (req.body?.completedAt && w.templateId != null) {
-      const routine = await storage.getActiveRoutine(userId);
-      if (routine) {
-        const today = new Date().toISOString().slice(0, 10);
-        const state: ActiveRoutineState = { days: routine.days, currentIndex: routine.currentIndex, lastCheckedDate: routine.lastCheckedDate };
-        const rolled = rollForward(state, today);
-        if (rolled.days[rolled.currentIndex]?.templateId === w.templateId) {
-          const advanced = completeCurrentDay(rolled, today);
-          await storage.updateActiveRoutineState(routine.id, advanced.currentIndex, advanced.lastCheckedDate);
-        } else if (rolled.currentIndex !== state.currentIndex || rolled.lastCheckedDate !== state.lastCheckedDate) {
-          await storage.updateActiveRoutineState(routine.id, rolled.currentIndex, rolled.lastCheckedDate);
+      // Drizzle's timestamp columns expect Date instances (it calls
+      // .toISOString() on the value) — clients send ISO strings over JSON,
+      // so convert here or the update query throws.
+      const data = { ...req.body };
+      if (typeof data.completedAt === "string") data.completedAt = new Date(data.completedAt);
+      if (typeof data.startedAt === "string") data.startedAt = new Date(data.startedAt);
+
+      const w = await storage.updateWorkout(Number(req.params.id), userId, data);
+      if (!w) return res.sendStatus(404);
+
+      // If this workout was just completed and matches the active routine's
+      // "next up" day, advance the routine to the following day.
+      if (req.body?.completedAt && w.templateId != null) {
+        const routine = await storage.getActiveRoutine(userId);
+        if (routine) {
+          const today = new Date().toISOString().slice(0, 10);
+          const state: ActiveRoutineState = { days: routine.days, currentIndex: routine.currentIndex, lastCheckedDate: routine.lastCheckedDate };
+          const rolled = rollForward(state, today);
+          if (rolled.days[rolled.currentIndex]?.templateId === w.templateId) {
+            const advanced = completeCurrentDay(rolled, today);
+            await storage.updateActiveRoutineState(routine.id, advanced.currentIndex, advanced.lastCheckedDate);
+          } else if (rolled.currentIndex !== state.currentIndex || rolled.lastCheckedDate !== state.lastCheckedDate) {
+            await storage.updateActiveRoutineState(routine.id, rolled.currentIndex, rolled.lastCheckedDate);
+          }
         }
       }
-    }
 
-    res.json(w);
+      res.json(w);
+    } catch (err: any) {
+      console.error("PATCH /api/workouts/:id failed:", err);
+      res.status(400).json({ message: err.message });
+    }
   });
 
   app.delete("/api/workouts/:id", async (req, res) => {
@@ -2105,6 +2150,22 @@ Return ONLY valid JSON (no markdown, no explanation):
     if (!requireAuth(req, res)) return;
     await storage.clearActiveRoutine((req.user as any).id);
     res.sendStatus(204);
+  });
+
+  /**
+   * GET /api/routine/adapt-proposals
+   * Approval-gated suggestions to bump target weights on the active routine's
+   * template exercises, based on recent performance. Nothing is applied here —
+   * the client must PATCH /api/template-exercises/:id per approved item.
+   */
+  app.get("/api/routine/adapt-proposals", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    try {
+      const result = await generateAdaptiveProposals((req.user as any).id);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   // ── Heart Rate Log ──────────────────────────────────────────────────────────

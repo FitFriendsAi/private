@@ -1,6 +1,8 @@
 // Fitness scoring: estimated 1RM, Wilks normalization, PRs, and progress.
 // Pure functions over raw set data so they're easy to reuse + test.
 
+import { estimate1RM } from "@shared/training";
+
 export interface StrengthSet {
   exerciseId: number;
   name: string;
@@ -11,10 +13,9 @@ export interface StrengthSet {
 
 const GRAMS_PER_KG = 1000;
 
-/** Epley estimated 1RM. Reps capped at 12 — beyond that Epley over-estimates. */
+/** Epley estimated 1RM, in kg. Reps capped at 12 — beyond that Epley over-estimates. */
 export function estimate1RMKg(weightKg: number, reps: number): number {
-  const r = Math.min(Math.max(reps, 1), 12);
-  return weightKg * (1 + r / 30);
+  return estimate1RM(weightKg * GRAMS_PER_KG, reps) / GRAMS_PER_KG;
 }
 
 // ── Wilks (original 1994 coefficients) ───────────────────────────────────────

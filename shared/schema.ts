@@ -72,6 +72,20 @@ export const insertBodyMeasurementSchema = createInsertSchema(bodyMeasurements).
 export type BodyMeasurement = typeof bodyMeasurements.$inferSelect;
 export type InsertBodyMeasurement = z.infer<typeof insertBodyMeasurementSchema>;
 
+// ─── Progress Photos ──────────────────────────────────────────────────────────
+export const progressPhotos = pgTable("progress_photos", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  date: date("date").notNull(),
+  imageData: text("image_data").notNull(), // base64 data URL
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertProgressPhotoSchema = createInsertSchema(progressPhotos).omit({ id: true, createdAt: true });
+export type ProgressPhoto = typeof progressPhotos.$inferSelect;
+export type InsertProgressPhoto = z.infer<typeof insertProgressPhotoSchema>;
+
 // ─── Food Items (cached database) ────────────────────────────────────────────
 export const foodItems = pgTable("food_items", {
   id: serial("id").primaryKey(),

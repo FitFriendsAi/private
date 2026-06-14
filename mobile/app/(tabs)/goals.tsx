@@ -224,6 +224,16 @@ interface CheckInResult {
   topAction: string;
 }
 
+interface AdaptiveProposal {
+  templateExerciseId: number;
+  templateName: string;
+  exerciseName: string;
+  field: "targetWeightGrams";
+  currentValue: number | null;
+  proposedValue: number;
+  reason: string;
+}
+
 // ── Check-in status colors ───────────────────────────────────────
 function checkinStatusColor(status: CheckInResult["status"]): string {
   if (status === "on_track") return "#22c55e";
@@ -331,6 +341,11 @@ export default function GoalsScreen() {
   const [checkIn, setCheckIn]           = useState<CheckInResult | null>(null);
   const [checkInError, setCheckInError] = useState<string | null>(null);
 
+  // ── Adaptive plan adjustments ──
+  const [adaptProposals, setAdaptProposals] = useState<AdaptiveProposal[] | null>(null);
+  const [adaptNotes, setAdaptNotes]         = useState<string[]>([]);
+  const [adaptError, setAdaptError]         = useState<string | null>(null);
+
   // ── Pre-flight preferences ────────────────────────────────────────
   const [showPrefs, setShowPrefs] = useState(false);
   const [prefExperience, setPrefExperience] = useState<"beginner"|"intermediate"|"advanced">("beginner");
@@ -394,6 +409,26 @@ export default function GoalsScreen() {
     mutationFn: () => apiRequest("DELETE", "/api/routine/active"),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/routine/active"] }),
     onError: (e: any) => Alert.alert("Couldn't stop routine", e?.message ?? "Please try again."),
+  });
+
+  const adaptMutation = useMutation({
+    mutationFn: () => apiRequest<{ proposals: AdaptiveProposal[]; notes: string[] }>("GET", "/api/routine/adapt-proposals"),
+    onSuccess: (data: { proposals: AdaptiveProposal[]; notes: string[] }) => {
+      setAdaptProposals(data.proposals);
+      setAdaptNotes(data.notes);
+      setAdaptError(null);
+    },
+    onError: (e: any) => setAdaptError(e?.message ?? "Couldn't check for plan updates"),
+  });
+
+  const approveAdaptMutation = useMutation({
+    mutationFn: (p: AdaptiveProposal) =>
+      apiRequest("PATCH", `/api/template-exercises/${p.templateExerciseId}`, { [p.field]: p.proposedValue }),
+    onSuccess: (_data, p) => {
+      setAdaptProposals(prev => prev?.filter(x => x.templateExerciseId !== p.templateExerciseId) ?? null);
+      qc.invalidateQueries({ queryKey: ["/api/templates"] });
+    },
+    onError: (e: any) => Alert.alert("Couldn't apply update", e?.message ?? "Please try again."),
   });
 
   // Extend goal deadline
@@ -981,6 +1016,93 @@ export default function GoalsScreen() {
                 </Text>
               )}
             </Section>
+
+            {/* Plan Adjustments section — approval-gated weight bumps based on recent performance */}
+            {activeRoutine && (
+              <Section icon={<RefreshCw size={16} color={BLUE} />} title="Plan Adjustments" color={BLUE} palette={palette}>
+                <Pressable
+                  onPress={() => adaptMutation.mutate()}
+                  disabled={adaptMutation.isPending}
+                  style={({ pressed }) => ({
+                    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+                    backgroundColor: `${BLUE}1A`, borderRadius: 12, paddingVertical: 12,
+                    opacity: (pressed || adaptMutation.isPending) ? 0.6 : 1,
+                  })}
+                >
+                  {adaptMutation.isPending
+                    ? <ActivityIndicator size="small" color={BLUE} />
+                    : <RefreshCw size={14} color={BLUE} />}
+                  <Text style={{ fontSize: 12, fontFamily: "Manrope-Bold", color: BLUE }}>
+                    {adaptMutation.isPending ? "Checking…" : "Check for plan updates"}
+                  </Text>
+                </Pressable>
+
+                {adaptError && (
+                  <Text style={{ fontSize: 12, fontFamily: "Manrope", color: "#ef4444", marginTop: 10, textAlign: "center" }}>
+                    {adaptError}
+                  </Text>
+                )}
+
+                {adaptProposals !== null && adaptProposals.length === 0 && (
+                  <Text style={{ fontSize: 12, fontFamily: "Manrope", color: muted, marginTop: 10, textAlign: "center", lineHeight: 18 }}>
+                    No suggested changes right now — keep up the good work!
+                  </Text>
+                )}
+
+                {adaptProposals !== null && adaptProposals.map((p) => (
+                  <View key={p.templateExerciseId} style={{
+                    backgroundColor: `${BLUE}11`, borderRadius: 12, padding: 12, marginTop: 10,
+                  }}>
+                    <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: text }}>
+                      {p.exerciseName}
+                    </Text>
+                    <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted, marginBottom: 4 }}>
+                      {p.templateName}
+                    </Text>
+                    <Text style={{ fontSize: 12, fontFamily: "Manrope", color: text, marginBottom: 6 }}>
+                      {p.currentValue != null ? `${gramsToLbs(p.currentValue)} lbs → ` : ""}
+                      <Text style={{ fontFamily: "Manrope-Bold", color: BLUE }}>{gramsToLbs(p.proposedValue)} lbs</Text>
+                    </Text>
+                    <Text style={{ fontSize: 12, fontFamily: "Manrope", color: muted, lineHeight: 17, marginBottom: 10 }}>
+                      {p.reason}
+                    </Text>
+                    <View style={{ flexDirection: "row", gap: 8 }}>
+                      <Pressable
+                        onPress={() => approveAdaptMutation.mutate(p)}
+                        disabled={approveAdaptMutation.isPending}
+                        style={({ pressed }) => ({
+                          flex: 1, alignItems: "center", paddingVertical: 9, borderRadius: 10,
+                          backgroundColor: BLUE,
+                          opacity: (pressed || approveAdaptMutation.isPending) ? 0.6 : 1,
+                        })}
+                      >
+                        <Text style={{ fontSize: 12, fontFamily: "Manrope-Bold", color: "#1a1a1a" }}>Approve</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => setAdaptProposals(prev => prev?.filter(x => x.templateExerciseId !== p.templateExerciseId) ?? null)}
+                        style={({ pressed }) => ({
+                          flex: 1, alignItems: "center", paddingVertical: 9, borderRadius: 10,
+                          backgroundColor: `${muted}22`,
+                          opacity: pressed ? 0.6 : 1,
+                        })}
+                      >
+                        <Text style={{ fontSize: 12, fontFamily: "Manrope-Bold", color: muted }}>Dismiss</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ))}
+
+                {adaptNotes.length > 0 && (
+                  <View style={{ marginTop: 10, gap: 4 }}>
+                    {adaptNotes.map((note, i) => (
+                      <Text key={i} style={{ fontSize: 12, fontFamily: "Manrope", color: muted, lineHeight: 17 }}>
+                        💡 {note}
+                      </Text>
+                    ))}
+                  </View>
+                )}
+              </Section>
+            )}
 
             {/* Priority actions section */}
             <Section icon={<Zap size={16} color={PURPLE} />} title="Priority Actions" color={PURPLE} palette={palette}>

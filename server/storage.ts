@@ -6,16 +6,16 @@ import {
   type StrengthSet,
 } from "./services/scoring.js";
 import {
-  users, userProfiles, goals, bodyMeasurements, foodItems, foodLog,
+  users, userProfiles, goals, bodyMeasurements, progressPhotos, foodItems, foodLog,
   nutritionTargets, waterLog, supplementLog, exercises, workoutTemplates,
   templateExercises, workouts, workoutSets, heartRateLog, savedMeals, mealIngredients,
   friendships, aiCoachPlans, activeRoutines,
-  type User, type UserProfile, type Goal, type BodyMeasurement, type FoodItem,
+  type User, type UserProfile, type Goal, type BodyMeasurement, type ProgressPhoto, type FoodItem,
   type FoodLogEntry, type NutritionTarget, type WaterLogEntry, type SupplementLogEntry,
   type Exercise, type WorkoutTemplate, type TemplateExercise, type Workout, type WorkoutSet,
   type HeartRateLogEntry, type InsertHeartRateLogEntry,
   type SavedMeal, type MealIngredient, type InsertSavedMeal, type InsertMealIngredient,
-  type InsertUser, type InsertUserProfile, type InsertGoal, type InsertBodyMeasurement,
+  type InsertUser, type InsertUserProfile, type InsertGoal, type InsertBodyMeasurement, type InsertProgressPhoto,
   type InsertFoodItem, type InsertFoodLogEntry, type InsertNutritionTarget,
   type InsertWaterLogEntry, type InsertSupplementLogEntry, type InsertExercise,
   type InsertWorkoutTemplate, type InsertTemplateExercise, type InsertWorkout, type InsertWorkoutSet,
@@ -114,6 +114,18 @@ export const storage = {
   },
   async deleteMeasurement(id: number, userId: number): Promise<void> {
     await db.delete(bodyMeasurements).where(and(eq(bodyMeasurements.id, id), eq(bodyMeasurements.userId, userId)));
+  },
+
+  // ── Progress Photos ────────────────────────────────────────────────────────
+  async getProgressPhotos(userId: number): Promise<ProgressPhoto[]> {
+    return db.select().from(progressPhotos).where(eq(progressPhotos.userId, userId)).orderBy(desc(progressPhotos.date));
+  },
+  async createProgressPhoto(data: InsertProgressPhoto): Promise<ProgressPhoto> {
+    const [p] = await db.insert(progressPhotos).values(data).returning();
+    return p;
+  },
+  async deleteProgressPhoto(id: number, userId: number): Promise<void> {
+    await db.delete(progressPhotos).where(and(eq(progressPhotos.id, id), eq(progressPhotos.userId, userId)));
   },
 
   // ── Food Items ─────────────────────────────────────────────────────────────
