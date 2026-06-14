@@ -7,6 +7,7 @@ import { passport } from "./auth.js";
 import { lookupBarcode, lookupBarcodeFS, autocompleteFatSecret, searchFoodByName, searchOFF, searchUSDA, searchFatSecret, searchCalorieNinjas, searchBrandOFF, enrichMissingNutrition } from "./services/food-lookup.js";
 import { parseNutritionLabel, parseMealText, parseMealPhoto, type ParsedMealItem } from "./services/vision.js";
 import { calculateMacroTargets, getAgeFromBirthDate, estimateAdaptiveTDEE, calculateBMR, calculateTDEE, type AdaptiveTDEEResult, type ActivityLevel, type Sex } from "./services/goal-engine.js";
+import { wilksScore, sessionBests, currentBests, avgProgressPct, streakFromDates } from "./services/scoring.js";
 import { fetchExerciseGif } from "./services/exercise-gif.js";
 import { sendInviteEmail, sendInviteSms } from "./services/notifications.js";
 import {
@@ -2015,19 +2016,65 @@ Return ONLY valid JSON (no markdown, no explanation):
 
   /** Build public friend card (name, stats, color) for a userId */
   async function buildFriendCard(friendUserId: number) {
-    const user   = await storage.getUserById(friendUserId);
+    const user = await storage.getUserById(friendUserId);
     if (!user) return null;
-    const [streak, points] = await Promise.all([
-      storage.computeStreak(friendUserId),
-      storage.computePoints(friendUserId),
-    ]);
+    const score = await storage.getScore(friendUserId);
     return {
       id:       user.id,
       name:     user.name,
       initials: (user.name[0] ?? "?").toUpperCase(),
       color:    friendColor(user.id),
-      streak,
-      points,
+      streak:   score.streak,
+      points:   score.points,
+      workouts: score.workouts,
+      prs:      score.prs,
+    };
+  }
+
+  // Per-user metrics for the head-to-head comparison over a trailing window.
+  async function compareMetrics(userId: number, periodDays: number) {
+    const since = new Date();
+    since.setDate(since.getDate() - periodDays);
+    const sinceStr = periodDays >= 9999 ? "0000-00-00" : since.toISOString().slice(0, 10);
+
+    const [user, profile, latestM, strengthSets, activeDates] = await Promise.all([
+      storage.getUserById(userId),
+      storage.getProfile(userId),
+      storage.getLatestMeasurement(userId),
+      storage.getStrengthSets(userId),
+      storage.getActivityDates(userId),
+    ]);
+
+    const bwKg = latestM ? latestM.weightGrams / 1000 : 0;
+    const sex  = profile?.sex ?? "male";
+    const bests = sessionBests(strengthSets);
+    const cur   = currentBests(bests); // Map<exerciseId, {name, e1rmKg}>
+
+    let bestWilks = 0, bestWilksLift = "";
+    for (const { name, e1rmKg } of cur.values()) {
+      const w = wilksScore(e1rmKg, bwKg, sex);
+      if (w > bestWilks) { bestWilks = w; bestWilksLift = name; }
+    }
+
+    // Active + training days within the window
+    const windowDays = Math.min(periodDays, 3650);
+    let activeDays = 0;
+    for (let i = 0; i < windowDays; i++) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      if (activeDates.has(d.toISOString().slice(0, 10))) activeDays++;
+    }
+    const trainingDays = new Set(strengthSets.filter(s => s.date >= sinceStr).map(s => s.date)).size;
+
+    return {
+      name: user?.name ?? "User",
+      bwKg, sex,
+      streak:       streakFromDates(activeDates),
+      activeDays,
+      trainingDays,
+      progressPct:  avgProgressPct(bests, sinceStr),
+      bestWilks:    Math.round(bestWilks * 10) / 10,
+      bestWilksLift,
+      bestLifts:    cur, // for shared-lift comparison
     };
   }
 
@@ -2068,6 +2115,81 @@ Return ONLY valid JSON (no markdown, no explanation):
     const friends = await storage.getFriends(userId);
     const cards = await Promise.all(friends.map(f => buildFriendCard(f.friend.id)));
     res.json(cards.filter(Boolean));
+  });
+
+  // Leaderboard = me + friends with real points/streaks, ranked. (Must be before
+  // "/api/friends/:id" so "leaderboard" isn't parsed as an id.)
+  app.get("/api/friends/leaderboard", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = (req.user as any).id;
+    const friends = await storage.getFriends(userId);
+    const ids = [userId, ...friends.map(f => f.friend.id)];
+    const cards = (await Promise.all(ids.map(buildFriendCard))).filter(Boolean) as any[];
+    cards.forEach(c => { c.isMe = c.id === userId; });
+    cards.sort((a, b) => (b.points ?? 0) - (a.points ?? 0));
+    res.json(cards);
+  });
+
+  // Head-to-head comparison between the current user and a friend.
+  app.get("/api/friends/:id/compare", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId   = (req.user as any).id;
+    const friendId = Number(req.params.id);
+    if (userId !== friendId && !(await storage.areFriends(userId, friendId))) {
+      return res.status(403).json({ message: "Not friends" });
+    }
+    const periodDays = Math.max(1, Math.min(Number(req.query.period) || 90, 9999));
+
+    const [me, fr] = await Promise.all([
+      compareMetrics(userId, periodDays),
+      compareMetrics(friendId, periodDays),
+    ]);
+
+    const decide = (a: number, b: number) => a > b ? "me" : b > a ? "friend" : "tie";
+
+    const rounds = [
+      // Consistency: active days in window, tie-broken by current streak
+      { key: "consistency", label: "Consistency",
+        winner: me.activeDays !== fr.activeDays ? decide(me.activeDays, fr.activeDays) : decide(me.streak, fr.streak) },
+      { key: "progress",    label: "Progress",
+        winner: decide(me.progressPct, fr.progressPct) },
+      { key: "strength",    label: "Strength (Wilks)",
+        winner: decide(me.bestWilks, fr.bestWilks) },
+    ];
+
+    // Shared lifts both have logged — Wilks-normalized so it's size-fair.
+    const sharedLifts: any[] = [];
+    for (const [exId, mine] of me.bestLifts) {
+      const theirs = fr.bestLifts.get(exId);
+      if (!theirs) continue;
+      const meWilks = Math.round(wilksScore(mine.e1rmKg, me.bwKg, me.sex) * 10) / 10;
+      const frWilks = Math.round(wilksScore(theirs.e1rmKg, fr.bwKg, fr.sex) * 10) / 10;
+      sharedLifts.push({
+        name: mine.name,
+        meLbs:     Math.round(mine.e1rmKg * 2.20462),
+        friendLbs: Math.round(theirs.e1rmKg * 2.20462),
+        meWilks, friendWilks: frWilks,
+        winner: decide(meWilks, frWilks),
+      });
+    }
+    sharedLifts.sort((a, b) => Math.max(b.meWilks, b.friendWilks) - Math.max(a.meWilks, a.friendWilks));
+
+    const meWins = rounds.filter(r => r.winner === "me").length;
+    const frWins = rounds.filter(r => r.winner === "friend").length;
+
+    const strip = (m: typeof me) => ({
+      name: m.name, streak: m.streak, activeDays: m.activeDays, trainingDays: m.trainingDays,
+      progressPct: m.progressPct, bestWilks: m.bestWilks, bestWilksLift: m.bestWilksLift,
+    });
+
+    res.json({
+      period: periodDays,
+      me: strip(me),
+      friend: strip(fr),
+      rounds,
+      sharedLifts: sharedLifts.slice(0, 8),
+      overall: { me: meWins, friend: frWins, winner: meWins > frWins ? "me" : frWins > meWins ? "friend" : "tie" },
+    });
   });
 
   /** GET /api/friends/requests — pending incoming requests */

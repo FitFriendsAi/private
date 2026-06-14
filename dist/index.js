@@ -240329,6 +240329,93 @@ function drizzle(...params) {
   drizzle2.mock = mock;
 })(drizzle || (drizzle = {}));
 
+// server/services/scoring.ts
+var GRAMS_PER_KG = 1e3;
+function estimate1RMKg(weightKg, reps) {
+  const r2 = Math.min(Math.max(reps, 1), 12);
+  return weightKg * (1 + r2 / 30);
+}
+var WILKS = {
+  male: { a: -216.0475144, b: 16.2606339, c: -2388645e-9, d: -113732e-8, e: 701863e-11, f: -1291e-11 },
+  female: { a: 594.31747775582, b: -27.23842536447, c: 0.82112226871, d: -0.00930733913, e: 4731582e-11, f: -9054e-11 }
+};
+function wilksCoefficient(bodyweightKg, sex) {
+  const k2 = sex === "female" ? WILKS.female : WILKS.male;
+  const x2 = Math.min(Math.max(bodyweightKg, 40), 200);
+  const denom = k2.a + k2.b * x2 + k2.c * x2 ** 2 + k2.d * x2 ** 3 + k2.e * x2 ** 4 + k2.f * x2 ** 5;
+  return denom !== 0 ? 500 / denom : 0;
+}
+function wilksScore(liftKg, bodyweightKg, sex) {
+  if (liftKg <= 0 || bodyweightKg <= 0) return 0;
+  return liftKg * wilksCoefficient(bodyweightKg, sex);
+}
+function sessionBests(sets) {
+  const byEx = /* @__PURE__ */ new Map();
+  for (const s2 of sets) {
+    if (s2.weightGrams <= 0 || s2.reps <= 0) continue;
+    const e1 = estimate1RMKg(s2.weightGrams / GRAMS_PER_KG, s2.reps);
+    let ex = byEx.get(s2.exerciseId);
+    if (!ex) {
+      ex = { name: s2.name, byDate: /* @__PURE__ */ new Map() };
+      byEx.set(s2.exerciseId, ex);
+    }
+    const prev = ex.byDate.get(s2.date) ?? 0;
+    if (e1 > prev) ex.byDate.set(s2.date, e1);
+  }
+  const out = /* @__PURE__ */ new Map();
+  for (const [id, ex] of byEx) {
+    const sessions = [...ex.byDate.entries()].map(([date2, e1rmKg]) => ({ date: date2, e1rmKg })).sort((a2, b2) => a2.date.localeCompare(b2.date));
+    out.set(id, { name: ex.name, sessions });
+  }
+  return out;
+}
+function countPRs(bests) {
+  let prs = 0;
+  for (const { sessions } of bests.values()) {
+    let max = 0;
+    for (let i2 = 0; i2 < sessions.length; i2++) {
+      if (i2 > 0 && sessions[i2].e1rmKg > max + 1e-6) prs++;
+      max = Math.max(max, sessions[i2].e1rmKg);
+    }
+  }
+  return prs;
+}
+function currentBests(bests) {
+  const out = /* @__PURE__ */ new Map();
+  for (const [id, ex] of bests) {
+    const max = ex.sessions.reduce((m3, s2) => Math.max(m3, s2.e1rmKg), 0);
+    if (max > 0) out.set(id, { name: ex.name, e1rmKg: max });
+  }
+  return out;
+}
+function avgProgressPct(bests, sinceDate) {
+  const gains = [];
+  for (const { sessions } of bests.values()) {
+    const inWin = sessions.filter((s2) => s2.date >= sinceDate);
+    if (inWin.length < 2) continue;
+    const first = inWin[0].e1rmKg, last = inWin[inWin.length - 1].e1rmKg;
+    if (first > 0) gains.push((last - first) / first * 100);
+  }
+  if (gains.length === 0) return 0;
+  return Math.round(gains.reduce((s2, g2) => s2 + g2, 0) / gains.length * 10) / 10;
+}
+var POINTS = { perWorkout: 100, perProteinDay: 50, perPR: 150, perStreakDay: 25 };
+function computePointsTotal(p3) {
+  return p3.workouts * POINTS.perWorkout + p3.proteinDays * POINTS.perProteinDay + p3.prs * POINTS.perPR + p3.streak * POINTS.perStreakDay;
+}
+function streakFromDates(activeDates, now = /* @__PURE__ */ new Date()) {
+  const ds = (d2) => d2.toISOString().slice(0, 10);
+  let streak = 0;
+  for (let i2 = 0; i2 <= 366; i2++) {
+    const d2 = new Date(now);
+    d2.setDate(d2.getDate() - i2);
+    if (activeDates.has(ds(d2))) streak++;
+    else if (i2 === 0) continue;
+    else break;
+  }
+  return streak;
+}
+
 // node_modules/drizzle-orm/mysql-core/foreign-keys.js
 var ForeignKeyBuilder2 = class {
   static [entityKind] = "MySqlForeignKeyBuilder";
@@ -245822,29 +245909,49 @@ var storage = {
    * Compute workout streak for a user: count consecutive days ending today
    * where at least one workout was logged.
    */
+  /** Dates (YYYY-MM-DD) the user logged ANY activity — a workout or food. */
+  async getActivityDates(userId) {
+    const norm2 = (raw) => raw instanceof Date ? raw.toISOString().slice(0, 10) : String(raw).slice(0, 10);
+    const [wk, fd] = await Promise.all([
+      db.select({ date: workouts.date }).from(workouts).where(eq(workouts.userId, userId)),
+      db.selectDistinct({ date: foodLog.date }).from(foodLog).where(eq(foodLog.userId, userId))
+    ]);
+    const set = /* @__PURE__ */ new Set();
+    for (const r2 of wk) set.add(norm2(r2.date));
+    for (const r2 of fd) set.add(norm2(r2.date));
+    return set;
+  },
+  /** Working (non-warmup) sets joined with their workout date + exercise name. */
+  async getStrengthSets(userId) {
+    const norm2 = (raw) => raw instanceof Date ? raw.toISOString().slice(0, 10) : String(raw).slice(0, 10);
+    const rows = await db.select({
+      exerciseId: workoutSets.exerciseId,
+      name: exercises.name,
+      date: workouts.date,
+      reps: workoutSets.reps,
+      weightGrams: workoutSets.weightGrams
+    }).from(workoutSets).innerJoin(workouts, eq(workoutSets.workoutId, workouts.id)).innerJoin(exercises, eq(workoutSets.exerciseId, exercises.id)).where(and(eq(workouts.userId, userId), eq(workoutSets.isWarmup, false), gt(workoutSets.weightGrams, 0), gt(workoutSets.reps, 0)));
+    return rows.map((r2) => ({ ...r2, date: norm2(r2.date) }));
+  },
   async computeStreak(userId) {
-    const sessions = await db.select({ date: workouts.date }).from(workouts).where(eq(workouts.userId, userId)).orderBy(desc(workouts.date)).limit(400);
-    if (sessions.length === 0) return 0;
-    const dateSet = new Set(sessions.map((s2) => {
-      const d2 = s2.date;
-      return d2 instanceof Date ? d2.toISOString().slice(0, 10) : String(d2).slice(0, 10);
-    }));
-    let streak = 0;
-    const today = /* @__PURE__ */ new Date();
-    for (let i2 = 0; i2 <= 365; i2++) {
-      const d2 = new Date(today);
-      d2.setDate(d2.getDate() - i2);
-      const ds = d2.toISOString().slice(0, 10);
-      if (dateSet.has(ds)) {
-        streak++;
-      } else if (i2 > 0) {
-        if (i2 === 1 && !dateSet.has(ds)) {
-          continue;
-        }
-        break;
-      }
-    }
-    return streak;
+    return streakFromDates(await this.getActivityDates(userId));
+  },
+  /** Rich score breakdown for leaderboards + friend cards. */
+  async getScore(userId) {
+    const target = await db.select().from(nutritionTargets).where(eq(nutritionTargets.userId, userId)).orderBy(desc(nutritionTargets.effectiveDate)).limit(1);
+    const proteinTarget = target[0]?.proteinG ?? 150;
+    const [activeDates, wkCount, proteinDayRows, strengthSets] = await Promise.all([
+      this.getActivityDates(userId),
+      db.select({ count: sql`count(*)` }).from(workouts).where(eq(workouts.userId, userId)),
+      db.select({ date: foodLog.date }).from(foodLog).where(eq(foodLog.userId, userId)).groupBy(foodLog.date).having(sql`coalesce(sum(${foodLog.proteinActual}), 0) >= ${proteinTarget * 0.9}`),
+      this.getStrengthSets(userId)
+    ]);
+    const streak = streakFromDates(activeDates);
+    const workoutCnt = Number(wkCount[0]?.count ?? 0);
+    const proteinDays = proteinDayRows.length;
+    const prs = countPRs(sessionBests(strengthSets));
+    const points = computePointsTotal({ workouts: workoutCnt, proteinDays, prs, streak });
+    return { points, streak, workouts: workoutCnt, proteinDays, prs };
   },
   // ── AI Coach Plans ─────────────────────────────────────────────────────────
   async getAiCoachPlan(userId) {
@@ -256655,17 +256762,61 @@ Return ONLY valid JSON (no markdown, no explanation):
   async function buildFriendCard(friendUserId) {
     const user = await storage.getUserById(friendUserId);
     if (!user) return null;
-    const [streak, points] = await Promise.all([
-      storage.computeStreak(friendUserId),
-      storage.computePoints(friendUserId)
-    ]);
+    const score = await storage.getScore(friendUserId);
     return {
       id: user.id,
       name: user.name,
       initials: (user.name[0] ?? "?").toUpperCase(),
       color: friendColor(user.id),
-      streak,
-      points
+      streak: score.streak,
+      points: score.points,
+      workouts: score.workouts,
+      prs: score.prs
+    };
+  }
+  async function compareMetrics(userId, periodDays) {
+    const since = /* @__PURE__ */ new Date();
+    since.setDate(since.getDate() - periodDays);
+    const sinceStr = periodDays >= 9999 ? "0000-00-00" : since.toISOString().slice(0, 10);
+    const [user, profile, latestM, strengthSets, activeDates] = await Promise.all([
+      storage.getUserById(userId),
+      storage.getProfile(userId),
+      storage.getLatestMeasurement(userId),
+      storage.getStrengthSets(userId),
+      storage.getActivityDates(userId)
+    ]);
+    const bwKg = latestM ? latestM.weightGrams / 1e3 : 0;
+    const sex = profile?.sex ?? "male";
+    const bests = sessionBests(strengthSets);
+    const cur = currentBests(bests);
+    let bestWilks = 0, bestWilksLift = "";
+    for (const { name, e1rmKg } of cur.values()) {
+      const w2 = wilksScore(e1rmKg, bwKg, sex);
+      if (w2 > bestWilks) {
+        bestWilks = w2;
+        bestWilksLift = name;
+      }
+    }
+    const windowDays = Math.min(periodDays, 3650);
+    let activeDays = 0;
+    for (let i2 = 0; i2 < windowDays; i2++) {
+      const d2 = /* @__PURE__ */ new Date();
+      d2.setDate(d2.getDate() - i2);
+      if (activeDates.has(d2.toISOString().slice(0, 10))) activeDays++;
+    }
+    const trainingDays = new Set(strengthSets.filter((s2) => s2.date >= sinceStr).map((s2) => s2.date)).size;
+    return {
+      name: user?.name ?? "User",
+      bwKg,
+      sex,
+      streak: streakFromDates(activeDates),
+      activeDays,
+      trainingDays,
+      progressPct: avgProgressPct(bests, sinceStr),
+      bestWilks: Math.round(bestWilks * 10) / 10,
+      bestWilksLift,
+      bestLifts: cur
+      // for shared-lift comparison
     };
   }
   app2.get("/api/users/search", async (req, res) => {
@@ -256700,6 +256851,85 @@ Return ONLY valid JSON (no markdown, no explanation):
     const friends = await storage.getFriends(userId);
     const cards = await Promise.all(friends.map((f3) => buildFriendCard(f3.friend.id)));
     res.json(cards.filter(Boolean));
+  });
+  app2.get("/api/friends/leaderboard", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = req.user.id;
+    const friends = await storage.getFriends(userId);
+    const ids = [userId, ...friends.map((f3) => f3.friend.id)];
+    const cards = (await Promise.all(ids.map(buildFriendCard))).filter(Boolean);
+    cards.forEach((c3) => {
+      c3.isMe = c3.id === userId;
+    });
+    cards.sort((a2, b2) => (b2.points ?? 0) - (a2.points ?? 0));
+    res.json(cards);
+  });
+  app2.get("/api/friends/:id/compare", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = req.user.id;
+    const friendId = Number(req.params.id);
+    if (userId !== friendId && !await storage.areFriends(userId, friendId)) {
+      return res.status(403).json({ message: "Not friends" });
+    }
+    const periodDays = Math.max(1, Math.min(Number(req.query.period) || 90, 9999));
+    const [me2, fr2] = await Promise.all([
+      compareMetrics(userId, periodDays),
+      compareMetrics(friendId, periodDays)
+    ]);
+    const decide = (a2, b2) => a2 > b2 ? "me" : b2 > a2 ? "friend" : "tie";
+    const rounds = [
+      // Consistency: active days in window, tie-broken by current streak
+      {
+        key: "consistency",
+        label: "Consistency",
+        winner: me2.activeDays !== fr2.activeDays ? decide(me2.activeDays, fr2.activeDays) : decide(me2.streak, fr2.streak)
+      },
+      {
+        key: "progress",
+        label: "Progress",
+        winner: decide(me2.progressPct, fr2.progressPct)
+      },
+      {
+        key: "strength",
+        label: "Strength (Wilks)",
+        winner: decide(me2.bestWilks, fr2.bestWilks)
+      }
+    ];
+    const sharedLifts = [];
+    for (const [exId, mine] of me2.bestLifts) {
+      const theirs = fr2.bestLifts.get(exId);
+      if (!theirs) continue;
+      const meWilks = Math.round(wilksScore(mine.e1rmKg, me2.bwKg, me2.sex) * 10) / 10;
+      const frWilks = Math.round(wilksScore(theirs.e1rmKg, fr2.bwKg, fr2.sex) * 10) / 10;
+      sharedLifts.push({
+        name: mine.name,
+        meLbs: Math.round(mine.e1rmKg * 2.20462),
+        friendLbs: Math.round(theirs.e1rmKg * 2.20462),
+        meWilks,
+        friendWilks: frWilks,
+        winner: decide(meWilks, frWilks)
+      });
+    }
+    sharedLifts.sort((a2, b2) => Math.max(b2.meWilks, b2.friendWilks) - Math.max(a2.meWilks, a2.friendWilks));
+    const meWins = rounds.filter((r2) => r2.winner === "me").length;
+    const frWins = rounds.filter((r2) => r2.winner === "friend").length;
+    const strip2 = (m3) => ({
+      name: m3.name,
+      streak: m3.streak,
+      activeDays: m3.activeDays,
+      trainingDays: m3.trainingDays,
+      progressPct: m3.progressPct,
+      bestWilks: m3.bestWilks,
+      bestWilksLift: m3.bestWilksLift
+    });
+    res.json({
+      period: periodDays,
+      me: strip2(me2),
+      friend: strip2(fr2),
+      rounds,
+      sharedLifts: sharedLifts.slice(0, 8),
+      overall: { me: meWins, friend: frWins, winner: meWins > frWins ? "me" : frWins > meWins ? "friend" : "tie" }
+    });
   });
   app2.get("/api/friends/requests", async (req, res) => {
     if (!requireAuth(req, res)) return;

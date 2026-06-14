@@ -1,6 +1,10 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
-import { eq, and, desc, gte, lte, like, or, isNull, sql, inArray, ne } from "drizzle-orm";
+import { eq, and, desc, gte, lte, gt, like, or, isNull, sql, inArray, ne } from "drizzle-orm";
+import {
+  estimate1RMKg, sessionBests, countPRs, computePointsTotal, streakFromDates,
+  type StrengthSet,
+} from "./services/scoring.js";
 import {
   users, userProfiles, goals, bodyMeasurements, foodItems, foodLog,
   nutritionTargets, waterLog, supplementLog, exercises, workoutTemplates,
@@ -952,37 +956,64 @@ export const storage = {
    * Compute workout streak for a user: count consecutive days ending today
    * where at least one workout was logged.
    */
+  /** Dates (YYYY-MM-DD) the user logged ANY activity — a workout or food. */
+  async getActivityDates(userId: number): Promise<Set<string>> {
+    const norm = (raw: unknown) => raw instanceof Date ? raw.toISOString().slice(0, 10) : String(raw).slice(0, 10);
+    const [wk, fd] = await Promise.all([
+      db.select({ date: workouts.date }).from(workouts).where(eq(workouts.userId, userId)),
+      db.selectDistinct({ date: foodLog.date }).from(foodLog).where(eq(foodLog.userId, userId)),
+    ]);
+    const set = new Set<string>();
+    for (const r of wk) set.add(norm(r.date));
+    for (const r of fd) set.add(norm(r.date));
+    return set;
+  },
+
+  /** Working (non-warmup) sets joined with their workout date + exercise name. */
+  async getStrengthSets(userId: number): Promise<StrengthSet[]> {
+    const norm = (raw: unknown) => raw instanceof Date ? raw.toISOString().slice(0, 10) : String(raw).slice(0, 10);
+    const rows = await db
+      .select({
+        exerciseId:  workoutSets.exerciseId,
+        name:        exercises.name,
+        date:        workouts.date,
+        reps:        workoutSets.reps,
+        weightGrams: workoutSets.weightGrams,
+      })
+      .from(workoutSets)
+      .innerJoin(workouts, eq(workoutSets.workoutId, workouts.id))
+      .innerJoin(exercises, eq(workoutSets.exerciseId, exercises.id))
+      .where(and(eq(workouts.userId, userId), eq(workoutSets.isWarmup, false), gt(workoutSets.weightGrams, 0), gt(workoutSets.reps, 0)));
+    return rows.map(r => ({ ...r, date: norm(r.date) }));
+  },
+
   async computeStreak(userId: number): Promise<number> {
-    const sessions = await db.select({ date: workouts.date })
-      .from(workouts)
-      .where(eq(workouts.userId, userId))
-      .orderBy(desc(workouts.date))
-      .limit(400);
-    if (sessions.length === 0) return 0;
+    return streakFromDates(await this.getActivityDates(userId));
+  },
 
-    const dateSet = new Set(sessions.map(s => {
-      const d = s.date;
-      return (d instanceof Date) ? d.toISOString().slice(0, 10) : String(d).slice(0, 10);
-    }));
+  /** Rich score breakdown for leaderboards + friend cards. */
+  async getScore(userId: number): Promise<{ points: number; streak: number; workouts: number; proteinDays: number; prs: number }> {
+    const target = await db.select().from(nutritionTargets)
+      .where(eq(nutritionTargets.userId, userId))
+      .orderBy(desc(nutritionTargets.effectiveDate)).limit(1);
+    const proteinTarget = target[0]?.proteinG ?? 150;
 
-    let streak = 0;
-    const today = new Date();
-    for (let i = 0; i <= 365; i++) {
-      const d = new Date(today);
-      d.setDate(d.getDate() - i);
-      const ds = d.toISOString().slice(0, 10);
-      if (dateSet.has(ds)) {
-        streak++;
-      } else if (i > 0) {
-        // Allow today to be a rest day (check if yesterday was logged)
-        if (i === 1 && !dateSet.has(ds)) {
-          // Today hasn't been logged yet — that's OK, count from yesterday
-          continue;
-        }
-        break;
-      }
-    }
-    return streak;
+    const [activeDates, wkCount, proteinDayRows, strengthSets] = await Promise.all([
+      this.getActivityDates(userId),
+      db.select({ count: sql<number>`count(*)` }).from(workouts).where(eq(workouts.userId, userId)),
+      db.select({ date: foodLog.date }).from(foodLog).where(eq(foodLog.userId, userId))
+        .groupBy(foodLog.date)
+        .having(sql`coalesce(sum(${foodLog.proteinActual}), 0) >= ${proteinTarget * 0.9}`),
+      this.getStrengthSets(userId),
+    ]);
+
+    const streak      = streakFromDates(activeDates);
+    const workoutCnt  = Number(wkCount[0]?.count ?? 0);
+    const proteinDays = proteinDayRows.length;
+    const prs         = countPRs(sessionBests(strengthSets));
+    const points      = computePointsTotal({ workouts: workoutCnt, proteinDays, prs, streak });
+
+    return { points, streak, workouts: workoutCnt, proteinDays, prs };
   },
 
   // ── AI Coach Plans ─────────────────────────────────────────────────────────

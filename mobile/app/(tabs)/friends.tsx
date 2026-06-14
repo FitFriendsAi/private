@@ -182,9 +182,14 @@ export default function FriendsScreen() {
     onError: (err: any) => setAddError(err?.message ?? "Could not send request"),
   });
 
-  // My own computed points (sum of friends for leaderboard reference)
-  const MY_PTS    = 3750;
-  const MY_STREAK = 9;
+  // My own real points/streak (buildFriendCard allows self-lookup)
+  const { data: myCard } = useQuery<any>({
+    queryKey: ["/api/friends", user?.id],
+    queryFn:  () => apiRequest("GET", `/api/friends/${user?.id}`),
+    enabled:  !!user?.id,
+  });
+  const MY_PTS    = myCard?.points ?? 0;
+  const MY_STREAK = myCard?.streak ?? 0;
 
   // Leaderboard: real friends + me
   const leaderboard = [
