@@ -29217,8 +29217,8 @@ var require_client = __commonJS({
         }
         return data;
       }
-      cancel(client2, query) {
-        if (client2.activeQuery === query) {
+      cancel(client3, query) {
+        if (client3.activeQuery === query) {
           const con = this.connection;
           if (this.host && this.host.indexOf("/") === 0) {
             con.connect(this.host + "/.s.PGSQL." + this.port);
@@ -29226,10 +29226,10 @@ var require_client = __commonJS({
             con.connect(this.port, this.host);
           }
           con.on("connect", function() {
-            con.cancel(client2.processID, client2.secretKey);
+            con.cancel(client3.processID, client3.secretKey);
           });
-        } else if (client2._queryQueue.indexOf(query) !== -1) {
-          client2._queryQueue.splice(client2._queryQueue.indexOf(query), 1);
+        } else if (client3._queryQueue.indexOf(query) !== -1) {
+          client3._queryQueue.splice(client3._queryQueue.indexOf(query), 1);
         }
       }
       setTypeParser(oid, format, parseFn) {
@@ -29398,8 +29398,8 @@ var require_pg_pool = __commonJS({
       return i2 === -1 ? void 0 : list.splice(i2, 1)[0];
     };
     var IdleItem = class {
-      constructor(client2, idleListener, timeoutId) {
-        this.client = client2;
+      constructor(client3, idleListener, timeoutId) {
+        this.client = client3;
         this.idleListener = idleListener;
         this.timeoutId = timeoutId;
       }
@@ -29418,8 +29418,8 @@ var require_pg_pool = __commonJS({
       }
       let rej;
       let res;
-      const cb = function(err, client2) {
-        err ? rej(err) : res(client2);
+      const cb = function(err, client3) {
+        err ? rej(err) : res(client3);
       };
       const result = new Promise2(function(resolve, reject) {
         res = resolve;
@@ -29430,15 +29430,15 @@ var require_pg_pool = __commonJS({
       });
       return { callback: cb, result };
     }
-    function makeIdleListener(pool3, client2) {
+    function makeIdleListener(pool3, client3) {
       return function idleListener(err) {
-        err.client = client2;
-        client2.removeListener("error", idleListener);
-        client2.on("error", () => {
+        err.client = client3;
+        client3.removeListener("error", idleListener);
+        client3.on("error", () => {
           pool3.log("additional client error after disconnection due to error", err);
         });
-        pool3._remove(client2);
-        pool3.emit("error", err, client2);
+        pool3._remove(client3);
+        pool3.emit("error", err, client3);
       };
     }
     var Pool3 = class extends EventEmitter {
@@ -29521,25 +29521,25 @@ var require_pg_pool = __commonJS({
         if (this._idle.length) {
           const idleItem = this._idle.pop();
           clearTimeout(idleItem.timeoutId);
-          const client2 = idleItem.client;
-          client2.ref && client2.ref();
+          const client3 = idleItem.client;
+          client3.ref && client3.ref();
           const idleListener = idleItem.idleListener;
-          return this._acquireClient(client2, pendingItem, idleListener, false);
+          return this._acquireClient(client3, pendingItem, idleListener, false);
         }
         if (!this._isFull()) {
           return this.newClient(pendingItem);
         }
         throw new Error("unexpected condition");
       }
-      _remove(client2, callback) {
-        const removed = removeWhere(this._idle, (item) => item.client === client2);
+      _remove(client3, callback) {
+        const removed = removeWhere(this._idle, (item) => item.client === client3);
         if (removed !== void 0) {
           clearTimeout(removed.timeoutId);
         }
-        this._clients = this._clients.filter((c3) => c3 !== client2);
+        this._clients = this._clients.filter((c3) => c3 !== client3);
         const context = this;
-        client2.end(() => {
-          context.emit("remove", client2);
+        client3.end(() => {
+          context.emit("remove", client3);
           if (typeof callback === "function") {
             callback();
           }
@@ -29580,34 +29580,34 @@ var require_pg_pool = __commonJS({
         return result;
       }
       newClient(pendingItem) {
-        const client2 = new this.Client(this.options);
-        this._clients.push(client2);
-        const idleListener = makeIdleListener(this, client2);
+        const client3 = new this.Client(this.options);
+        this._clients.push(client3);
+        const idleListener = makeIdleListener(this, client3);
         this.log("checking client timeout");
         let tid;
         let timeoutHit = false;
         if (this.options.connectionTimeoutMillis) {
           tid = setTimeout(() => {
-            if (client2.connection) {
+            if (client3.connection) {
               this.log("ending client due to timeout");
               timeoutHit = true;
-              client2.connection.stream.destroy();
-            } else if (!client2.isConnected()) {
+              client3.connection.stream.destroy();
+            } else if (!client3.isConnected()) {
               this.log("ending client due to timeout");
               timeoutHit = true;
-              client2.end();
+              client3.end();
             }
           }, this.options.connectionTimeoutMillis);
         }
         this.log("connecting new client");
-        client2.connect((err) => {
+        client3.connect((err) => {
           if (tid) {
             clearTimeout(tid);
           }
-          client2.on("error", idleListener);
+          client3.on("error", idleListener);
           if (err) {
             this.log("client failed to connect", err);
-            this._clients = this._clients.filter((c3) => c3 !== client2);
+            this._clients = this._clients.filter((c3) => c3 !== client3);
             if (timeoutHit) {
               err = new Error("Connection terminated due to connection timeout", { cause: err });
             }
@@ -29618,13 +29618,13 @@ var require_pg_pool = __commonJS({
           } else {
             this.log("new client connected");
             if (this.options.onConnect) {
-              this._promiseTry(() => this.options.onConnect(client2)).then(
+              this._promiseTry(() => this.options.onConnect(client3)).then(
                 () => {
-                  this._afterConnect(client2, pendingItem, idleListener);
+                  this._afterConnect(client3, pendingItem, idleListener);
                 },
                 (hookErr) => {
-                  this._clients = this._clients.filter((c3) => c3 !== client2);
-                  client2.end(() => {
+                  this._clients = this._clients.filter((c3) => c3 !== client3);
+                  client3.end(() => {
                     this._pulseQueue();
                     if (!pendingItem.timedOut) {
                       pendingItem.callback(hookErr, void 0, NOOP);
@@ -29634,93 +29634,93 @@ var require_pg_pool = __commonJS({
               );
               return;
             }
-            return this._afterConnect(client2, pendingItem, idleListener);
+            return this._afterConnect(client3, pendingItem, idleListener);
           }
         });
       }
-      _afterConnect(client2, pendingItem, idleListener) {
+      _afterConnect(client3, pendingItem, idleListener) {
         if (this.options.maxLifetimeSeconds !== 0) {
           const maxLifetimeTimeout = setTimeout(() => {
             this.log("ending client due to expired lifetime");
-            this._expired.add(client2);
-            const idleIndex = this._idle.findIndex((idleItem) => idleItem.client === client2);
+            this._expired.add(client3);
+            const idleIndex = this._idle.findIndex((idleItem) => idleItem.client === client3);
             if (idleIndex !== -1) {
               this._acquireClient(
-                client2,
-                new PendingItem((err, client3, clientRelease) => clientRelease()),
+                client3,
+                new PendingItem((err, client4, clientRelease) => clientRelease()),
                 idleListener,
                 false
               );
             }
           }, this.options.maxLifetimeSeconds * 1e3);
           maxLifetimeTimeout.unref();
-          client2.once("end", () => clearTimeout(maxLifetimeTimeout));
+          client3.once("end", () => clearTimeout(maxLifetimeTimeout));
         }
-        return this._acquireClient(client2, pendingItem, idleListener, true);
+        return this._acquireClient(client3, pendingItem, idleListener, true);
       }
       // acquire a client for a pending work item
-      _acquireClient(client2, pendingItem, idleListener, isNew) {
+      _acquireClient(client3, pendingItem, idleListener, isNew) {
         if (isNew) {
-          this.emit("connect", client2);
+          this.emit("connect", client3);
         }
-        this.emit("acquire", client2);
-        client2.release = this._releaseOnce(client2, idleListener);
-        client2.removeListener("error", idleListener);
+        this.emit("acquire", client3);
+        client3.release = this._releaseOnce(client3, idleListener);
+        client3.removeListener("error", idleListener);
         if (!pendingItem.timedOut) {
           if (isNew && this.options.verify) {
-            this.options.verify(client2, (err) => {
+            this.options.verify(client3, (err) => {
               if (err) {
-                client2.release(err);
+                client3.release(err);
                 return pendingItem.callback(err, void 0, NOOP);
               }
-              pendingItem.callback(void 0, client2, client2.release);
+              pendingItem.callback(void 0, client3, client3.release);
             });
           } else {
-            pendingItem.callback(void 0, client2, client2.release);
+            pendingItem.callback(void 0, client3, client3.release);
           }
         } else {
           if (isNew && this.options.verify) {
-            this.options.verify(client2, client2.release);
+            this.options.verify(client3, client3.release);
           } else {
-            client2.release();
+            client3.release();
           }
         }
       }
       // returns a function that wraps _release and throws if called more than once
-      _releaseOnce(client2, idleListener) {
+      _releaseOnce(client3, idleListener) {
         let released = false;
         return (err) => {
           if (released) {
             throwOnDoubleRelease();
           }
           released = true;
-          this._release(client2, idleListener, err);
+          this._release(client3, idleListener, err);
         };
       }
       // release a client back to the poll, include an error
       // to remove it from the pool
-      _release(client2, idleListener, err) {
-        client2.on("error", idleListener);
-        client2._poolUseCount = (client2._poolUseCount || 0) + 1;
-        this.emit("release", err, client2);
-        if (err || this.ending || !client2._queryable || client2._ending || client2._poolUseCount >= this.options.maxUses) {
-          if (client2._poolUseCount >= this.options.maxUses) {
+      _release(client3, idleListener, err) {
+        client3.on("error", idleListener);
+        client3._poolUseCount = (client3._poolUseCount || 0) + 1;
+        this.emit("release", err, client3);
+        if (err || this.ending || !client3._queryable || client3._ending || client3._poolUseCount >= this.options.maxUses) {
+          if (client3._poolUseCount >= this.options.maxUses) {
             this.log("remove expended client");
           }
-          return this._remove(client2, this._pulseQueue.bind(this));
+          return this._remove(client3, this._pulseQueue.bind(this));
         }
-        const isExpired = this._expired.has(client2);
+        const isExpired = this._expired.has(client3);
         if (isExpired) {
           this.log("remove expired client");
-          this._expired.delete(client2);
-          return this._remove(client2, this._pulseQueue.bind(this));
+          this._expired.delete(client3);
+          return this._remove(client3, this._pulseQueue.bind(this));
         }
         let tid;
         if (this.options.idleTimeoutMillis && this._isAboveMin()) {
           tid = setTimeout(() => {
             if (this._isAboveMin()) {
               this.log("remove idle client");
-              this._remove(client2, this._pulseQueue.bind(this));
+              this._remove(client3, this._pulseQueue.bind(this));
             }
           }, this.options.idleTimeoutMillis);
           if (this.options.allowExitOnIdle) {
@@ -29728,9 +29728,9 @@ var require_pg_pool = __commonJS({
           }
         }
         if (this.options.allowExitOnIdle) {
-          client2.unref();
+          client3.unref();
         }
-        this._idle.push(new IdleItem(client2, idleListener, tid));
+        this._idle.push(new IdleItem(client3, idleListener, tid));
         this._pulseQueue();
       }
       query(text2, values, cb) {
@@ -29747,7 +29747,7 @@ var require_pg_pool = __commonJS({
         }
         const response = promisify2(this.Promise, cb);
         cb = response.callback;
-        this.connect((err, client2) => {
+        this.connect((err, client3) => {
           if (err) {
             return cb(err);
           }
@@ -29757,27 +29757,27 @@ var require_pg_pool = __commonJS({
               return;
             }
             clientReleased = true;
-            client2.release(err2);
+            client3.release(err2);
             cb(err2);
           };
-          client2.once("error", onError);
+          client3.once("error", onError);
           this.log("dispatching query");
           try {
-            client2.query(text2, values, (err2, res) => {
+            client3.query(text2, values, (err2, res) => {
               this.log("query dispatched");
-              client2.removeListener("error", onError);
+              client3.removeListener("error", onError);
               if (clientReleased) {
                 return;
               }
               clientReleased = true;
-              client2.release(err2);
+              client3.release(err2);
               if (err2) {
                 return cb(err2);
               }
               return cb(void 0, res);
             });
           } catch (err2) {
-            client2.release(err2);
+            client3.release(err2);
             return cb(err2);
           }
         });
@@ -29802,7 +29802,7 @@ var require_pg_pool = __commonJS({
         return this._idle.length;
       }
       get expiredCount() {
-        return this._clients.reduce((acc, client2) => acc + (this._expired.has(client2) ? 1 : 0), 0);
+        return this._clients.reduce((acc, client3) => acc + (this._expired.has(client3) ? 1 : 0), 0);
       }
       get totalCount() {
         return this._clients.length;
@@ -29883,13 +29883,13 @@ var require_query3 = __commonJS({
       );
       return this._promise;
     };
-    NativeQuery.prototype.submit = function(client2) {
+    NativeQuery.prototype.submit = function(client3) {
       this.state = "running";
       const self2 = this;
-      this.native = client2.native;
-      client2.native.arrayMode = this._arrayMode;
+      this.native = client3.native;
+      client3.native.arrayMode = this._arrayMode;
       let after = function(err, rows, results) {
-        client2.native.arrayMode = false;
+        client3.native.arrayMode = false;
         setImmediate(function() {
           self2.emit("_done");
         });
@@ -29925,16 +29925,16 @@ var require_query3 = __commonJS({
           console.error("This can cause conflicts and silent errors executing queries");
         }
         const values = (this.values || []).map(utils.prepareValue);
-        if (client2.namedQueries[this.name]) {
-          if (this.text && client2.namedQueries[this.name] !== this.text) {
+        if (client3.namedQueries[this.name]) {
+          if (this.text && client3.namedQueries[this.name] !== this.text) {
             const err = new Error(`Prepared statements must be unique - '${this.name}' was used for a different statement`);
             return after(err);
           }
-          return client2.native.execute(this.name, values, after);
+          return client3.native.execute(this.name, values, after);
         }
-        return client2.native.prepare(this.name, this.text, values.length, function(err) {
+        return client3.native.prepare(this.name, this.text, values.length, function(err) {
           if (err) return after(err);
-          client2.namedQueries[self2.name] = self2.text;
+          client3.namedQueries[self2.name] = self2.text;
           return self2.native.execute(self2.name, values, after);
         });
       } else if (this.values) {
@@ -29943,11 +29943,11 @@ var require_query3 = __commonJS({
           return after(err);
         }
         const vals = this.values.map(utils.prepareValue);
-        client2.native.query(this.text, vals, after);
+        client3.native.query(this.text, vals, after);
       } else if (this.queryMode === "extended") {
-        client2.native.query(this.text, [], after);
+        client3.native.query(this.text, [], after);
       } else {
-        client2.native.query(this.text, after);
+        client3.native.query(this.text, after);
       }
     };
   }
@@ -231792,9 +231792,9 @@ var require_VoiceResponse = __commonJS({
         /**
          * <Client> TwiML Noun
          */
-        constructor(client2) {
+        constructor(client3) {
           super();
-          this.client = client2;
+          this.client = client3;
           this._propertyName = "client";
         }
         identity(attributes, clientIdentity) {
@@ -233487,9 +233487,9 @@ var require_ApiTokenManager = __commonJS({
       }
       async fetchToken() {
         const noAuthCredentialProvider = new NoAuthCredentialProvider_1.default.NoAuthCredentialProvider();
-        const client2 = new BaseTwilio_1.Client();
-        client2.setCredentialProvider(noAuthCredentialProvider);
-        const tokenListInstance = (0, token_1.TokenListInstance)(new V2_1.default(new OauthBase_1.default(client2)));
+        const client3 = new BaseTwilio_1.Client();
+        client3.setCredentialProvider(noAuthCredentialProvider);
+        const tokenListInstance = (0, token_1.TokenListInstance)(new V2_1.default(new OauthBase_1.default(client3)));
         return tokenListInstance.create(this.params).then((token) => {
           return token.accessToken;
         }).catch((error) => {
@@ -233637,9 +233637,9 @@ var require_OrgsTokenManager = __commonJS({
       }
       async fetchToken() {
         const noAuthCredentialProvider = new NoAuthCredentialProvider_1.default.NoAuthCredentialProvider();
-        const client2 = new BaseTwilio_1.Client();
-        client2.setCredentialProvider(noAuthCredentialProvider);
-        const tokenListInstance = (0, token_1.TokenListInstance)(new V2_1.default(new OauthBase_1.default(client2)));
+        const client3 = new BaseTwilio_1.Client();
+        client3.setCredentialProvider(noAuthCredentialProvider);
+        const tokenListInstance = (0, token_1.TokenListInstance)(new V2_1.default(new OauthBase_1.default(client3)));
         return tokenListInstance.create(this.params).then((token) => {
           return token.accessToken;
         }).catch((error) => {
@@ -240494,9 +240494,9 @@ var PgTransaction = class extends PgDatabase {
 // node_modules/drizzle-orm/node-postgres/session.js
 var { Pool: Pool2, types: types2 } = esm_default;
 var NodePgPreparedQuery = class extends PgPreparedQuery {
-  constructor(client2, queryString, params, logger, cache, queryMetadata, cacheConfig, fields, name, _isResponseInArrayMode, customResultMapper) {
+  constructor(client3, queryString, params, logger, cache, queryMetadata, cacheConfig, fields, name, _isResponseInArrayMode, customResultMapper) {
     super({ sql: queryString, params }, cache, queryMetadata, cacheConfig);
-    this.client = client2;
+    this.client = client3;
     this.queryString = queryString;
     this.params = params;
     this.logger = logger;
@@ -240586,7 +240586,7 @@ var NodePgPreparedQuery = class extends PgPreparedQuery {
     return tracer.startActiveSpan("drizzle.execute", async () => {
       const params = fillPlaceholders(this.params, placeholderValues);
       this.logger.logQuery(this.rawQueryConfig.text, params);
-      const { fields, rawQueryConfig: rawQuery, client: client2, queryConfig: query, joinsNotNullableMap, customResultMapper } = this;
+      const { fields, rawQueryConfig: rawQuery, client: client3, queryConfig: query, joinsNotNullableMap, customResultMapper } = this;
       if (!fields && !customResultMapper) {
         return tracer.startActiveSpan("drizzle.driver.execute", async (span) => {
           span?.setAttributes({
@@ -240595,7 +240595,7 @@ var NodePgPreparedQuery = class extends PgPreparedQuery {
             "drizzle.query.params": JSON.stringify(params)
           });
           return this.queryWithCache(rawQuery.text, params, async () => {
-            return await client2.query(rawQuery, params);
+            return await client3.query(rawQuery, params);
           });
         });
       }
@@ -240606,7 +240606,7 @@ var NodePgPreparedQuery = class extends PgPreparedQuery {
           "drizzle.query.params": JSON.stringify(params)
         });
         return this.queryWithCache(query.text, params, async () => {
-          return await client2.query(query, params);
+          return await client3.query(query, params);
         });
       });
       return tracer.startActiveSpan("drizzle.mapResponse", () => {
@@ -240636,9 +240636,9 @@ var NodePgPreparedQuery = class extends PgPreparedQuery {
   }
 };
 var NodePgSession = class _NodePgSession extends PgSession {
-  constructor(client2, dialect, schema, options = {}) {
+  constructor(client3, dialect, schema, options = {}) {
     super(dialect);
-    this.client = client2;
+    this.client = client3;
     this.schema = schema;
     this.options = options;
     this.logger = options.logger ?? new NoopLogger();
@@ -240709,8 +240709,8 @@ var NodePgTransaction = class _NodePgTransaction extends PgTransaction {
 
 // node_modules/drizzle-orm/node-postgres/driver.js
 var NodePgDriver = class {
-  constructor(client2, dialect, options = {}) {
-    this.client = client2;
+  constructor(client3, dialect, options = {}) {
+    this.client = client3;
     this.dialect = dialect;
     this.options = options;
   }
@@ -240725,7 +240725,7 @@ var NodePgDriver = class {
 var NodePgDatabase = class extends PgDatabase {
   static [entityKind] = "NodePgDatabase";
 };
-function construct(client2, config = {}) {
+function construct(client3, config = {}) {
   const dialect = new PgDialect({ casing: config.casing });
   let logger;
   if (config.logger === true) {
@@ -240745,10 +240745,10 @@ function construct(client2, config = {}) {
       tableNamesMap: tablesConfig.tableNamesMap
     };
   }
-  const driver = new NodePgDriver(client2, dialect, { logger, cache: config.cache });
+  const driver = new NodePgDriver(client3, dialect, { logger, cache: config.cache });
   const session2 = driver.createSession(schema);
   const db2 = new NodePgDatabase(dialect, session2, schema);
-  db2.$client = client2;
+  db2.$client = client3;
   db2.$cache = config.cache;
   if (db2.$cache) {
     db2.$cache["invalidate"] = config.cache?.onMutate;
@@ -240763,8 +240763,8 @@ function drizzle(...params) {
     return construct(instance, params[1]);
   }
   if (isConfig(params[0])) {
-    const { connection, client: client2, ...drizzleConfig } = params[0];
-    if (client2) return construct(client2, drizzleConfig);
+    const { connection, client: client3, ...drizzleConfig } = params[0];
+    if (client3) return construct(client3, drizzleConfig);
     const instance = typeof connection === "string" ? new esm_default.Pool({
       connectionString: connection
     }) : new esm_default.Pool(connection);
@@ -240779,11 +240779,54 @@ function drizzle(...params) {
   drizzle2.mock = mock;
 })(drizzle || (drizzle = {}));
 
+// shared/training.ts
+var LB_TO_GRAMS = 453.59237;
+function estimate1RM(weightGrams, reps) {
+  const r2 = Math.min(Math.max(reps, 1), 12);
+  return weightGrams * (1 + r2 / 30);
+}
+function parseTargetReps(targetReps) {
+  if (!targetReps) return [8, 12];
+  const match = targetReps.match(/(\d+)\s*-\s*(\d+)/);
+  if (match) return [parseInt(match[1], 10), parseInt(match[2], 10)];
+  const single = targetReps.match(/(\d+)/);
+  if (single) {
+    const n2 = parseInt(single[1], 10);
+    return [n2, n2];
+  }
+  return [8, 12];
+}
+function suggestNextWeight(prevSets, targetReps, equipment) {
+  if (!prevSets || prevSets.length === 0) return null;
+  const [low, high] = parseTargetReps(targetReps);
+  const lastWeight = prevSets[prevSets.length - 1].weightGrams;
+  if (lastWeight <= 0) return null;
+  const allHitHigh = prevSets.every((s2) => s2.reps >= high);
+  const anyMissedLow = prevSets.some((s2) => s2.reps < low);
+  if (allHitHigh) {
+    const isCompound = equipment === "barbell";
+    const bumpGrams = (isCompound ? 10 : 5) * LB_TO_GRAMS;
+    return {
+      weightGrams: lastWeight + bumpGrams,
+      note: "You hit all reps last time \u2014 try going up."
+    };
+  }
+  if (anyMissedLow) {
+    return {
+      weightGrams: lastWeight,
+      note: "Focus on hitting your reps before adding weight."
+    };
+  }
+  return {
+    weightGrams: lastWeight,
+    note: "So close \u2014 aim for one more rep."
+  };
+}
+
 // server/services/scoring.ts
 var GRAMS_PER_KG = 1e3;
 function estimate1RMKg(weightKg, reps) {
-  const r2 = Math.min(Math.max(reps, 1), 12);
-  return weightKg * (1 + r2 / 30);
+  return estimate1RM(weightKg * GRAMS_PER_KG, reps) / GRAMS_PER_KG;
 }
 var WILKS = {
   male: { a: -216.0475144, b: 16.2606339, c: -2388645e-9, d: -113732e-8, e: 701863e-11, f: -1291e-11 },
@@ -245461,6 +245504,16 @@ var bodyMeasurements = pgTable("body_measurements", {
   createdAt: timestamp("created_at").defaultNow()
 });
 var insertBodyMeasurementSchema = c(bodyMeasurements).omit({ id: true, createdAt: true });
+var progressPhotos = pgTable("progress_photos", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  date: date("date").notNull(),
+  imageData: text("image_data").notNull(),
+  // base64 data URL
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow()
+});
+var insertProgressPhotoSchema = c(progressPhotos).omit({ id: true, createdAt: true });
 var foodItems = pgTable("food_items", {
   id: serial("id").primaryKey(),
   barcode: text("barcode").unique(),
@@ -245743,6 +245796,17 @@ var storage = {
   },
   async deleteMeasurement(id, userId) {
     await db.delete(bodyMeasurements).where(and(eq(bodyMeasurements.id, id), eq(bodyMeasurements.userId, userId)));
+  },
+  // ── Progress Photos ────────────────────────────────────────────────────────
+  async getProgressPhotos(userId) {
+    return db.select().from(progressPhotos).where(eq(progressPhotos.userId, userId)).orderBy(desc(progressPhotos.date));
+  },
+  async createProgressPhoto(data) {
+    const [p3] = await db.insert(progressPhotos).values(data).returning();
+    return p3;
+  },
+  async deleteProgressPhoto(id, userId) {
+    await db.delete(progressPhotos).where(and(eq(progressPhotos.id, id), eq(progressPhotos.userId, userId)));
   },
   // ── Food Items ─────────────────────────────────────────────────────────────
   async getFoodItemById(id) {
@@ -247757,9 +247821,9 @@ var APIClient = class {
   }
 };
 var AbstractPage = class {
-  constructor(client2, response, body, options) {
+  constructor(client3, response, body, options) {
     _AbstractPage_client.set(this, void 0);
-    __classPrivateFieldSet5(this, _AbstractPage_client, client2, "f");
+    __classPrivateFieldSet5(this, _AbstractPage_client, client3, "f");
     this.options = options;
     this.response = response;
     this.body = body;
@@ -247805,8 +247869,8 @@ var AbstractPage = class {
   }
 };
 var PagePromise = class extends APIPromise {
-  constructor(client2, request, Page2) {
-    super(request, async (props) => new Page2(client2, props.response, await defaultParseResponse(props), props.options));
+  constructor(client3, request, Page2) {
+    super(request, async (props) => new Page2(client3, props.response, await defaultParseResponse(props), props.options));
   }
   /**
    * Allow auto-paginating iteration on an unawaited list call, eg:
@@ -248199,8 +248263,8 @@ var InternalServerError = class extends APIError {
 
 // node_modules/@anthropic-ai/sdk/pagination.mjs
 var Page = class extends AbstractPage {
-  constructor(client2, response, body, options) {
-    super(client2, response, body, options);
+  constructor(client3, response, body, options) {
+    super(client3, response, body, options);
     this.data = body.data || [];
     this.has_more = body.has_more || false;
     this.first_id = body.first_id || null;
@@ -248247,8 +248311,8 @@ var Page = class extends AbstractPage {
 
 // node_modules/@anthropic-ai/sdk/resource.mjs
 var APIResource = class {
-  constructor(client2) {
-    this._client = client2;
+  constructor(client3) {
+    this._client = client3;
   }
 };
 
@@ -255662,8 +255726,8 @@ async function sendInviteSms(opts) {
   const { toPhone, inviterName, personalNote } = opts;
   const note = personalNote ? ` "${personalNote}"` : "";
   const body = `${inviterName} invited you to ${APP_NAME} \u2014 a free fitness tracker for workouts, nutrition, and goal tracking.${note} Join here: ${APP_URL}`;
-  const client2 = (0, import_twilio.default)(sid, token);
-  await client2.messages.create({ body, from, to: toPhone });
+  const client3 = (0, import_twilio.default)(sid, token);
+  await client3.messages.create({ body, from, to: toPhone });
 }
 
 // server/services/active-routine.ts
@@ -255704,6 +255768,119 @@ function buildDaysFromSchedule(schedule) {
       weightNote: e2.weightNote ?? void 0
     })) : []
   }));
+}
+
+// server/services/training-coach.ts
+var client2 = new sdk_default({ apiKey: process.env.ANTHROPIC_API_KEY });
+var GRAMS_PER_LB = 453.59237;
+var gramsToLbs = (g2) => Math.round(g2 / GRAMS_PER_LB * 10) / 10;
+var PROMPT = `You are a training coach reviewing proposed weight increases for a lifter's workout plan.
+Each candidate already has a proposed new target weight, computed from their most recent session
+(they hit every rep at the top of their target range, so a small increase is suggested).
+
+Your job is ONLY to:
+1. Decide whether each candidate's increase looks reasonable given the lifter's goals, or whether
+   it should be held back (e.g. conflicts with a stated goal, looks too aggressive for the exercise).
+2. Write a short (<=20 words) human-readable reason for each candidate you keep.
+3. Optionally add up to 2 short general notes for the lifter.
+
+You must NOT invent new weight values or reference exercises that aren't in the candidate list.
+Respond with ONLY valid JSON (no markdown) of this exact shape:
+{
+  "items": [{ "id": <candidate id>, "include": <boolean>, "reason": "<short reason>" }],
+  "notes": ["<optional general note>"]
+}`;
+async function generateAdaptiveProposals(userId) {
+  const routine = await storage.getActiveRoutine(userId);
+  if (!routine) return { proposals: [], notes: [] };
+  const templateIds = [...new Set(
+    routine.days.map((d2) => d2.templateId).filter((id) => id != null)
+  )];
+  if (templateIds.length === 0) return { proposals: [], notes: [] };
+  const templateNames = new Map(
+    routine.days.filter((d2) => d2.templateId != null).map((d2) => [d2.templateId, d2.focus])
+  );
+  const candidates = [];
+  let nextId = 0;
+  for (const templateId of templateIds) {
+    const templateExercises2 = await storage.getTemplateExercisesWithDetails(templateId);
+    for (const te2 of templateExercises2) {
+      const history = await storage.getExerciseHistory(te2.exerciseId, userId);
+      if (history.length === 0) continue;
+      const lastSession = history[history.length - 1];
+      const suggestion = suggestNextWeight(lastSession.setsData, te2.targetReps, te2.equipment);
+      if (!suggestion) continue;
+      if (suggestion.weightGrams <= (te2.targetWeightGrams ?? 0)) continue;
+      candidates.push({
+        id: nextId++,
+        templateExerciseId: te2.id,
+        templateName: templateNames.get(templateId) ?? "Workout",
+        exerciseName: te2.exerciseName,
+        currentValue: te2.targetWeightGrams,
+        proposedValue: Math.round(suggestion.weightGrams),
+        autoNote: suggestion.note
+      });
+    }
+  }
+  if (candidates.length === 0) return { proposals: [], notes: [] };
+  const goals2 = await storage.getGoals(userId);
+  const goalSummaries = goals2.filter((g2) => g2.isActive).map((g2) => `${g2.type}${g2.deadline ? ` by ${g2.deadline}` : ""}`);
+  const candidateSummaries = candidates.map((c3) => ({
+    id: c3.id,
+    exercise: c3.exerciseName,
+    workout: c3.templateName,
+    currentTargetLbs: c3.currentValue != null ? gramsToLbs(c3.currentValue) : null,
+    proposedTargetLbs: gramsToLbs(c3.proposedValue),
+    autoNote: c3.autoNote
+  }));
+  try {
+    const response = await client2.messages.create({
+      model: "claude-opus-4-8",
+      max_tokens: 1024,
+      messages: [{
+        role: "user",
+        content: `${PROMPT}
+
+Lifter's active goals: ${JSON.stringify(goalSummaries)}
+
+Candidates: ${JSON.stringify(candidateSummaries)}`
+      }]
+    });
+    const textBlock = response.content.find((b2) => b2.type === "text");
+    const cleaned = (textBlock?.text ?? "").replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    const parsed = JSON.parse(cleaned);
+    const byId = new Map(candidates.map((c3) => [c3.id, c3]));
+    const proposals = [];
+    for (const item of Array.isArray(parsed?.items) ? parsed.items : []) {
+      const candidate = byId.get(Number(item?.id));
+      if (!candidate || item?.include !== true) continue;
+      proposals.push({
+        templateExerciseId: candidate.templateExerciseId,
+        templateName: candidate.templateName,
+        exerciseName: candidate.exerciseName,
+        field: "targetWeightGrams",
+        currentValue: candidate.currentValue,
+        proposedValue: candidate.proposedValue,
+        reason: typeof item.reason === "string" && item.reason.trim() ? item.reason.trim() : candidate.autoNote
+      });
+    }
+    const notes = Array.isArray(parsed?.notes) ? parsed.notes.filter((n2) => typeof n2 === "string").slice(0, 2) : [];
+    return { proposals, notes };
+  } catch (err) {
+    console.error("generateAdaptiveProposals error:", err);
+    return {
+      proposals: candidates.map((c3) => ({
+        templateExerciseId: c3.templateExerciseId,
+        templateName: c3.templateName,
+        exerciseName: c3.exerciseName,
+        field: "targetWeightGrams",
+        currentValue: c3.currentValue,
+        proposedValue: c3.proposedValue,
+        reason: c3.autoNote
+      })),
+      notes: []
+    };
+  }
 }
 
 // server/routes.ts
@@ -256108,8 +256285,8 @@ If there are no active goals with deadlines, set goalFeasibility to [] and progr
         console.error("AI analysis: ANTHROPIC_API_KEY is not set in environment");
         return res.status(500).json({ message: "AI service is not configured. Contact support." });
       }
-      const client2 = new sdk_default({ apiKey });
-      const msg = await client2.messages.create({
+      const client3 = new sdk_default({ apiKey });
+      const msg = await client3.messages.create({
         model: "claude-sonnet-4-5",
         max_tokens: 8192,
         messages: [{ role: "user", content: prompt }]
@@ -256194,8 +256371,8 @@ Return ONLY valid JSON (no markdown):
 }`;
       const apiKey2 = process.env.ANTHROPIC_API_KEY;
       if (!apiKey2) return res.status(500).json({ message: "AI service is not configured." });
-      const client2 = new sdk_default({ apiKey: apiKey2 });
-      const msg = await client2.messages.create({
+      const client3 = new sdk_default({ apiKey: apiKey2 });
+      const msg = await client3.messages.create({
         model: "claude-sonnet-4-5",
         max_tokens: 512,
         messages: [{ role: "user", content: checkinPrompt }]
@@ -256249,6 +256426,31 @@ Return ONLY valid JSON (no markdown):
     const userId = req.user.id;
     await storage.deleteMeasurement(Number(req.params.id), userId);
     await recalculateTargets(userId);
+    res.sendStatus(204);
+  });
+  const MAX_PROGRESS_PHOTO_BYTES = 5 * 1024 * 1024;
+  app2.get("/api/progress-photos", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    res.json(await storage.getProgressPhotos(req.user.id));
+  });
+  app2.post("/api/progress-photos", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    try {
+      const userId = req.user.id;
+      const data = insertProgressPhotoSchema.omit({ userId: true }).parse(req.body);
+      if (data.imageData.length > MAX_PROGRESS_PHOTO_BYTES) {
+        return res.status(413).json({ message: "Image too large" });
+      }
+      const p3 = await storage.createProgressPhoto({ ...data, userId });
+      res.status(201).json(p3);
+    } catch (err) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+  app2.delete("/api/progress-photos/:id", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = req.user.id;
+    await storage.deleteProgressPhoto(Number(req.params.id), userId);
     res.sendStatus(204);
   });
   app2.get("/api/food/search", async (req, res) => {
@@ -256954,24 +257156,32 @@ Return ONLY valid JSON (no markdown):
   });
   app2.patch("/api/workouts/:id", async (req, res) => {
     if (!requireAuth(req, res)) return;
-    const userId = req.user.id;
-    const w2 = await storage.updateWorkout(Number(req.params.id), userId, req.body);
-    if (!w2) return res.sendStatus(404);
-    if (req.body?.completedAt && w2.templateId != null) {
-      const routine = await storage.getActiveRoutine(userId);
-      if (routine) {
-        const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-        const state = { days: routine.days, currentIndex: routine.currentIndex, lastCheckedDate: routine.lastCheckedDate };
-        const rolled = rollForward(state, today);
-        if (rolled.days[rolled.currentIndex]?.templateId === w2.templateId) {
-          const advanced = completeCurrentDay(rolled, today);
-          await storage.updateActiveRoutineState(routine.id, advanced.currentIndex, advanced.lastCheckedDate);
-        } else if (rolled.currentIndex !== state.currentIndex || rolled.lastCheckedDate !== state.lastCheckedDate) {
-          await storage.updateActiveRoutineState(routine.id, rolled.currentIndex, rolled.lastCheckedDate);
+    try {
+      const userId = req.user.id;
+      const data = { ...req.body };
+      if (typeof data.completedAt === "string") data.completedAt = new Date(data.completedAt);
+      if (typeof data.startedAt === "string") data.startedAt = new Date(data.startedAt);
+      const w2 = await storage.updateWorkout(Number(req.params.id), userId, data);
+      if (!w2) return res.sendStatus(404);
+      if (req.body?.completedAt && w2.templateId != null) {
+        const routine = await storage.getActiveRoutine(userId);
+        if (routine) {
+          const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+          const state = { days: routine.days, currentIndex: routine.currentIndex, lastCheckedDate: routine.lastCheckedDate };
+          const rolled = rollForward(state, today);
+          if (rolled.days[rolled.currentIndex]?.templateId === w2.templateId) {
+            const advanced = completeCurrentDay(rolled, today);
+            await storage.updateActiveRoutineState(routine.id, advanced.currentIndex, advanced.lastCheckedDate);
+          } else if (rolled.currentIndex !== state.currentIndex || rolled.lastCheckedDate !== state.lastCheckedDate) {
+            await storage.updateActiveRoutineState(routine.id, rolled.currentIndex, rolled.lastCheckedDate);
+          }
         }
       }
+      res.json(w2);
+    } catch (err) {
+      console.error("PATCH /api/workouts/:id failed:", err);
+      res.status(400).json({ message: err.message });
     }
-    res.json(w2);
   });
   app2.delete("/api/workouts/:id", async (req, res) => {
     if (!requireAuth(req, res)) return;
@@ -257152,7 +257362,7 @@ Return ONLY valid JSON (no markdown):
       const topLiftsText = topLiftsLines.length > 0 ? topLiftsLines.join("\n") : "  No lift history recorded yet \u2014 treat as a new trainee.";
       const apiKey3 = process.env.ANTHROPIC_API_KEY;
       if (!apiKey3) return res.status(500).json({ message: "AI service is not configured." });
-      const client2 = new sdk_default({ apiKey: apiKey3 });
+      const client3 = new sdk_default({ apiKey: apiKey3 });
       const prompt = `You are an expert personal trainer reviewing a user's training history to build a new workout routine.
 
 \u2501\u2501\u2501 USER'S CURRENT TRAINING CONTEXT \u2501\u2501\u2501
@@ -257197,7 +257407,7 @@ Return ONLY valid JSON (no markdown, no explanation):
     "Specific observation about the user's existing training or this routine's purpose"
   ]
 }`;
-      const msg = await client2.messages.create({
+      const msg = await client3.messages.create({
         model: "claude-sonnet-4-5",
         max_tokens: 1600,
         messages: [{ role: "user", content: prompt }]
@@ -257382,6 +257592,15 @@ Return ONLY valid JSON (no markdown, no explanation):
     if (!requireAuth(req, res)) return;
     await storage.clearActiveRoutine(req.user.id);
     res.sendStatus(204);
+  });
+  app2.get("/api/routine/adapt-proposals", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    try {
+      const result = await generateAdaptiveProposals(req.user.id);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
   });
   app2.post("/api/heart-rate", async (req, res) => {
     if (!requireAuth(req, res)) return;
