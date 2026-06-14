@@ -325,3 +325,28 @@ export const aiCoachPlans = pgTable("ai_coach_plans", {
 });
 export const insertAiCoachPlanSchema = createInsertSchema(aiCoachPlans).omit({ id: true, createdAt: true });
 export type AiCoachPlan = typeof aiCoachPlans.$inferSelect;
+
+// ─── Active Routine (applied AI weekly plan) ──────────────────────────────────
+// A rotating sequence of plan days. `currentIndex` points at the day that's
+// "next up" — it advances only when that day is completed (training days) or
+// when a calendar day passes (rest/active_recovery days). Missed training days
+// simply stay "next up" until completed, shifting the rest of the week with them.
+export interface RoutineDay {
+  dayLabel: string; // original weekday label from the plan, e.g. "Monday"
+  type: "strength" | "cardio" | "rest" | "active_recovery";
+  focus: string;
+  templateId: number | null; // set for training/cardio days with a generated template
+  exercises: { name: string; sets: number; reps: string; weightNote?: string }[];
+}
+
+export const activeRoutines = pgTable("active_routines", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  days: jsonb("days").notNull().$type<RoutineDay[]>(),
+  currentIndex: integer("current_index").notNull().default(0),
+  lastCheckedDate: date("last_checked_date").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export const insertActiveRoutineSchema = createInsertSchema(activeRoutines).omit({ id: true, createdAt: true });
+export type ActiveRoutine = typeof activeRoutines.$inferSelect;
+export type InsertActiveRoutine = z.infer<typeof insertActiveRoutineSchema>;

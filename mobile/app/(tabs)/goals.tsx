@@ -314,6 +314,10 @@ export default function GoalsScreen() {
     queryKey: ["/api/goals/ai-plan"],
     queryFn: () => apiRequest("GET", "/api/goals/ai-plan"),
   });
+  const { data: activeRoutine }     = useQuery<any | null>({
+    queryKey: ["/api/routine/active"],
+    queryFn: () => apiRequest("GET", "/api/routine/active"),
+  });
 
   const latestWeightGrams: number | null = measurements[0]?.weightGrams ?? null;
   const activeGoals  = (goals as any[]).filter((g: any) =>  g.isActive);
@@ -375,6 +379,21 @@ export default function GoalsScreen() {
     mutationFn: () => apiRequest("POST", "/api/goals/ai-checkin"),
     onSuccess: (data: CheckInResult) => { setCheckIn(data); setCheckInError(null); },
     onError: (e: any) => setCheckInError(e?.message ?? "Failed to generate check-in"),
+  });
+
+  const applyRoutineMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/routine/apply"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/routine/active"] });
+      Alert.alert("Routine applied", "Head to the Train tab to see what's up next.");
+    },
+    onError: (e: any) => Alert.alert("Couldn't apply routine", e?.message ?? "Please try again."),
+  });
+
+  const stopRoutineMutation = useMutation({
+    mutationFn: () => apiRequest("DELETE", "/api/routine/active"),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/routine/active"] }),
+    onError: (e: any) => Alert.alert("Couldn't stop routine", e?.message ?? "Please try again."),
   });
 
   // Extend goal deadline
@@ -921,6 +940,46 @@ export default function GoalsScreen() {
                   <Text style={{ fontSize: 12, fontFamily: "Manrope", color: text, flex: 1, lineHeight: 18 }}>{tip}</Text>
                 </View>
               ))}
+
+              {/* Apply / stop following this plan as a rotating routine */}
+              {activeRoutine ? (
+                <Pressable
+                  onPress={() => stopRoutineMutation.mutate()}
+                  disabled={stopRoutineMutation.isPending}
+                  style={({ pressed }) => ({
+                    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+                    backgroundColor: `${PINK}1A`, borderRadius: 12, paddingVertical: 12, marginTop: 8,
+                    opacity: (pressed || stopRoutineMutation.isPending) ? 0.6 : 1,
+                  })}
+                >
+                  <CheckCircle2 size={14} color={PINK} />
+                  <Text style={{ fontSize: 12, fontFamily: "Manrope-Bold", color: PINK }}>
+                    {stopRoutineMutation.isPending ? "Stopping…" : "Following this plan — stop"}
+                  </Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  onPress={() => applyRoutineMutation.mutate()}
+                  disabled={applyRoutineMutation.isPending}
+                  style={({ pressed }) => ({
+                    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+                    backgroundColor: PINK, borderRadius: 12, paddingVertical: 12, marginTop: 8,
+                    opacity: (pressed || applyRoutineMutation.isPending) ? 0.6 : 1,
+                  })}
+                >
+                  {applyRoutineMutation.isPending
+                    ? <ActivityIndicator size="small" color="#1a1a1a" />
+                    : <Calendar size={14} color="#1a1a1a" />}
+                  <Text style={{ fontSize: 12, fontFamily: "Manrope-Bold", color: "#1a1a1a" }}>
+                    {applyRoutineMutation.isPending ? "Applying…" : "Apply this plan as my routine"}
+                  </Text>
+                </Pressable>
+              )}
+              {activeRoutine && (
+                <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted, marginTop: 6, textAlign: "center", lineHeight: 16 }}>
+                  Missed days roll forward automatically — check the Train tab for what's next.
+                </Text>
+              )}
             </Section>
 
             {/* Priority actions section */}

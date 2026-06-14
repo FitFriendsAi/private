@@ -10,6 +10,7 @@ import { calculateMacroTargets, getAgeFromBirthDate, estimateAdaptiveTDEE, calcu
 import { wilksScore, sessionBests, currentBests, avgProgressPct, avgProgressAbsKg, streakFromDates } from "./services/scoring.js";
 import { fetchExerciseGif } from "./services/exercise-gif.js";
 import { sendInviteEmail, sendInviteSms } from "./services/notifications.js";
+import { rollForward, completeCurrentDay, buildDaysFromSchedule, type ActiveRoutineState } from "./services/active-routine.js";
 import {
   insertUserSchema, insertUserProfileSchema, insertGoalSchema, insertBodyMeasurementSchema,
   insertFoodItemSchema, insertFoodLogSchema, insertWaterLogSchema, insertSupplementLogSchema,
@@ -1600,8 +1601,27 @@ Return ONLY valid JSON (no markdown):
 
   app.patch("/api/workouts/:id", async (req, res) => {
     if (!requireAuth(req, res)) return;
-    const w = await storage.updateWorkout(Number(req.params.id), (req.user as any).id, req.body);
+    const userId = (req.user as any).id;
+    const w = await storage.updateWorkout(Number(req.params.id), userId, req.body);
     if (!w) return res.sendStatus(404);
+
+    // If this workout was just completed and matches the active routine's
+    // "next up" day, advance the routine to the following day.
+    if (req.body?.completedAt && w.templateId != null) {
+      const routine = await storage.getActiveRoutine(userId);
+      if (routine) {
+        const today = new Date().toISOString().slice(0, 10);
+        const state: ActiveRoutineState = { days: routine.days, currentIndex: routine.currentIndex, lastCheckedDate: routine.lastCheckedDate };
+        const rolled = rollForward(state, today);
+        if (rolled.days[rolled.currentIndex]?.templateId === w.templateId) {
+          const advanced = completeCurrentDay(rolled, today);
+          await storage.updateActiveRoutineState(routine.id, advanced.currentIndex, advanced.lastCheckedDate);
+        } else if (rolled.currentIndex !== state.currentIndex || rolled.lastCheckedDate !== state.lastCheckedDate) {
+          await storage.updateActiveRoutineState(routine.id, rolled.currentIndex, rolled.lastCheckedDate);
+        }
+      }
+    }
+
     res.json(w);
   });
 
@@ -1966,6 +1986,125 @@ Return ONLY valid JSON (no markdown, no explanation):
       console.error("AI routine generation error:", err);
       res.status(500).json({ message: "Failed to generate routine. Please try again." });
     }
+  });
+
+  // ── Active Routine (applied AI weekly plan) ─────────────────────────────────
+
+  /**
+   * POST /api/routine/apply
+   * Turns the user's latest AI Coach Plan weekly schedule into an Active Routine:
+   * creates a workout template for each training/cardio day and starts a
+   * rotating sequence at day 0.
+   */
+  app.post("/api/routine/apply", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = (req.user as any).id;
+    try {
+      const plan = await storage.getAiCoachPlan(userId);
+      if (!plan?.training?.schedule) {
+        return res.status(400).json({ message: "No AI Coach Plan found. Generate one from the Goals page first." });
+      }
+
+      const allExercises = await storage.getExercises(userId);
+
+      const norm    = (s: string) => s.toLowerCase().trim();
+      const wordsOf = (s: string) => new Set(norm(s).split(/\s+/).filter(w => w.length > 2));
+      const resolveExercise = (name: string): any | undefined => {
+        const target = norm(name);
+        let m = allExercises.find((e: any) => norm(e.name) === target);
+        if (m) return m;
+        m = allExercises.find((e: any) => { const n = norm(e.name); return n.includes(target) || target.includes(n); });
+        if (m) return m;
+        const tw = wordsOf(name);
+        let best: any = undefined, bestScore = 0;
+        for (const e of allExercises) {
+          const ew = wordsOf(e.name);
+          let common = 0; for (const w of tw) if (ew.has(w)) common++;
+          const score = tw.size ? common / Math.max(tw.size, ew.size) : 0;
+          if (score > bestScore) { bestScore = score; best = e; }
+        }
+        return bestScore >= 0.6 ? best : undefined;
+      };
+
+      const days = buildDaysFromSchedule(plan.training.schedule);
+
+      for (const day of days) {
+        if (day.type === "rest" || day.type === "active_recovery" || day.exercises.length === 0) continue;
+
+        const template = await storage.createTemplate({ userId, name: `${day.dayLabel}: ${day.focus}` });
+        const usedIds = new Set<number>();
+        let orderIndex = 0;
+        for (const ex of day.exercises) {
+          let match = resolveExercise(ex.name);
+          if (match && usedIds.has(match.id)) match = undefined;
+          if (!match) {
+            match = await storage.createExercise({
+              name: ex.name,
+              primaryMuscle: "other",
+              secondaryMuscles: [],
+              category: "isolation",
+              equipment: "other",
+              isCustom: true,
+              userId,
+            });
+            allExercises.push(match);
+          }
+          usedIds.add(match.id);
+          await storage.addTemplateExercise({
+            templateId: template.id,
+            exerciseId: match.id,
+            orderIndex: orderIndex++,
+            targetSets: ex.sets ?? 3,
+            targetReps: ex.reps ?? "8-12",
+            targetWeightGrams: null,
+          });
+        }
+        day.templateId = template.id;
+      }
+
+      const today = new Date().toISOString().slice(0, 10);
+      const routine = await storage.setActiveRoutine(userId, days, today);
+      res.json(routine);
+    } catch (err: any) {
+      console.error("Apply routine error:", err);
+      res.status(500).json({ message: "Failed to apply routine. Please try again." });
+    }
+  });
+
+  /**
+   * GET /api/routine/active
+   * Returns the user's active routine rolled forward to today, plus the
+   * "next up" day. Returns null if no routine is active.
+   */
+  app.get("/api/routine/active", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = (req.user as any).id;
+    const routine = await storage.getActiveRoutine(userId);
+    if (!routine) return res.json(null);
+
+    const today = new Date().toISOString().slice(0, 10);
+    const state: ActiveRoutineState = { days: routine.days, currentIndex: routine.currentIndex, lastCheckedDate: routine.lastCheckedDate };
+    const rolled = rollForward(state, today);
+    if (rolled.currentIndex !== state.currentIndex || rolled.lastCheckedDate !== state.lastCheckedDate) {
+      await storage.updateActiveRoutineState(routine.id, rolled.currentIndex, rolled.lastCheckedDate);
+    }
+
+    res.json({
+      ...routine,
+      currentIndex: rolled.currentIndex,
+      lastCheckedDate: rolled.lastCheckedDate,
+      currentDay: rolled.days[rolled.currentIndex] ?? null,
+    });
+  });
+
+  /**
+   * DELETE /api/routine/active
+   * Stops following the active routine.
+   */
+  app.delete("/api/routine/active", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    await storage.clearActiveRoutine((req.user as any).id);
+    res.sendStatus(204);
   });
 
   // ── Heart Rate Log ──────────────────────────────────────────────────────────

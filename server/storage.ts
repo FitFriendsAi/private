@@ -9,7 +9,7 @@ import {
   users, userProfiles, goals, bodyMeasurements, foodItems, foodLog,
   nutritionTargets, waterLog, supplementLog, exercises, workoutTemplates,
   templateExercises, workouts, workoutSets, heartRateLog, savedMeals, mealIngredients,
-  friendships, aiCoachPlans,
+  friendships, aiCoachPlans, activeRoutines,
   type User, type UserProfile, type Goal, type BodyMeasurement, type FoodItem,
   type FoodLogEntry, type NutritionTarget, type WaterLogEntry, type SupplementLogEntry,
   type Exercise, type WorkoutTemplate, type TemplateExercise, type Workout, type WorkoutSet,
@@ -19,7 +19,7 @@ import {
   type InsertFoodItem, type InsertFoodLogEntry, type InsertNutritionTarget,
   type InsertWaterLogEntry, type InsertSupplementLogEntry, type InsertExercise,
   type InsertWorkoutTemplate, type InsertTemplateExercise, type InsertWorkout, type InsertWorkoutSet,
-  type Friendship,
+  type Friendship, type ActiveRoutine, type RoutineDay,
 } from "../shared/schema.js";
 
 // For Supabase connections, parse the URL ourselves and pass explicit params to pg
@@ -1028,6 +1028,27 @@ export const storage = {
     // Delete old, insert new (simple upsert pattern)
     await db.delete(aiCoachPlans).where(eq(aiCoachPlans.userId, userId));
     await db.insert(aiCoachPlans).values({ userId, planJson: plan });
+  },
+
+  // ── Active Routine ─────────────────────────────────────────────────────────
+  async getActiveRoutine(userId: number): Promise<ActiveRoutine | undefined> {
+    const [row] = await db.select().from(activeRoutines).where(eq(activeRoutines.userId, userId));
+    return row;
+  },
+
+  /** Replace the user's active routine (one per user — simple delete + insert). */
+  async setActiveRoutine(userId: number, days: RoutineDay[], lastCheckedDate: string): Promise<ActiveRoutine> {
+    await db.delete(activeRoutines).where(eq(activeRoutines.userId, userId));
+    const [row] = await db.insert(activeRoutines).values({ userId, days, currentIndex: 0, lastCheckedDate }).returning();
+    return row;
+  },
+
+  async updateActiveRoutineState(id: number, currentIndex: number, lastCheckedDate: string): Promise<void> {
+    await db.update(activeRoutines).set({ currentIndex, lastCheckedDate }).where(eq(activeRoutines.id, id));
+  },
+
+  async clearActiveRoutine(userId: number): Promise<void> {
+    await db.delete(activeRoutines).where(eq(activeRoutines.userId, userId));
   },
 
   /**

@@ -11,7 +11,7 @@ import { apiRequest } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
 import {
   Zap, Plus, X, Clock, Upload, ChevronRight, Trash2,
-  MoreHorizontal, Pencil, Sparkles,
+  MoreHorizontal, Pencil, Sparkles, Moon, Dumbbell,
 } from "lucide-react-native";
 
 const LIME   = "#c8e84c";
@@ -115,6 +115,11 @@ export default function WorkoutsScreen() {
     queryFn:  () => apiRequest("GET", "/api/workouts?limit=30"),
   });
 
+  const { data: activeRoutine } = useQuery<any | null>({
+    queryKey: ["/api/routine/active"],
+    queryFn:  () => apiRequest("GET", "/api/routine/active"),
+  });
+
   const sevenDaysAgo = useMemo(() => {
     const d = new Date(); d.setDate(d.getDate() - 7); return d.toISOString().slice(0, 10);
   }, []);
@@ -216,6 +221,52 @@ export default function WorkoutsScreen() {
             {totalHours7d ? <Text style={{ fontFamily: "Manrope", fontSize: 12, color: "#666666", marginTop: 2 }}>{totalHours7d}</Text> : null}
           </View>
         </View>
+
+        {/* NEXT UP (active AI routine) */}
+        {activeRoutine?.currentDay && (() => {
+          const day = activeRoutine.currentDay;
+          const isRest = day.type === "rest" || day.type === "active_recovery";
+          const Inner = (
+            <View style={{
+              flexDirection: "row", alignItems: "center", gap: 14,
+              backgroundColor: isRest ? card : LIME, borderRadius: 18, padding: 16,
+              borderWidth: isRest ? 1 : 0, borderColor: border,
+            }}>
+              <View style={{
+                width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center",
+                backgroundColor: isRest ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.1)",
+              }}>
+                {isRest ? <Moon size={20} color={muted} /> : <Dumbbell size={20} color="#1a1a1a" />}
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: "Manrope-Bold", fontSize: 10, letterSpacing: 0.8, color: isRest ? muted : "#1a1a1a99" }}>
+                  NEXT UP · {day.dayLabel?.toUpperCase()}
+                </Text>
+                <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 16, color: isRest ? text : "#1a1a1a", marginTop: 2 }}>
+                  {isRest ? "Rest Day" : day.focus}
+                </Text>
+                {isRest && (
+                  <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted, marginTop: 2 }}>
+                    Recover up — this rolls to the next day automatically.
+                  </Text>
+                )}
+              </View>
+              {!isRest && <ChevronRight size={18} color="#1a1a1a" />}
+            </View>
+          );
+          return (
+            <View style={{ paddingHorizontal: 16, marginBottom: 22 }}>
+              {isRest || day.templateId == null ? Inner : (
+                <Pressable
+                  onPress={() => router.push({ pathname: "/routine/[templateId]", params: { templateId: String(day.templateId) } })}
+                  style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
+                >
+                  {Inner}
+                </Pressable>
+              )}
+            </View>
+          );
+        })()}
 
         {/* MY ROUTINES */}
         <View style={{ paddingHorizontal: 16 }}>
