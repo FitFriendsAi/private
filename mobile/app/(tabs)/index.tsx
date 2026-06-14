@@ -790,25 +790,32 @@ export default function DashboardScreen() {
 
         {/* ── Macro bars ──────────────────────────────────────────── */}
         <View style={{ flexDirection: "row", gap: 10, marginBottom: 10 }}>
-          {([
-            { label: "PROTEIN", val: Math.round(totals.protein), target: Math.round(targets?.proteinG ?? 0), color: LIME   },
-            { label: "CARBS",   val: Math.round(totals.carbs),   target: Math.round(targets?.carbsG   ?? 0), color: BLUE   },
-            { label: "FAT",     val: Math.round(totals.fat),     target: Math.round(targets?.fatG     ?? 0), color: PURPLE },
-          ] as const).map(m => (
-            <Pressable key={m.label} onPress={() => setMacrosOpen(true)} style={({ pressed }) => ({ flex: 1, backgroundColor: card, borderRadius: 20, padding: 12, borderWidth: 1, borderColor: border, opacity: pressed ? 0.8 : 1 })}>
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted, letterSpacing: 0.8 }}>{m.label}</Text>
-                <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: m.color }}>{m.target > 0 ? Math.round((m.val / m.target) * 100) : 0}%</Text>
-              </View>
-              <View style={{ flexDirection: "row", alignItems: "baseline", gap: 2, marginTop: 4 }}>
-                <Text style={{ ...(DOT as any), fontSize: 20, color: m.color }}>{m.val}</Text>
-                <Text style={{ fontSize: 9, fontFamily: "Manrope-Bold", color: muted }}>/{m.target}g</Text>
-              </View>
-              <View style={{ height: 4, backgroundColor: sec, borderRadius: 2, marginTop: 8, overflow: "hidden" }}>
-                <View style={{ width: `${Math.min(m.target > 0 ? (m.val / m.target) * 100 : 0, 100)}%`, height: "100%", backgroundColor: m.color, borderRadius: 2 }} />
-              </View>
-            </Pressable>
-          ))}
+          {(() => {
+            // % shown on each card = that macro's share of today's TOTAL macro
+            // calories (protein/carbs 4 kcal/g, fat 9 kcal/g), not % of its target.
+            const pCal = totals.protein * 4, cCal = totals.carbs * 4, fCal = totals.fat * 9;
+            const totalCal = pCal + cCal + fCal;
+            const share = (cal: number) => totalCal > 0 ? Math.round((cal / totalCal) * 100) : 0;
+            return ([
+              { label: "PROTEIN", val: Math.round(totals.protein), target: Math.round(targets?.proteinG ?? 0), color: LIME,   pct: share(pCal) },
+              { label: "CARBS",   val: Math.round(totals.carbs),   target: Math.round(targets?.carbsG   ?? 0), color: BLUE,   pct: share(cCal) },
+              { label: "FAT",     val: Math.round(totals.fat),     target: Math.round(targets?.fatG     ?? 0), color: PURPLE, pct: share(fCal) },
+            ] as const).map(m => (
+              <Pressable key={m.label} onPress={() => setMacrosOpen(true)} style={({ pressed }) => ({ flex: 1, backgroundColor: card, borderRadius: 20, padding: 12, borderWidth: 1, borderColor: border, opacity: pressed ? 0.8 : 1 })}>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                  <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted, letterSpacing: 0.8 }}>{m.label}</Text>
+                  <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: m.color }}>{m.pct}%</Text>
+                </View>
+                <View style={{ flexDirection: "row", alignItems: "baseline", gap: 2, marginTop: 4 }}>
+                  <Text style={{ ...(DOT as any), fontSize: 20, color: m.color }}>{m.val}</Text>
+                  <Text style={{ fontSize: 9, fontFamily: "Manrope-Bold", color: muted }}>/{m.target}g</Text>
+                </View>
+                <View style={{ height: 4, backgroundColor: sec, borderRadius: 2, marginTop: 8, overflow: "hidden" }}>
+                  <View style={{ width: `${Math.min(m.target > 0 ? (m.val / m.target) * 100 : 0, 100)}%`, height: "100%", backgroundColor: m.color, borderRadius: 2 }} />
+                </View>
+              </Pressable>
+            ));
+          })()}
         </View>
 
         {/* ── Heart Rate ──────────────────────────────────────────── */}
