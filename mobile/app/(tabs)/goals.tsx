@@ -44,6 +44,19 @@ function daysLeft(deadline: string | null | undefined): number | null {
   return Math.max(0, Math.ceil(ms / 86400000));
 }
 
+// Each macro's share of total macro calories (protein/carbs 4, fat 9 kcal/g),
+// as integer percentages summing to exactly 100 (largest-remainder).
+function macroCalShares(proteinG: number, carbsG: number, fatG: number) {
+  const vals  = [proteinG * 4, carbsG * 4, fatG * 9];
+  const total = vals.reduce((s, v) => s + v, 0);
+  if (total <= 0) return { protein: 0, carbs: 0, fat: 0 };
+  const raw = vals.map(v => (v / total) * 100);
+  const out = raw.map(Math.floor);
+  const rem = 100 - out.reduce((s, v) => s + v, 0);
+  raw.map((r, i) => ({ i, f: r - Math.floor(r) })).sort((a, b) => b.f - a.f).slice(0, rem).forEach(o => out[o.i]++);
+  return { protein: out[0], carbs: out[1], fat: out[2] };
+}
+
 // ── Progress toward goal ──────────────────────────────────────────
 function goalProgress(goal: any, latestWeightGrams: number | null): number {
   if (!goal.startValue || !goal.targetValue) return 0;
@@ -763,20 +776,28 @@ export default function GoalsScreen() {
             {/* Nutrition section */}
             <Section icon={<Utensils size={16} color={LIME} />} title="Nutrition Targets" color={LIME} palette={palette}>
               {/* Macro row */}
-              <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 12 }}>
-                {[
-                  { label: "Calories", value: effectivePlan.nutrition.calories, unit: "kcal", color: text },
-                  { label: "Protein",  value: effectivePlan.nutrition.proteinG, unit: "g",    color: LIME },
-                  { label: "Carbs",    value: effectivePlan.nutrition.carbsG,   unit: "g",    color: BLUE },
-                  { label: "Fat",      value: effectivePlan.nutrition.fatG,     unit: "g",    color: PURPLE },
-                ].map(m => (
-                  <View key={m.label} style={{ alignItems: "center" }}>
-                    <Text style={{ ...(DOT as any), fontSize: 24, color: m.color, lineHeight: 28 }}>{m.value}</Text>
-                    <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted, marginTop: 1 }}>{m.unit}</Text>
-                    <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted }}>{m.label}</Text>
+              {(() => {
+                const sh = macroCalShares(effectivePlan.nutrition.proteinG, effectivePlan.nutrition.carbsG, effectivePlan.nutrition.fatG);
+                return (
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 12 }}>
+                    {[
+                      { label: "Calories", value: effectivePlan.nutrition.calories, unit: "kcal", color: text,   pct: null as number | null },
+                      { label: "Protein",  value: effectivePlan.nutrition.proteinG, unit: "g",    color: LIME,   pct: sh.protein },
+                      { label: "Carbs",    value: effectivePlan.nutrition.carbsG,   unit: "g",    color: BLUE,   pct: sh.carbs },
+                      { label: "Fat",      value: effectivePlan.nutrition.fatG,     unit: "g",    color: PURPLE, pct: sh.fat },
+                    ].map(m => (
+                      <View key={m.label} style={{ alignItems: "center" }}>
+                        <Text style={{ ...(DOT as any), fontSize: 24, color: m.color, lineHeight: 28 }}>{m.value}</Text>
+                        <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted, marginTop: 1 }}>{m.unit}</Text>
+                        <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted }}>{m.label}</Text>
+                        {m.pct != null && (
+                          <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: m.color, marginTop: 2 }}>{m.pct}%</Text>
+                        )}
+                      </View>
+                    ))}
                   </View>
-                ))}
-              </View>
+                );
+              })()}
               <Text style={{ fontSize: 12, fontFamily: "Manrope", color: muted, lineHeight: 18, marginBottom: 10 }}>
                 {effectivePlan.nutrition.reasoning}
               </Text>
@@ -952,26 +973,34 @@ export default function GoalsScreen() {
               </Text>
             </View>
 
-            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-              {[
-                { label: "Calories", value: Math.round(targets.calories),           unit: "kcal", color: text   },
-                { label: "Protein",  value: Math.round(targets.proteinG ?? 0),      unit: "g",    color: LIME   },
-                { label: "Carbs",    value: Math.round(targets.carbsG   ?? 0),      unit: "g",    color: BLUE   },
-                { label: "Fat",      value: Math.round(targets.fatG     ?? 0),      unit: "g",    color: PURPLE },
-              ].map(m => (
-                <View key={m.label} style={{ alignItems: "center" }}>
-                  <Text style={{ ...(DOT as any), fontSize: 26, color: m.color, lineHeight: 30 }}>
-                    {m.value}
-                  </Text>
-                  <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted, marginTop: 2 }}>
-                    {m.unit}
-                  </Text>
-                  <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted }}>
-                    {m.label}
-                  </Text>
+            {(() => {
+              const sh = macroCalShares(targets.proteinG ?? 0, targets.carbsG ?? 0, targets.fatG ?? 0);
+              return (
+                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                  {[
+                    { label: "Calories", value: Math.round(targets.calories),      unit: "kcal", color: text,   pct: null as number | null },
+                    { label: "Protein",  value: Math.round(targets.proteinG ?? 0), unit: "g",    color: LIME,   pct: sh.protein },
+                    { label: "Carbs",    value: Math.round(targets.carbsG   ?? 0), unit: "g",    color: BLUE,   pct: sh.carbs },
+                    { label: "Fat",      value: Math.round(targets.fatG     ?? 0), unit: "g",    color: PURPLE, pct: sh.fat },
+                  ].map(m => (
+                    <View key={m.label} style={{ alignItems: "center" }}>
+                      <Text style={{ ...(DOT as any), fontSize: 26, color: m.color, lineHeight: 30 }}>
+                        {m.value}
+                      </Text>
+                      <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted, marginTop: 2 }}>
+                        {m.unit}
+                      </Text>
+                      <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted }}>
+                        {m.label}
+                      </Text>
+                      {m.pct != null && (
+                        <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: m.color, marginTop: 2 }}>{m.pct}%</Text>
+                      )}
+                    </View>
+                  ))}
                 </View>
-              ))}
-            </View>
+              );
+            })()}
 
             <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted, marginTop: 14, lineHeight: 16 }}>
               Targets update automatically when you log a new weight or change your goals.
