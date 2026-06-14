@@ -704,9 +704,11 @@ export default function ProgressScreen() {
   const calPct    = calGoal > 0 ? todayTotals.cal / calGoal : 0;
   const remaining = Math.max(0, calGoal - todayTotals.cal);
 
-  // Period-average calories (for the calories donut on the Progress page)
-  const avgCal    = summary.length > 0
-    ? Math.round(summary.reduce((s: number, d: any) => s + (d.calories ?? 0), 0) / summary.length)
+  // Period-average calories — averaged only over days that actually logged
+  // calories, so empty/unlogged days don't drag the average down.
+  const loggedCalDays = summary.filter((d: any) => (d.calories ?? 0) > 0);
+  const avgCal    = loggedCalDays.length > 0
+    ? Math.round(loggedCalDays.reduce((s: number, d: any) => s + (d.calories ?? 0), 0) / loggedCalDays.length)
     : 0;
   const avgCalPct = calGoal > 0 ? avgCal / calGoal : 0;
 
