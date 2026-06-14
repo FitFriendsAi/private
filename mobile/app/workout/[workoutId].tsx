@@ -410,24 +410,6 @@ export default function WorkoutSessionScreen() {
                         {ae.exercise.primaryMuscle}
                       </Text>
                     ) : null}
-
-                    {/* Previous performance */}
-                    {prev ? (
-                      <View style={{
-                        marginTop: 6, backgroundColor: "rgba(255,255,255,0.04)",
-                        borderRadius: 8, padding: 7, borderWidth: 1, borderColor: "rgba(255,255,255,0.06)",
-                      }}>
-                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 10, color: muted, letterSpacing: 0.6 }}>
-                          PREV  ·  {new Date(prev.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                        </Text>
-                        <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: "#aaaaaa", marginTop: 2 }}>
-                          {prev.sets.slice(0, 4).map(s =>
-                            `${gramsToLbs(s.weightGrams)} × ${s.reps}`
-                          ).join(" · ")}
-                          {prev.sets.length > 4 ? " …" : ""}
-                        </Text>
-                      </View>
-                    ) : null}
                   </View>
                   <Pressable onPress={() => removeExercise(ei)} style={{ padding: 4 }}>
                     <X size={16} color={muted} />
