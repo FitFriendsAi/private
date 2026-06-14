@@ -10,6 +10,7 @@ import { apiRequest } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
 import { useHealth } from "@/hooks/use-health";
 import { ScanningOverlay } from "@/components/ScanningOverlay";
+import { startLiveScan } from "@/lib/live-scan";
 import { todayStr, nowTimeStr, timeStrToISO, fmtTime, shiftDateStr, formatDate, FOOD_UNITS, unitToServings, hasGramBasis, resolveServingGrams, type FoodUnit } from "@/lib/utils";
 import { Plus, Minus, Search, X, ChevronRight, UtensilsCrossed, Trash2, ScanLine, Camera, PenLine, ChevronDown, ChevronLeft, Sparkles, Upload } from "lucide-react-native";
 
@@ -1015,6 +1016,33 @@ export default function FoodScreen() {
     input.click();
   }
 
+  // ── Live auto-scanning ──────────────────────────────────────────────────────
+  // Opens a live camera preview that auto-captures, falling back to the existing
+  // single-photo flow if the camera is unavailable/denied or the user opts out.
+  async function liveScanBarcode() {
+    if (Platform.OS !== "web") return openBarcodeCapture();
+    const r = await startLiveScan({ mode: "barcode", accent: accentActive });
+    if (r.type === "barcode") {
+      setScanPreview(r.snapshot);          // show the frame under the scan animation during lookup
+      await lookupBarcodeCode(r.code);     // toggles barcodeLoading itself
+      setScanPreview(null);
+    } else if (r.type === "fallback") {
+      openBarcodeCapture();                // OS camera + still-image decode
+    }
+    // "cancel" → stay in the barcode view (manual entry still available)
+  }
+
+  async function liveScanLabel() {
+    if (Platform.OS !== "web") return openScanLabel();
+    const r = await startLiveScan({ mode: "label", accent: accentActive });
+    if (r.type === "image") {
+      await processLabelFile(r.file);      // Claude reads it, with the scanning overlay
+    } else if (r.type === "fallback") {
+      openScanLabel();                     // OS camera fallback
+    }
+    // "cancel" → do nothing
+  }
+
   // Log the reviewed AI items to the current meal/date in one batch.
   async function confirmQuickLog() {
     const items = parsedItems ?? [];
@@ -1989,7 +2017,7 @@ export default function FoodScreen() {
                     <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: text }}>Barcode</Text>
                   </Pressable>
                   <Pressable
-                    onPress={openScanLabel}
+                    onPress={liveScanLabel}
                     disabled={scanLabelLoading}
                     style={({ pressed }) => ({
                       flex: 1, backgroundColor: card, borderRadius: 16, borderWidth: 1, borderColor: border,
@@ -2378,9 +2406,9 @@ export default function FoodScreen() {
                   </View>
                 ) : (
                   <>
-                    {/* Photo capture button */}
+                    {/* Live auto-scan button */}
                     <Pressable
-                      onPress={openBarcodeCapture}
+                      onPress={liveScanBarcode}
                       style={({ pressed }) => ({
                         backgroundColor: accentActive, borderRadius: 16, paddingVertical: 18,
                         flexDirection: "row", alignItems: "center", justifyContent: "center",
@@ -2389,11 +2417,11 @@ export default function FoodScreen() {
                     >
                       <ScanLine size={22} color={isWhite ? "#fff" : palette.accentText} />
                       <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 15, color: isWhite ? "#fff" : palette.accentText }}>
-                        Take Photo of Barcode
+                        Scan Barcode
                       </Text>
                     </Pressable>
                     <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted, textAlign: "center", marginBottom: 24 }}>
-                      Point your camera at the barcode on the product
+                      Hold the barcode in view — it captures automatically
                     </Text>
 
                     {barcodeError ? (
