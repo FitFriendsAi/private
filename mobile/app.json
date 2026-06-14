@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "FitCore",
+    "name": "Fit Friends",
     "slug": "fitfriends",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -16,9 +16,9 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.joelmiller.fitcore",
       "infoPlist": {
-        "NSHealthShareUsageDescription": "FitCore reads your heart rate, body weight, steps, and workout data from Apple Health to show your full fitness picture.",
-        "NSHealthUpdateUsageDescription": "FitCore writes workouts and body weight back to Apple Health.",
-        "NSMotionUsageDescription": "FitCore uses motion data to count steps.",
+        "NSHealthShareUsageDescription": "Fit Friends reads your heart rate, body weight, steps, and workout data from Apple Health to show your full fitness picture.",
+        "NSHealthUpdateUsageDescription": "Fit Friends writes workouts and body weight back to Apple Health.",
+        "NSMotionUsageDescription": "Fit Friends uses motion data to count steps.",
         "ITSAppUsesNonExemptEncryption": false
       },
       "entitlements": {
@@ -36,7 +36,9 @@
     "web": {
       "bundler": "metro",
       "output": "single",
-      "favicon": "./assets/icon.png"
+      "favicon": "./assets/icon.png",
+      "themeColor": "#ffffff",
+      "backgroundColor": "#ffffff"
     },
     "plugins": [
       "expo-router",

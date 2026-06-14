@@ -1,6 +1,6 @@
-# FitCore Mobile
+# Fit Friends Mobile
 
-React Native / Expo app for FitCore. Shares the same Express backend as the web app.
+React Native / Expo app for Fit Friends. Shares the same Express backend as the web app.
 
 ## Setup
 
@@ -55,5 +55,5 @@ It will not work in Expo Go or the iOS Simulator.
 
 The Settings screen handles:
 1. Requesting HealthKit permissions
-2. Syncing the last N days of heart rate + body weight into FitCore
+2. Syncing the last N days of heart rate + body weight into Fit Friends
 3. Syncing happens on demand — tap "Sync Last N Days"

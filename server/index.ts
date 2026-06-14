@@ -114,7 +114,7 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 });
 
 app.listen(PORT, async () => {
-  console.log(`FitCore server running on port ${PORT}`);
+  console.log(`Fit Friends server running on port ${PORT}`);
 
   // Log outbound IP so it can be whitelisted in FatSecret's IP Restrictions panel
   fetch("https://api.ipify.org?format=json")

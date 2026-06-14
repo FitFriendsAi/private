@@ -34,7 +34,7 @@ export async function lookupBarcode(barcode: string): Promise<NutritionFacts | n
   try {
     const res = await fetchWithTimeout(
       `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`,
-      { headers: { "User-Agent": "FitCore/1.0 (fitness tracker)" } }
+      { headers: { "User-Agent": "FitFriends/1.0 (fitness tracker)" } }
     );
     if (!res.ok) return null;
     const data = await res.json() as any;
@@ -401,7 +401,7 @@ export async function searchBrandOFF(brandQuery: string, limit = 25): Promise<Nu
       .replace(/[^a-z0-9-]/g, "");
     const res = await fetchWithTimeout(
       `https://world.openfoodfacts.org/brand/${slug}/1.json?page_size=${limit}&fields=product_name,brands,serving_size,nutriments,code`,
-      { headers: { "User-Agent": "FitCore/1.0" } }
+      { headers: { "User-Agent": "FitFriends/1.0" } }
     );
     if (!res.ok) return [];
     const data = await res.json() as any;
@@ -554,7 +554,7 @@ export async function searchFoodByName(query: string, limit = 20): Promise<Nutri
     const encoded = encodeURIComponent(query);
     const res = await fetchWithTimeout(
       `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encoded}&search_simple=1&action=process&json=1&page_size=${limit}&fields=product_name,brands,serving_size,nutriments,code`,
-      { headers: { "User-Agent": "FitCore/1.0" } }
+      { headers: { "User-Agent": "FitFriends/1.0" } }
     );
     if (!res.ok) return [];
     const data = await res.json() as any;
@@ -577,7 +577,7 @@ export async function searchOFF(query: string, limit = 20): Promise<NutritionFac
       `https://search.openfoodfacts.org/search` +
       `?q=${encodeURIComponent(query)}&page_size=${limit}` +
       `&fields=product_name,brands,serving_size,nutriments,code`,
-      { headers: { "User-Agent": "FitCore/1.0 (fitness tracker)" } },
+      { headers: { "User-Agent": "FitFriends/1.0 (fitness tracker)" } },
       8000
     );
     if (!res.ok) return [];

@@ -346,7 +346,7 @@ export default function FriendsScreen() {
                       No friends yet
                     </Text>
                     <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted, textAlign: "center" }}>
-                      Add people already on FitCore or invite someone new
+                      Add people already on Fit Friends or invite someone new
                     </Text>
                   </View>
                   {/* Buttons — full width row */}
@@ -608,7 +608,7 @@ export default function FriendsScreen() {
             {/* Header */}
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
               <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 20, color: text }}>
-                {modalTab === "add" ? "Add Friend" : "Invite to FitCore"}
+                {modalTab === "add" ? "Add Friend" : "Invite to Fit Friends"}
               </Text>
               <Pressable onPress={closeModal} hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}>
                 <X size={22} color={muted} />
@@ -765,7 +765,7 @@ export default function FriendsScreen() {
 
                     <Pressable onPress={() => setModalTab("invite")} style={{ marginTop: 16, alignItems: "center" }}>
                       <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted }}>
-                        Not on FitCore yet? <Text style={{ color: LIME, fontFamily: "Manrope-Bold" }}>Send an invite →</Text>
+                        Not on Fit Friends yet? <Text style={{ color: LIME, fontFamily: "Manrope-Bold" }}>Send an invite →</Text>
                       </Text>
                     </Pressable>
                   </>
@@ -773,7 +773,7 @@ export default function FriendsScreen() {
                   /* ── EMAIL MODE ── */
                   <>
                     <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted, marginBottom: 12 }}>
-                      Enter the email address of someone already on FitCore.
+                      Enter the email address of someone already on Fit Friends.
                     </Text>
                     <TextInput
                       value={addEmail}
@@ -807,7 +807,7 @@ export default function FriendsScreen() {
                     </Pressable>
                     <Pressable onPress={() => setModalTab("invite")} style={{ marginTop: 14, alignItems: "center" }}>
                       <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted }}>
-                        Not on FitCore yet? <Text style={{ color: LIME, fontFamily: "Manrope-Bold" }}>Send an invite →</Text>
+                        Not on Fit Friends yet? <Text style={{ color: LIME, fontFamily: "Manrope-Bold" }}>Send an invite →</Text>
                       </Text>
                     </Pressable>
                   </>
@@ -831,7 +831,7 @@ export default function FriendsScreen() {
                     <Text style={{ fontFamily: "Manrope-Bold", fontSize: 18, color: "#22c55e" }}>Invitation sent!</Text>
                     <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted, textAlign: "center" }}>
                       Your invite was sent to {inviteContact}.
-                      They'll get a link to join FitCore.
+                      They'll get a link to join Fit Friends.
                     </Text>
                     <Pressable
                       onPress={() => { setInviteContact(""); setInviteNote(""); setInviteSent(false); }}
@@ -847,7 +847,7 @@ export default function FriendsScreen() {
                 ) : (
                   <>
                     <Text style={{ fontFamily: "Manrope", fontSize: 13, color: muted, marginBottom: 14 }}>
-                      Invite someone who isn't on FitCore yet. They'll receive a link to create an account.
+                      Invite someone who isn't on Fit Friends yet. They'll receive a link to create an account.
                     </Text>
 
                     {/* Email / SMS toggle */}

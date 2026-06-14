@@ -249815,7 +249815,7 @@ async function lookupBarcode(barcode) {
   try {
     const res = await fetchWithTimeout(
       `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`,
-      { headers: { "User-Agent": "FitCore/1.0 (fitness tracker)" } }
+      { headers: { "User-Agent": "FitFriends/1.0 (fitness tracker)" } }
     );
     if (!res.ok) return null;
     const data = await res.json();
@@ -250102,7 +250102,7 @@ async function searchBrandOFF(brandQuery, limit = 25) {
     const slug = brandQuery.toLowerCase().replace(/[''']/g, "").replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
     const res = await fetchWithTimeout(
       `https://world.openfoodfacts.org/brand/${slug}/1.json?page_size=${limit}&fields=product_name,brands,serving_size,nutriments,code`,
-      { headers: { "User-Agent": "FitCore/1.0" } }
+      { headers: { "User-Agent": "FitFriends/1.0" } }
     );
     if (!res.ok) return [];
     const data = await res.json();
@@ -250221,7 +250221,7 @@ async function searchOFF(query, limit = 20) {
   try {
     const res = await fetchWithTimeout(
       `https://search.openfoodfacts.org/search?q=${encodeURIComponent(query)}&page_size=${limit}&fields=product_name,brands,serving_size,nutriments,code`,
-      { headers: { "User-Agent": "FitCore/1.0 (fitness tracker)" } },
+      { headers: { "User-Agent": "FitFriends/1.0 (fitness tracker)" } },
       8e3
     );
     if (!res.ok) return [];
@@ -255617,7 +255617,7 @@ var Resend = class {
 // server/services/notifications.ts
 var import_twilio = __toESM(require_lib11(), 1);
 var APP_URL = process.env.APP_URL ?? "https://fitfriends-z30o.onrender.com";
-var APP_NAME = "FitCore";
+var APP_NAME = "Fit Friends";
 var FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? `noreply@${process.env.RESEND_DOMAIN ?? "fitcore.app"}`;
 async function sendInviteEmail(opts) {
   const apiKey = process.env.RESEND_API_KEY;
@@ -258163,7 +258163,7 @@ app.use((err, _req, res, _next) => {
   if (!res.headersSent) res.status(status).json({ message });
 });
 app.listen(PORT, async () => {
-  console.log(`FitCore server running on port ${PORT}`);
+  console.log(`Fit Friends server running on port ${PORT}`);
   fetch("https://api.ipify.org?format=json").then((r2) => r2.json()).then((d2) => console.log(`[server] outbound IP: ${d2.ip}  \u2190 add this to FatSecret IP whitelist`)).catch(() => {
   });
   try {

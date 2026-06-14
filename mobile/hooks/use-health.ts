@@ -1,7 +1,7 @@
 /**
  * use-health.ts
  *
- * Full Apple HealthKit integration for FitCore (iOS only).
+ * Full Apple HealthKit integration for Fit Friends (iOS only).
  * On Android / Web the hook returns stubs and write functions are no-ops.
  *
  * READS  → steps today, 7-day step history, today's active calories
@@ -53,7 +53,7 @@ export type HealthState = {
   authorize: () => void;
   /** Re-fetch all read data */
   refresh: () => void;
-  /** Import weight samples from Health into FitCore (last 90 days) */
+  /** Import weight samples from Health into Fit Friends (last 90 days) */
   syncWeightFromHealth: (
     onSample: (date: string, weightKg: number) => Promise<void>,
     onDone: (count: number) => void,
@@ -186,7 +186,7 @@ export function useHealth(): HealthState {
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Sync historical weight from Health → FitCore ──────────────────────────
+  // ── Sync historical weight from Health → Fit Friends ──────────────────────
   const syncWeightFromHealth = useCallback(
     (
       onSample: (date: string, weightKg: number) => Promise<void>,

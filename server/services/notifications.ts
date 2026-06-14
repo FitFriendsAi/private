@@ -9,7 +9,7 @@ import twilio from "twilio";
 
 // ── App URL ─────────────────────────────────────────────────────────────────
 const APP_URL = process.env.APP_URL ?? "https://fitfriends-z30o.onrender.com";
-const APP_NAME = "FitCore";
+const APP_NAME = "Fit Friends";
 const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? `noreply@${process.env.RESEND_DOMAIN ?? "fitcore.app"}`;
 
 // ── Email via Resend ─────────────────────────────────────────────────────────

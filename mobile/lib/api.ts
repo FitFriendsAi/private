@@ -1,5 +1,5 @@
 /**
- * API client for FitCore mobile.
+ * API client for Fit Friends mobile.
  * Uses JWT stored in SecureStore (set after login).
  * All requests go to API_BASE_URL — set via EXPO_PUBLIC_API_URL env var,
  * falls back to localhost:5001 for local dev.
@@ -80,7 +80,7 @@ export async function apiRequest<T = unknown>(
   } catch (err: any) {
     clearTimeout(timer);
     if (err?.name === "AbortError") {
-      throw new ApiError(0, "Cannot reach server — check that FitCore is running and you're on the same Wi-Fi.");
+      throw new ApiError(0, "Cannot reach server — check that Fit Friends is running and you're on the same Wi-Fi.");
     }
     throw new ApiError(0, err?.message ?? "Network error");
   }

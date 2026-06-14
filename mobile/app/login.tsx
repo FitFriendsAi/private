@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  View, Text, TextInput, Pressable, KeyboardAvoidingView,
+  View, Text, Image, TextInput, Pressable, KeyboardAvoidingView,
   Platform, ActivityIndicator, ScrollView, Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -69,9 +69,11 @@ export default function LoginScreen() {
         >
           {/* Logo */}
           <View style={{ marginBottom: 44 }}>
-            <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 36, color: "#ffffff", letterSpacing: -1 }}>
-              FitCore
-            </Text>
+            <Image
+              source={require("../assets/logo-full-white.png")}
+              style={{ width: 160, height: 160 }}
+              resizeMode="contain"
+            />
             <Text style={{ fontFamily: "Manrope", fontSize: 15, color: "#888888", marginTop: 4 }}>
               Your fitness. Tracked.
             </Text>

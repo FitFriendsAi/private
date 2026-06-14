@@ -2519,7 +2519,7 @@ Return ONLY valid JSON (no markdown, no explanation):
 
   /**
    * POST /api/invite
-   * Send an email or SMS invitation to someone who isn't on FitCore yet.
+   * Send an email or SMS invitation to someone who isn't on Fit Friends yet.
    * Body: { method: "email"|"sms", contact: string, personalNote?: string }
    */
   app.post("/api/invite", async (req, res) => {

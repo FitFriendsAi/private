@@ -37,7 +37,7 @@ export default function Auth() {
               <Dumbbell className="w-9 h-9 text-primary" />
             </div>
           </div>
-          <CardTitle className="text-3xl font-bold">FitCore</CardTitle>
+          <CardTitle className="text-3xl font-bold">Fit Friends</CardTitle>
           <CardDescription className="text-sm">Your all-in-one fitness & nutrition tracker</CardDescription>
         </CardHeader>
         <CardContent>
