@@ -244865,6 +244865,10 @@ var userProfiles = pgTable("user_profiles", {
   // lbs | kg
   volumeUnitPref: text("volume_unit_pref").default("oz"),
   // oz | ml
+  // Adaptive TDEE: measured maintenance calories back-solved from logged intake
+  // + weight trend. Null until there's enough data; targets fall back to formula.
+  estimatedTdee: real("estimated_tdee"),
+  tdeeUpdatedAt: timestamp("tdee_updated_at"),
   updatedAt: timestamp("updated_at").defaultNow()
 });
 var insertUserProfileSchema = c(userProfiles).omit({ id: true });
@@ -245165,6 +245169,13 @@ var storage = {
     const [m3] = await db.select().from(bodyMeasurements).where(eq(bodyMeasurements.userId, userId)).orderBy(desc(bodyMeasurements.date)).limit(1);
     return m3;
   },
+  async updateMeasurement(id, userId, data) {
+    const [m3] = await db.update(bodyMeasurements).set(data).where(and(eq(bodyMeasurements.id, id), eq(bodyMeasurements.userId, userId))).returning();
+    return m3;
+  },
+  async deleteMeasurement(id, userId) {
+    await db.delete(bodyMeasurements).where(and(eq(bodyMeasurements.id, id), eq(bodyMeasurements.userId, userId)));
+  },
   // ── Food Items ─────────────────────────────────────────────────────────────
   async getFoodItemById(id) {
     const [item] = await db.select().from(foodItems).where(eq(foodItems.id, id));
@@ -245181,6 +245192,24 @@ var storage = {
   async createFoodItem(data) {
     const [item] = await db.insert(foodItems).values(data).returning();
     return item;
+  },
+  /** Finds an existing food item with the same name + brand (case-insensitive) so
+   *  user-submitted foods (manual entries, label scans, search results) are pooled
+   *  into one shared record instead of creating near-duplicates. */
+  async findSimilarFoodItem(name, brand) {
+    const [item] = await db.select().from(foodItems).where(
+      and(
+        sql`lower(${foodItems.name}) = lower(${name})`,
+        brand ? sql`lower(${foodItems.brand}) = lower(${brand})` : isNull(foodItems.brand)
+      )
+    ).limit(1);
+    return item;
+  },
+  /** All distinct food_item ids this user has ever logged — used to boost their
+   *  own previously-used foods in search results. */
+  async getUserFoodItemIds(userId) {
+    const rows = await db.selectDistinct({ foodItemId: foodLog.foodItemId }).from(foodLog).where(and(eq(foodLog.userId, userId), sql`${foodLog.foodItemId} is not null`));
+    return new Set(rows.map((r2) => r2.foodItemId).filter((id) => id != null));
   },
   async updateFoodItem(id, patch) {
     const [item] = await db.update(foodItems).set(patch).where(eq(foodItems.id, id)).returning();
@@ -245214,6 +245243,22 @@ var storage = {
    *  Always returns a COMPLETE scaffold of every period bucket (zeros for days with no data),
    *  so the x-axis is fully populated regardless of logging history.
    */
+  /** Daily calorie totals over the last `days` days (only days with entries are
+   *  returned). Used by the adaptive-TDEE estimator. */
+  async getDailyCalorieTotals(userId, days = 28) {
+    const from = /* @__PURE__ */ new Date();
+    from.setDate(from.getDate() - days);
+    const fromStr = from.toISOString().slice(0, 10);
+    const rows = await db.select({
+      date: foodLog.date,
+      calories: sql`coalesce(sum(${foodLog.caloriesActual}), 0)`
+    }).from(foodLog).where(and(eq(foodLog.userId, userId), gte(foodLog.date, fromStr))).groupBy(foodLog.date).orderBy(foodLog.date);
+    return rows.map((r2) => {
+      const raw = r2.date;
+      const date2 = raw instanceof Date ? raw.toISOString().slice(0, 10) : String(raw).slice(0, 10);
+      return { date: date2, calories: Number(r2.calories) };
+    });
+  },
   async getFoodLogSummary(userId, period) {
     const today = /* @__PURE__ */ new Date();
     const ds = (d2) => d2.toISOString().slice(0, 10);
@@ -249645,6 +249690,106 @@ Return ONLY valid JSON (no markdown, no explanation) with this exact structure:
 
 If a value is not visible or unclear, use null for optional fields or 0 for required fields.
 Convert all units to the specified units (g, mg, kcal).`;
+var MEAL_SCHEMA = `Return ONLY valid JSON (no markdown, no prose) of this exact shape:
+{
+  "items": [
+    {
+      "name": "<short food name, e.g. 'Scrambled Eggs'>",
+      "brand": "<brand/restaurant if identifiable, otherwise null>",
+      "quantity": "<human amount eaten, e.g. '2 large eggs' or '1 cup'>",
+      "servingSizeG": <estimated TOTAL grams eaten as a number>,
+      "calories": <TOTAL kcal for that amount, number>,
+      "proteinG": <TOTAL grams protein, number>,
+      "carbsG": <TOTAL grams carbs, number>,
+      "fatG": <TOTAL grams fat, number>,
+      "fiberG": <TOTAL grams fiber, number or null>,
+      "sodiumMg": <TOTAL mg sodium, number or null>,
+      "sugarG": <TOTAL grams sugar, number or null>
+    }
+  ]
+}
+All macro values are TOTALS for the amount eaten, NOT per 100g. Use realistic USDA-style
+estimates. If an amount isn't specified, assume one typical serving. If you cannot identify
+any food, return {"items": []}.`;
+var MEAL_TEXT_PROMPT = `You are a nutrition estimator. The user describes a meal in plain language. Break it into individual food items and estimate the nutrition for each.
+
+${MEAL_SCHEMA}`;
+var MEAL_PHOTO_PROMPT = `You are a nutrition estimator. Identify each distinct food on the plate in this photo, estimate the portion size from visual cues, and estimate the nutrition for each item. Be realistic about portions.
+
+${MEAL_SCHEMA}`;
+function parseMealResponse(text2) {
+  try {
+    const cleaned = text2.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    const parsed = JSON.parse(cleaned);
+    const items = Array.isArray(parsed?.items) ? parsed.items : [];
+    return items.map((it2) => {
+      const calories = Math.round(Number(it2.calories) || 0);
+      if (!it2.name || calories <= 0) return null;
+      const num = (v2) => Math.max(0, Math.round((Number(v2) || 0) * 10) / 10);
+      return {
+        name: String(it2.name),
+        brand: it2.brand || void 0,
+        quantity: it2.quantity ? String(it2.quantity) : "1 serving",
+        servingSizeG: Math.max(1, Math.round(Number(it2.servingSizeG) || 100)),
+        calories,
+        proteinG: num(it2.proteinG),
+        carbsG: num(it2.carbsG),
+        fatG: num(it2.fatG),
+        fiberG: it2.fiberG != null ? num(it2.fiberG) : void 0,
+        sodiumMg: it2.sodiumMg != null ? Math.round(Number(it2.sodiumMg) || 0) : void 0,
+        sugarG: it2.sugarG != null ? num(it2.sugarG) : void 0
+      };
+    }).filter((x2) => x2 !== null);
+  } catch (err) {
+    console.error("Meal parse error:", err);
+    return null;
+  }
+}
+async function parseMealText(text2) {
+  try {
+    const response = await client.messages.create({
+      model: "claude-opus-4-8",
+      max_tokens: 1024,
+      messages: [{ role: "user", content: `${MEAL_TEXT_PROMPT}
+
+Meal: ${text2}` }]
+    });
+    const out = response.content[0].type === "text" ? response.content[0].text : "";
+    return parseMealResponse(out);
+  } catch (err) {
+    console.error("parseMealText error:", err);
+    return null;
+  }
+}
+async function parseMealPhoto(imageBase64, mediaType) {
+  try {
+    const response = await client.messages.create({
+      model: "claude-opus-4-8",
+      max_tokens: 1024,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: mediaType,
+                data: imageBase64
+              }
+            },
+            { type: "text", text: MEAL_PHOTO_PROMPT }
+          ]
+        }
+      ]
+    });
+    const out = response.content[0].type === "text" ? response.content[0].text : "";
+    return parseMealResponse(out);
+  } catch (err) {
+    console.error("parseMealPhoto error:", err);
+    return null;
+  }
+}
 async function parseNutritionLabel(imageBase64, mediaType) {
   try {
     const response = await client.messages.create({
@@ -249705,9 +249850,9 @@ function calculateTDEE(bmr, activityLevel) {
   return Math.round(bmr * ACTIVITY_MULTIPLIERS[activityLevel]);
 }
 function calculateMacroTargets(params) {
-  const { weightKg, heightCm, ageYears, sex, activityLevel, goalType, targetWeightKg, deadlineDays } = params;
+  const { weightKg, heightCm, ageYears, sex, activityLevel, goalType, targetWeightKg, deadlineDays, overrideTdee } = params;
   const bmr = calculateBMR(weightKg, heightCm, ageYears, sex);
-  const tdee = calculateTDEE(bmr, activityLevel);
+  const tdee = overrideTdee && overrideTdee > 0 ? Math.round(overrideTdee) : calculateTDEE(bmr, activityLevel);
   let calorieAdjustment = 0;
   let proteinMultiplier = 0.82;
   const weightLbs = weightKg * 2.20462;
@@ -249744,6 +249889,55 @@ function getAgeFromBirthDate(birthDate) {
   const m3 = today.getMonth() - birth.getMonth();
   if (m3 < 0 || m3 === 0 && today.getDate() < birth.getDate()) age--;
   return age;
+}
+var KCAL_PER_KG = 7700;
+function linregSlope(points) {
+  const n2 = points.length;
+  if (n2 < 2) return 0;
+  let sx = 0, sy = 0, sxx = 0, sxy = 0;
+  for (const p3 of points) {
+    sx += p3.x;
+    sy += p3.y;
+    sxx += p3.x * p3.x;
+    sxy += p3.x * p3.y;
+  }
+  const denom = n2 * sxx - sx * sx;
+  if (denom === 0) return 0;
+  return (n2 * sxy - sx * sy) / denom;
+}
+function estimateAdaptiveTDEE(params) {
+  const windowDays = params.windowDays ?? 21;
+  const cutoff = /* @__PURE__ */ new Date();
+  cutoff.setDate(cutoff.getDate() - windowDays);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+  const logged = params.intake.filter((d2) => d2.date >= cutoffStr && d2.calories >= 800);
+  if (logged.length < 10) return null;
+  const weights = params.weights.filter((w2) => w2.date >= cutoffStr && w2.weightKg > 0).sort((a2, b2) => a2.date.localeCompare(b2.date));
+  if (weights.length < 2) return null;
+  const firstDay = (/* @__PURE__ */ new Date(weights[0].date + "T00:00:00")).getTime();
+  const lastDay = (/* @__PURE__ */ new Date(weights[weights.length - 1].date + "T00:00:00")).getTime();
+  const spanDays = Math.round((lastDay - firstDay) / 864e5);
+  if (spanDays < 10) return null;
+  const avgIntake = logged.reduce((s2, d2) => s2 + d2.calories, 0) / logged.length;
+  const slopePerDay = linregSlope(
+    weights.map((w2) => ({
+      x: ((/* @__PURE__ */ new Date(w2.date + "T00:00:00")).getTime() - firstDay) / 864e5,
+      y: w2.weightKg
+    }))
+  );
+  const tdee = Math.round(avgIntake - slopePerDay * KCAL_PER_KG);
+  if (tdee < 1e3 || tdee > 6e3) return null;
+  let confidence = "low";
+  if (logged.length >= 17 && weights.length >= 4 && spanDays >= 18) confidence = "high";
+  else if (logged.length >= 13 && weights.length >= 3) confidence = "medium";
+  return {
+    tdee,
+    avgIntake: Math.round(avgIntake),
+    weightSlopeKgPerWeek: Math.round(slopePerDay * 7 * 100) / 100,
+    loggedDays: logged.length,
+    weightSpanDays: spanDays,
+    confidence
+  };
 }
 
 // server/services/exercise-gif.ts
@@ -254904,7 +255098,28 @@ async function recalculateTargets(userId) {
       deadlineDays = Math.max(days, 1);
     }
   }
-  const targets = calculateMacroTargets({ weightKg, heightCm, ageYears, sex, activityLevel, goalType, targetWeightKg, deadlineDays });
+  const [intake, weightRows] = await Promise.all([
+    storage.getDailyCalorieTotals(userId, 28),
+    storage.getMeasurements(userId, 60)
+  ]);
+  const adaptive = estimateAdaptiveTDEE({
+    intake,
+    weights: weightRows.map((w2) => ({ date: String(w2.date).slice(0, 10), weightKg: w2.weightGrams / 1e3 }))
+  });
+  if (adaptive) {
+    await storage.upsertProfile(userId, { estimatedTdee: adaptive.tdee, tdeeUpdatedAt: /* @__PURE__ */ new Date() });
+  }
+  const targets = calculateMacroTargets({
+    weightKg,
+    heightCm,
+    ageYears,
+    sex,
+    activityLevel,
+    goalType,
+    targetWeightKg,
+    deadlineDays,
+    overrideTdee: adaptive?.tdee
+  });
   await storage.upsertNutritionTarget(userId, { effectiveDate: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), ...targets });
 }
 function registerRoutes(app2) {
@@ -255371,12 +255586,33 @@ Return ONLY valid JSON (no markdown):
       res.status(400).json({ message: err.message });
     }
   });
+  app2.patch("/api/measurements/:id", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    try {
+      const userId = req.user.id;
+      const data = insertBodyMeasurementSchema.omit({ userId: true }).partial().parse(req.body);
+      const m3 = await storage.updateMeasurement(Number(req.params.id), userId, data);
+      if (!m3) return res.status(404).json({ message: "Measurement not found" });
+      await recalculateTargets(userId);
+      res.json(m3);
+    } catch (err) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+  app2.delete("/api/measurements/:id", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = req.user.id;
+    await storage.deleteMeasurement(Number(req.params.id), userId);
+    await recalculateTargets(userId);
+    res.sendStatus(204);
+  });
   app2.get("/api/food/search", async (req, res) => {
     if (!requireAuth(req, res)) return;
     const q2 = req.query.q;
     const typeFilter = req.query.type || "all";
     if (!q2 || q2.length < 2) return res.json([]);
     const ql = q2.toLowerCase();
+    const userFoodIds = await storage.getUserFoodItemIds(req.user.id);
     function normName(s2) {
       return (s2 || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
     }
@@ -255476,18 +255712,19 @@ Return ONLY valid JSON (no markdown):
       const qWords = wordSet(qNorm);
       const itemWords = /* @__PURE__ */ new Set([...wordSet(brandNorm), ...wordSet(nameNorm)]);
       const sim = nameSimilarity(brandNorm + " " + nameNorm, qNorm);
+      const ownBoost = item.id && userFoodIds.has(item.id) ? -0.5 : 0;
       if (matchedBrandNorm && brandNorm) {
         if (brandNorm.replace(/\s/g, "").includes(matchedBrandNorm.replace(/\s/g, "")) || matchedBrandNorm.replace(/\s/g, "").includes(brandNorm.replace(/\s/g, ""))) {
-          return -1 + (1 - sim) * 0.9;
+          return -1 + (1 - sim) * 0.9 + ownBoost;
         }
       }
       let matches = 0;
       for (const w2 of qWords) if (itemWords.has(w2)) matches++;
       const ratio = qWords.size > 0 ? matches / qWords.size : 0;
-      if (ratio >= 1) return 0 + (1 - sim) * 0.9;
-      if (ratio >= 0.67) return 1 + (1 - sim) * 0.9;
-      if (ratio >= 0.5) return 2 + (1 - sim) * 0.9;
-      return 3 + (1 - ratio) - nutritionScore(item) * 0.01;
+      if (ratio >= 1) return 0 + (1 - sim) * 0.9 + ownBoost;
+      if (ratio >= 0.67) return 1 + (1 - sim) * 0.9 + ownBoost;
+      if (ratio >= 0.5) return 2 + (1 - sim) * 0.9 + ownBoost;
+      return 3 + (1 - ratio) - nutritionScore(item) * 0.01 + ownBoost;
     }
     const filterWords = isRestaurant && foodOnlyQuery ? wordSet(foodOnlyQuery) : queryWords;
     function isRelevant(item) {
@@ -255568,6 +255805,23 @@ Return ONLY valid JSON (no markdown):
     if (!result) return res.status(422).json({ message: "Could not parse nutrition label" });
     res.json(result);
   });
+  app2.post("/api/food/parse-text", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const text2 = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+    if (!text2) return res.status(400).json({ message: "text required" });
+    if (text2.length > 1e3) return res.status(400).json({ message: "text too long" });
+    const items = await parseMealText(text2);
+    if (items === null) return res.status(422).json({ message: "Could not understand that meal" });
+    res.json({ items });
+  });
+  app2.post("/api/food/parse-photo", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const { imageBase64, mediaType } = req.body;
+    if (!imageBase64 || !mediaType) return res.status(400).json({ message: "imageBase64 and mediaType required" });
+    const items = await parseMealPhoto(imageBase64, mediaType);
+    if (items === null) return res.status(422).json({ message: "Could not read that photo" });
+    res.json({ items });
+  });
   app2.get("/api/food/recent", async (req, res) => {
     if (!requireAuth(req, res)) return;
     const items = await storage.getRecentFoodItems(req.user.id, 20);
@@ -255595,6 +255849,8 @@ Return ONLY valid JSON (no markdown):
     if (!requireAuth(req, res)) return;
     try {
       const data = insertFoodItemSchema.parse(req.body);
+      const existing = await storage.findSimilarFoodItem(data.name, data.brand);
+      if (existing) return res.json(existing);
       const item = await storage.createFoodItem(data);
       res.status(201).json(item);
     } catch (err) {
@@ -255675,6 +255931,56 @@ Return ONLY valid JSON (no markdown):
       res.status(400).json({ message: err.message });
     }
   });
+  app2.post("/api/food-log/quick", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    try {
+      const userId = req.user.id;
+      const { date: date2, mealType, items } = req.body;
+      const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"];
+      if (!date2 || !mealType || !MEAL_TYPES.includes(mealType))
+        return res.status(400).json({ message: "date and valid mealType required" });
+      if (!Array.isArray(items) || items.length === 0)
+        return res.status(400).json({ message: "items[] required" });
+      const created = [];
+      for (const it2 of items) {
+        const calories = Math.round(Number(it2.calories) || 0);
+        if (!it2.name || calories <= 0) continue;
+        const num = (v2) => Math.max(0, Math.round((Number(v2) || 0) * 10) / 10);
+        const foodItem = await storage.createFoodItem({
+          name: String(it2.name),
+          brand: it2.brand || void 0,
+          servingSizeG: Math.max(1, Math.round(Number(it2.servingSizeG) || 100)),
+          servingUnit: it2.quantity ? String(it2.quantity) : "1 serving",
+          calories,
+          proteinG: num(it2.proteinG),
+          carbsG: num(it2.carbsG),
+          fatG: num(it2.fatG),
+          fiberG: it2.fiberG != null ? num(it2.fiberG) : void 0,
+          sodiumMg: it2.sodiumMg != null ? Math.round(Number(it2.sodiumMg) || 0) : void 0,
+          sugarG: it2.sugarG != null ? num(it2.sugarG) : void 0,
+          source: "ai"
+        });
+        const entry = await storage.createFoodLogEntry({
+          userId,
+          date: date2,
+          mealType,
+          foodItemId: foodItem.id,
+          foodName: foodItem.name,
+          servings: 1,
+          caloriesActual: calories,
+          proteinActual: num(it2.proteinG),
+          carbsActual: num(it2.carbsG),
+          fatActual: num(it2.fatG),
+          fiberActual: it2.fiberG != null ? num(it2.fiberG) : void 0
+        });
+        created.push(entry);
+      }
+      if (created.length === 0) return res.status(422).json({ message: "No valid items to log" });
+      res.status(201).json(created);
+    } catch (err) {
+      res.status(400).json({ message: err.message });
+    }
+  });
   app2.patch("/api/food-log/:id", async (req, res) => {
     if (!requireAuth(req, res)) return;
     const entry = await storage.updateFoodLogEntry(Number(req.params.id), req.user.id, req.body);
@@ -255745,6 +256051,38 @@ Return ONLY valid JSON (no markdown):
     } catch (err) {
       res.status(400).json({ message: err.message });
     }
+  });
+  app2.get("/api/tdee", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = req.user.id;
+    const [profile, latest, intake, weightRows] = await Promise.all([
+      storage.getProfile(userId),
+      storage.getLatestMeasurement(userId),
+      storage.getDailyCalorieTotals(userId, 28),
+      storage.getMeasurements(userId, 60)
+    ]);
+    let formulaTdee = null;
+    if (profile?.birthDate && profile?.heightCm && latest) {
+      const bmr = calculateBMR(
+        latest.weightGrams / 1e3,
+        profile.heightCm,
+        getAgeFromBirthDate(profile.birthDate),
+        profile.sex ?? "male"
+      );
+      formulaTdee = calculateTDEE(bmr, profile.activityLevel ?? "moderate");
+    }
+    const adaptive = estimateAdaptiveTDEE({
+      intake,
+      weights: weightRows.map((w2) => ({ date: String(w2.date).slice(0, 10), weightKg: w2.weightGrams / 1e3 }))
+    });
+    res.json({
+      method: adaptive ? "adaptive" : "formula",
+      tdee: adaptive?.tdee ?? formulaTdee,
+      formulaTdee,
+      adaptive,
+      // null when insufficient data; the client uses this to explain progress
+      updatedAt: profile?.tdeeUpdatedAt ?? null
+    });
   });
   app2.get("/api/water/history", async (req, res) => {
     if (!requireAuth(req, res)) return;
@@ -256181,6 +256519,7 @@ ${notes ? `Additional notes: ${notes}` : ""}
 3. Where the user has lift history, reference their actual weights to suggest appropriate starting weights or progressions in the weightNote field.
 4. Flag any specific observations about their current training in the "coachFeedback" array \u2014 these are honest, concrete notes like "Your existing Push Day has no rear-delt work \u2014 I've added face pulls here" or "You're squatting frequently but have no Romanian deadlift \u2014 added it for hamstring balance." Maximum 4 observations, minimum 0 if nothing notable.
 5. Only include exercises achievable with the stated equipment.
+6. Every exercise must be DISTINCT \u2014 never list the same exercise more than once in the routine.
 
 Return ONLY valid JSON (no markdown, no explanation):
 {
@@ -256217,15 +256556,42 @@ Return ONLY valid JSON (no markdown, no explanation):
         if (m3 === "cardio") return "cardio";
         return ["chest", "back", "quads", "hamstrings", "glutes"].includes(m3) ? "compound" : "isolation";
       };
-      const created = [];
-      for (let i2 = 0; i2 < routine.exercises.length; i2++) {
-        const ae2 = routine.exercises[i2];
-        let match = allExercises.find((e2) => e2.name.toLowerCase() === ae2.name.toLowerCase());
-        if (!match) {
-          match = allExercises.find(
-            (e2) => e2.name.toLowerCase().includes(ae2.name.toLowerCase().split(" ")[0])
-          );
+      const norm2 = (s2) => s2.toLowerCase().trim();
+      const wordsOf = (s2) => new Set(norm2(s2).split(/\s+/).filter((w2) => w2.length > 2));
+      const resolveExercise = (name) => {
+        const target = norm2(name);
+        let m3 = allExercises.find((e2) => norm2(e2.name) === target);
+        if (m3) return m3;
+        m3 = allExercises.find((e2) => {
+          const n2 = norm2(e2.name);
+          return n2.includes(target) || target.includes(n2);
+        });
+        if (m3) return m3;
+        const tw = wordsOf(name);
+        let best = void 0, bestScore = 0;
+        for (const e2 of allExercises) {
+          const ew = wordsOf(e2.name);
+          let common = 0;
+          for (const w2 of tw) if (ew.has(w2)) common++;
+          const score = tw.size ? common / Math.max(tw.size, ew.size) : 0;
+          if (score > bestScore) {
+            bestScore = score;
+            best = e2;
+          }
         }
+        return bestScore >= 0.6 ? best : void 0;
+      };
+      const created = [];
+      const usedNames = /* @__PURE__ */ new Set();
+      const usedIds = /* @__PURE__ */ new Set();
+      let orderIndex = 0;
+      for (const ae2 of routine.exercises) {
+        if (!ae2?.name) continue;
+        const key = norm2(ae2.name);
+        if (usedNames.has(key)) continue;
+        usedNames.add(key);
+        let match = resolveExercise(ae2.name);
+        if (match && usedIds.has(match.id)) match = void 0;
         if (!match) {
           match = await storage.createExercise({
             name: ae2.name,
@@ -256237,10 +256603,11 @@ Return ONLY valid JSON (no markdown, no explanation):
             userId
           });
         }
+        usedIds.add(match.id);
         await storage.addTemplateExercise({
           templateId: template.id,
           exerciseId: match.id,
-          orderIndex: i2,
+          orderIndex: orderIndex++,
           targetSets: ae2.sets ?? 3,
           targetReps: ae2.reps ?? "8-12",
           targetWeightGrams: null

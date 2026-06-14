@@ -1851,6 +1851,7 @@ ${notes ? `Additional notes: ${notes}` : ""}
 3. Where the user has lift history, reference their actual weights to suggest appropriate starting weights or progressions in the weightNote field.
 4. Flag any specific observations about their current training in the "coachFeedback" array — these are honest, concrete notes like "Your existing Push Day has no rear-delt work — I've added face pulls here" or "You're squatting frequently but have no Romanian deadlift — added it for hamstring balance." Maximum 4 observations, minimum 0 if nothing notable.
 5. Only include exercises achievable with the stated equipment.
+6. Every exercise must be DISTINCT — never list the same exercise more than once in the routine.
 
 Return ONLY valid JSON (no markdown, no explanation):
 {
@@ -1893,15 +1894,44 @@ Return ONLY valid JSON (no markdown, no explanation):
         return ["chest", "back", "quads", "hamstrings", "glutes"].includes(m) ? "compound" : "isolation";
       };
 
-      const created: any[] = [];
-      for (let i = 0; i < routine.exercises.length; i++) {
-        const ae = routine.exercises[i];
-        let match = allExercises.find((e: any) => e.name.toLowerCase() === ae.name.toLowerCase());
-        if (!match) {
-          match = allExercises.find((e: any) =>
-            e.name.toLowerCase().includes(ae.name.toLowerCase().split(" ")[0])
-          );
+      const norm     = (s: string) => s.toLowerCase().trim();
+      const wordsOf  = (s: string) => new Set(norm(s).split(/\s+/).filter(w => w.length > 2));
+
+      // Resolve an AI exercise name to an existing DB exercise: exact name, then
+      // substring (either direction), then ≥60% word overlap. Returns undefined if
+      // nothing is a confident match — the old "first word" match collapsed distinct
+      // movements (e.g. every "Barbell …" onto Barbell Bench Press).
+      const resolveExercise = (name: string): any | undefined => {
+        const target = norm(name);
+        let m = allExercises.find((e: any) => norm(e.name) === target);
+        if (m) return m;
+        m = allExercises.find((e: any) => { const n = norm(e.name); return n.includes(target) || target.includes(n); });
+        if (m) return m;
+        const tw = wordsOf(name);
+        let best: any = undefined, bestScore = 0;
+        for (const e of allExercises) {
+          const ew = wordsOf(e.name);
+          let common = 0; for (const w of tw) if (ew.has(w)) common++;
+          const score = tw.size ? common / Math.max(tw.size, ew.size) : 0;
+          if (score > bestScore) { bestScore = score; best = e; }
         }
+        return bestScore >= 0.6 ? best : undefined;
+      };
+
+      const created: any[]    = [];
+      const usedNames = new Set<string>();  // skip exercises the AI listed twice verbatim
+      const usedIds   = new Set<number>();  // never add the same DB exercise twice
+      let orderIndex  = 0;
+      for (const ae of routine.exercises) {
+        if (!ae?.name) continue;
+        const key = norm(ae.name);
+        if (usedNames.has(key)) continue;   // AI repeated the same exercise — drop the dup
+        usedNames.add(key);
+
+        let match = resolveExercise(ae.name);
+        // If the match collapses onto an exercise already in this routine, treat it
+        // as a distinct movement and create it fresh rather than duplicating.
+        if (match && usedIds.has(match.id)) match = undefined;
         if (!match) {
           match = await storage.createExercise({
             name: ae.name,
@@ -1913,10 +1943,11 @@ Return ONLY valid JSON (no markdown, no explanation):
             userId,
           });
         }
+        usedIds.add((match as any).id);
         await storage.addTemplateExercise({
           templateId: template.id,
           exerciseId: (match as any).id,
-          orderIndex: i,
+          orderIndex: orderIndex++,
           targetSets: ae.sets ?? 3,
           targetReps: ae.reps ?? "8-12",
           targetWeightGrams: null,
