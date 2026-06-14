@@ -82,6 +82,19 @@ function Donut({
   );
 }
 
+// Convert values into integer percentages that sum to exactly 100
+// (largest-remainder method). Returns all zeros when the total is 0.
+function sharesTo100(vals: number[]): number[] {
+  const total = vals.reduce((s, v) => s + v, 0);
+  if (total <= 0) return vals.map(() => 0);
+  const raw   = vals.map(v => (v / total) * 100);
+  const out   = raw.map(Math.floor);
+  const rem   = 100 - out.reduce((s, v) => s + v, 0);
+  const order = raw.map((r, i) => ({ i, frac: r - Math.floor(r) })).sort((a, b) => b.frac - a.frac);
+  for (let k = 0; k < rem && k < order.length; k++) out[order[k].i]++;
+  return out;
+}
+
 // ── Multi-segment macro donut (fat/carbs/protein arcs) ────────────
 function MacroDonut({
   fat, carbs, protein, size, strokeWidth,
@@ -697,21 +710,19 @@ export default function ProgressScreen() {
     : 0;
   const avgCalPct = calGoal > 0 ? avgCal / calGoal : 0;
 
-  // Period-average macro adherence (from summary)
-  const { avgPrtPct, avgCrbPct, avgFatPct, avgFatG, avgCrbG, avgPrtG } = useMemo(() => {
-    if (summary.length === 0) return { avgPrtPct: 0, avgCrbPct: 0, avgFatPct: 0, avgFatG: 0, avgCrbG: 0, avgPrtG: 0 };
+  // Period-average macro distribution: each macro's share of total macro
+  // calories (protein/carbs 4 kcal/g, fat 9 kcal/g). Percentages sum to 100.
+  const { avgPrtPct, avgCrbPct, avgFatPct, avgFatG, avgCrbG, avgPrtG, fatCal, carbCal, protCal } = useMemo(() => {
+    if (summary.length === 0) return { avgPrtPct: 0, avgCrbPct: 0, avgFatPct: 0, avgFatG: 0, avgCrbG: 0, avgPrtG: 0, fatCal: 0, carbCal: 0, protCal: 0 };
     const n = summary.length;
     const avg = (key: string) => summary.reduce((s: number, d: any) => s + (d[key] ?? 0), 0) / n;
     const avgFatG = avg("fat");
     const avgCrbG = avg("carbs");
     const avgPrtG = avg("protein");
-    return {
-      avgFatG, avgCrbG, avgPrtG,
-      avgPrtPct: proteinGoal > 0 ? Math.round(avgPrtG / proteinGoal * 100) : 0,
-      avgCrbPct: carbsGoal   > 0 ? Math.round(avgCrbG / carbsGoal   * 100) : 0,
-      avgFatPct: fatGoal     > 0 ? Math.round(avgFatG / fatGoal     * 100) : 0,
-    };
-  }, [summary, proteinGoal, carbsGoal, fatGoal]);
+    const fatCal = avgFatG * 9, carbCal = avgCrbG * 4, protCal = avgPrtG * 4;
+    const [fatPct, crbPct, prtPct] = sharesTo100([fatCal, carbCal, protCal]);
+    return { avgFatG, avgCrbG, avgPrtG, fatCal, carbCal, protCal, avgFatPct: fatPct, avgCrbPct: crbPct, avgPrtPct: prtPct };
+  }, [summary]);
 
   // Calorie bar data for chart
   // Fall back to an empty scaffold so the x-axis always renders even with no data
@@ -880,7 +891,7 @@ export default function ProgressScreen() {
             {/* Left: multi-colour macro donut + legend */}
             <View style={{ width: 100, alignItems: "flex-start" }}>
               <View style={{ width: 90, height: 90, alignItems: "center", justifyContent: "center", marginBottom: 10 }}>
-                <MacroDonut fat={avgFatG} carbs={avgCrbG} protein={avgPrtG} size={90} strokeWidth={8} />
+                <MacroDonut fat={fatCal} carbs={carbCal} protein={protCal} size={90} strokeWidth={8} />
               </View>
               {[
                 { label: "Fat",     pct: avgFatPct, color: PURPLE },
@@ -919,7 +930,7 @@ export default function ProgressScreen() {
                 <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: m.color }}>{m.pct}%</Text>
               </View>
             ))}
-            <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>of target</Text>
+            <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>of macros</Text>
           </View>
         </View>
 
