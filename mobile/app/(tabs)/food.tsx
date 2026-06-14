@@ -1160,30 +1160,26 @@ export default function FoodScreen() {
               <Text style={{ fontSize: 12, fontFamily: "Manrope-Bold", color: "#888888" }}>/ {calGoal}</Text>
             </View>
             {([
-              { label: "PROTEIN", mode: "grams", val: Math.round(totals.protein), goal: proteinGoal, color: LIME },
-              { label: "CARBS",   mode: "share", share: sharePct(totals.carbs * 4, curMacroCal), aim: sharePct(carbsGoal * 4, tgtMacroCal), color: BLUE },
-              { label: "FAT",     mode: "share", share: sharePct(totals.fat * 9,  curMacroCal), aim: sharePct(fatGoal * 9,  tgtMacroCal), color: PURPLE },
+              { label: "PROTEIN", share: sharePct(totals.protein * 4, curMacroCal), aim: sharePct(proteinGoal * 4, tgtMacroCal), color: LIME,   val: Math.round(totals.protein), goal: proteinGoal },
+              { label: "CARBS",   share: sharePct(totals.carbs   * 4, curMacroCal), aim: sharePct(carbsGoal   * 4, tgtMacroCal), color: BLUE,   val: null as number | null, goal: null as number | null },
+              { label: "FAT",     share: sharePct(totals.fat     * 9, curMacroCal), aim: sharePct(fatGoal     * 9, tgtMacroCal), color: PURPLE, val: null as number | null, goal: null as number | null },
             ] as const).map(m => {
-              const fillPct = m.mode === "grams" ? (m.goal > 0 ? (m.val / m.goal) * 100 : 0) : m.share;
+              const hit = m.val != null && m.goal != null && m.val >= m.goal;
               return (
                 <View key={m.label} style={{ marginBottom: 8 }}>
                   <View style={{ flexDirection: "row", alignItems: "baseline", gap: 3, marginBottom: 3 }}>
                     <Text style={{ fontSize: 9, fontFamily: "Manrope-Bold", color: "#888888", letterSpacing: 0.6 }}>{m.label}</Text>
-                    {m.mode === "grams" ? (
-                      <>
-                        <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: "#0a0a0a" }}>{m.val}</Text>
-                        <Text style={{ fontSize: 9, fontFamily: "Manrope-Bold", color: "#888888" }}>/{m.goal}g</Text>
-                      </>
-                    ) : (
-                      <>
-                        <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: "#0a0a0a" }}>{m.share}%</Text>
-                        <Text style={{ fontSize: 9, fontFamily: "Manrope-Bold", color: "#888888" }}>aim {m.aim}%</Text>
-                      </>
+                    <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: "#0a0a0a" }}>{m.share}%</Text>
+                    <Text style={{ fontSize: 9, fontFamily: "Manrope-Bold", color: "#888888" }}>aim {m.aim}%</Text>
+                    {m.val != null && (
+                      <Text style={{ fontSize: 9, fontFamily: "Manrope-Bold", color: hit ? "#3a9e3a" : "#888888", marginLeft: "auto" }}>
+                        {m.val}/{m.goal}g{hit ? " ✓" : ""}
+                      </Text>
                     )}
                   </View>
                   <View style={{ height: 3, backgroundColor: "#e0e0e0", borderRadius: 2, overflow: "hidden", position: "relative" }}>
-                    <View style={{ width: `${Math.min(fillPct, 100)}%` as any, height: "100%", backgroundColor: m.color, borderRadius: 2 }} />
-                    {m.mode === "share" && m.aim > 0 && (
+                    <View style={{ width: `${Math.min(m.share, 100)}%` as any, height: "100%", backgroundColor: m.color, borderRadius: 2 }} />
+                    {m.aim > 0 && (
                       <View style={{ position: "absolute", left: `${Math.min(m.aim, 100)}%` as any, top: 0, bottom: 0, width: 2, backgroundColor: "#0a0a0a", opacity: 0.5 }} />
                     )}
                   </View>
