@@ -1094,6 +1094,13 @@ export default function FoodScreen() {
   const carbsGoal   = targets?.carbsG   ?? 220;
   const fatGoal     = targets?.fatG     ?? 70;
 
+  // Protein matters as a gram target; carbs & fat matter as a proportion of total
+  // macro calories (protein/carbs 4 kcal/g, fat 9 kcal/g). "aim" = the share the
+  // target gram split implies, so users keep the right ratio rather than a gram goal.
+  const curMacroCal = totals.protein * 4 + totals.carbs * 4 + totals.fat * 9;
+  const tgtMacroCal = proteinGoal * 4 + carbsGoal * 4 + fatGoal * 9;
+  const sharePct = (cal: number, total: number) => total > 0 ? Math.round((cal / total) * 100) : 0;
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: bg }} edges={["top"]}>
       <ScrollView
@@ -1153,21 +1160,36 @@ export default function FoodScreen() {
               <Text style={{ fontSize: 12, fontFamily: "Manrope-Bold", color: "#888888" }}>/ {calGoal}</Text>
             </View>
             {([
-              { label: "PROTEIN", val: Math.round(totals.protein), goal: proteinGoal, color: LIME   },
-              { label: "CARBS",   val: Math.round(totals.carbs),   goal: carbsGoal,   color: BLUE   },
-              { label: "FAT",     val: Math.round(totals.fat),     goal: fatGoal,     color: PURPLE },
-            ] as const).map(m => (
-              <View key={m.label} style={{ marginBottom: 8 }}>
-                <View style={{ flexDirection: "row", alignItems: "baseline", gap: 3, marginBottom: 3 }}>
-                  <Text style={{ fontSize: 9, fontFamily: "Manrope-Bold", color: "#888888", letterSpacing: 0.6 }}>{m.label}</Text>
-                  <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: "#0a0a0a" }}>{m.val}</Text>
-                  <Text style={{ fontSize: 9, fontFamily: "Manrope-Bold", color: "#888888" }}>/{m.goal}g</Text>
+              { label: "PROTEIN", mode: "grams", val: Math.round(totals.protein), goal: proteinGoal, color: LIME },
+              { label: "CARBS",   mode: "share", share: sharePct(totals.carbs * 4, curMacroCal), aim: sharePct(carbsGoal * 4, tgtMacroCal), color: BLUE },
+              { label: "FAT",     mode: "share", share: sharePct(totals.fat * 9,  curMacroCal), aim: sharePct(fatGoal * 9,  tgtMacroCal), color: PURPLE },
+            ] as const).map(m => {
+              const fillPct = m.mode === "grams" ? (m.goal > 0 ? (m.val / m.goal) * 100 : 0) : m.share;
+              return (
+                <View key={m.label} style={{ marginBottom: 8 }}>
+                  <View style={{ flexDirection: "row", alignItems: "baseline", gap: 3, marginBottom: 3 }}>
+                    <Text style={{ fontSize: 9, fontFamily: "Manrope-Bold", color: "#888888", letterSpacing: 0.6 }}>{m.label}</Text>
+                    {m.mode === "grams" ? (
+                      <>
+                        <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: "#0a0a0a" }}>{m.val}</Text>
+                        <Text style={{ fontSize: 9, fontFamily: "Manrope-Bold", color: "#888888" }}>/{m.goal}g</Text>
+                      </>
+                    ) : (
+                      <>
+                        <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: "#0a0a0a" }}>{m.share}%</Text>
+                        <Text style={{ fontSize: 9, fontFamily: "Manrope-Bold", color: "#888888" }}>aim {m.aim}%</Text>
+                      </>
+                    )}
+                  </View>
+                  <View style={{ height: 3, backgroundColor: "#e0e0e0", borderRadius: 2, overflow: "hidden", position: "relative" }}>
+                    <View style={{ width: `${Math.min(fillPct, 100)}%` as any, height: "100%", backgroundColor: m.color, borderRadius: 2 }} />
+                    {m.mode === "share" && m.aim > 0 && (
+                      <View style={{ position: "absolute", left: `${Math.min(m.aim, 100)}%` as any, top: 0, bottom: 0, width: 2, backgroundColor: "#0a0a0a", opacity: 0.5 }} />
+                    )}
+                  </View>
                 </View>
-                <View style={{ height: 3, backgroundColor: "#e0e0e0", borderRadius: 2, overflow: "hidden" }}>
-                  <View style={{ width: `${Math.min(m.goal > 0 ? (m.val / m.goal) * 100 : 0, 100)}%` as any, height: "100%", backgroundColor: m.color, borderRadius: 2 }} />
-                </View>
-              </View>
-            ))}
+              );
+            })}
           </View>
         </View>
 
