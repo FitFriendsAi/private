@@ -73,3 +73,34 @@ export function suggestNextWeight(
     note: "So close — aim for one more rep.",
   };
 }
+
+/** Rough average time to perform a single set (setup + the set itself). */
+export const SET_WORK_SECONDS = 45;
+
+/** Default rest time between sets, used where the user hasn't set a custom value. */
+export const DEFAULT_REST_SECONDS = 90;
+
+/**
+ * Estimate a routine's total duration in minutes from its exercises' target
+ * sets and the rest time between sets. Rest is applied between every set
+ * except the very last one of the routine.
+ */
+export function estimateRoutineMinutes(
+  exercisesWithTargetSets: { targetSets?: number | null }[],
+  restSeconds: number = DEFAULT_REST_SECONDS,
+): number {
+  const totalSets = exercisesWithTargetSets.reduce((sum, ex) => sum + (ex.targetSets || 0), 0);
+  if (totalSets === 0) return 0;
+  const restCount = Math.max(0, totalSets - 1);
+  const totalSeconds = totalSets * SET_WORK_SECONDS + restCount * restSeconds;
+  return Math.round(totalSeconds / 60);
+}
+
+/** Format minutes as "32 min", "1h", or "1h 5m". */
+export function formatDuration(totalMinutes: number): string {
+  if (totalMinutes <= 0) return "0 min";
+  if (totalMinutes < 60) return `${totalMinutes} min`;
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}

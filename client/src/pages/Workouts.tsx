@@ -10,6 +10,7 @@ import { CircleRing } from "@/components/CircleRing";
 import { ExercisePicker } from "@/components/ExercisePicker";
 import { AIRoutineDialog } from "@/components/AIRoutineDialog";
 import type { Workout, Exercise, WorkoutTemplate } from "@shared/schema";
+import { estimateRoutineMinutes, formatDuration } from "@shared/training";
 import { useTheme } from "@/hooks/use-theme";
 
 interface ActiveSet { exerciseId: number; sets: { reps: string; weight: string; done: boolean }[] }
@@ -353,6 +354,7 @@ export default function Workouts() {
                 const muscles = [...new Set(
                   t.exercises.map((te: any) => te.exercise?.primaryMuscle).filter(Boolean)
                 )];
+                const estMinutes = estimateRoutineMinutes(t.exercises);
                 return (
                   <div
                     key={t.id}
@@ -368,6 +370,7 @@ export default function Workouts() {
                       <div className="font-bold text-base leading-tight">{t.name}</div>
                       <div className="text-sm text-muted-foreground mt-0.5">
                         {t.exercises.length} exercises
+                        {estMinutes > 0 && <span> · ~{formatDuration(estMinutes)}</span>}
                         {muscles.length > 0 && (
                           <span className="capitalize"> · {muscles.slice(0, 2).join(", ")}</span>
                         )}

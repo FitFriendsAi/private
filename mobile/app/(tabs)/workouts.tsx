@@ -9,6 +9,7 @@ import { useRouter } from "expo-router";
 import Svg, { Circle } from "react-native-svg";
 import { apiRequest } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
+import { estimateRoutineMinutes, formatDuration } from "@shared/training";
 import {
   Zap, Plus, X, Clock, Upload, ChevronRight, Trash2,
   MoreHorizontal, Pencil, Sparkles, Moon, Dumbbell,
@@ -352,6 +353,7 @@ export default function WorkoutsScreen() {
               const isConfirmingDelete = confirmDeleteTemplateId === t.id;
               const pct     = templates.length > 1 ? (i + 1) / templates.length : 1;
               const exCount = t.exercises?.length ?? t.exerciseCount ?? 0;
+              const estMinutes = t.exercises ? estimateRoutineMinutes(t.exercises) : 0;
               if (isConfirmingDelete) {
                 return (
                   <View key={t.id} style={{
@@ -404,6 +406,7 @@ export default function WorkoutsScreen() {
                       {exCount > 0 && (
                         <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted, marginTop: 1 }}>
                           {exCount} exercise{exCount !== 1 ? "s" : ""}
+                          {estMinutes > 0 ? ` · ~${formatDuration(estMinutes)}` : ""}
                         </Text>
                       )}
                     </View>
