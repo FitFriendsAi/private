@@ -78,6 +78,7 @@ export const SEED_EXERCISES: InsertExercise[] = [
   { name: "Romanian Deadlift", primaryMuscle: "Hamstrings", secondaryMuscles: ["Glutes", "Back"], category: "compound", equipment: "barbell", isCustom: false },
   { name: "Romanian Deadlift (Smith Machine)", primaryMuscle: "Hamstrings", secondaryMuscles: ["Glutes", "Back"], category: "compound", equipment: "smith_machine", isCustom: false },
   { name: "Leg Curl", primaryMuscle: "Hamstrings", secondaryMuscles: [], category: "isolation", equipment: "machine", isCustom: false },
+  { name: "Lying Leg Curl (Machine)", primaryMuscle: "Hamstrings", secondaryMuscles: [], category: "isolation", equipment: "machine", isCustom: false },
   { name: "Leg Extension", primaryMuscle: "Quads", secondaryMuscles: [], category: "isolation", equipment: "machine", isCustom: false },
   { name: "Bulgarian Split Squat", primaryMuscle: "Quads", secondaryMuscles: ["Glutes", "Hamstrings"], category: "compound", equipment: "dumbbell", isCustom: false },
   { name: "Hip Thrust", primaryMuscle: "Glutes", secondaryMuscles: ["Hamstrings"], category: "compound", equipment: "barbell", isCustom: false },

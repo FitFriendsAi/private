@@ -7,10 +7,10 @@ const { Pool } = require("pg");
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 const EXERCISE = {
-  name: "Lying Chest Press (Machine)",
-  primaryMuscle: "Chest",
-  secondaryMuscles: ["Triceps", "Front Delts"],
-  category: "compound",
+  name: "Lying Leg Curl (Machine)",
+  primaryMuscle: "Hamstrings",
+  secondaryMuscles: [],
+  category: "isolation",
   equipment: "machine",
 };
 
