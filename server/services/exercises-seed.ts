@@ -18,6 +18,7 @@ export const SEED_EXERCISES: InsertExercise[] = [
   { name: "Cable Crossover (Low to High)", primaryMuscle: "Chest", secondaryMuscles: [], category: "isolation", equipment: "cable", isCustom: false },
   { name: "Pec Deck Machine", primaryMuscle: "Chest", secondaryMuscles: [], category: "isolation", equipment: "machine", isCustom: false },
   { name: "Machine Chest Press", primaryMuscle: "Chest", secondaryMuscles: ["Triceps", "Front Delts"], category: "compound", equipment: "machine", isCustom: false },
+  { name: "Lying Chest Press (Machine)", primaryMuscle: "Chest", secondaryMuscles: ["Triceps", "Front Delts"], category: "compound", equipment: "machine", isCustom: false },
   // Back
   { name: "Barbell Deadlift", primaryMuscle: "Back", secondaryMuscles: ["Glutes", "Hamstrings", "Traps"], category: "compound", equipment: "barbell", isCustom: false },
   { name: "Barbell Row", primaryMuscle: "Back", secondaryMuscles: ["Biceps", "Rear Delts"], category: "compound", equipment: "barbell", isCustom: false },
