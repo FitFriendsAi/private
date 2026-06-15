@@ -831,6 +831,7 @@ Return ONLY valid JSON (no markdown):
       [/dunkin/i,                  "dunkin-donuts"],
       [/domino/i,                  "dominos-pizza"],
       [/pizza\s*hut/i,             "pizza-hut"],
+      [/little\s*caesars?/i,       "little-caesars"],
       [/\bkfc\b/i,                 "kfc"],
       [/popeyes/i,                 "popeyes"],
       [/five\s*guys/i,             "five-guys"],

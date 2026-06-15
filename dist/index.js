@@ -1,4 +1,4 @@
-import { createRequire } from 'module'; import { fileURLToPath } from 'url'; import { dirname } from 'path'; const require = createRequire(import.meta.url); const __filename = fileURLToPath(import.meta.url); const __dirname = dirname(__filename);
+import { createRequire } from 'module'; import { fileURLToPath } from 'url'; import path0 from 'path'; const require = createRequire(import.meta.url); const __filename = fileURLToPath(import.meta.url); const __dirname = path0.dirname(__filename);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -256523,6 +256523,7 @@ Return ONLY valid JSON (no markdown):
       [/dunkin/i, "dunkin-donuts"],
       [/domino/i, "dominos-pizza"],
       [/pizza\s*hut/i, "pizza-hut"],
+      [/little\s*caesars?/i, "little-caesars"],
       [/\bkfc\b/i, "kfc"],
       [/popeyes/i, "popeyes"],
       [/five\s*guys/i, "five-guys"],
