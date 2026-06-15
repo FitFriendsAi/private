@@ -245819,7 +245819,7 @@ var storage = {
   },
   async searchFoodItems(query, foodQuery) {
     const q2 = foodQuery || query;
-    return db.select().from(foodItems).where(or(like(foodItems.name, `%${q2}%`), like(foodItems.brand, `%${q2}%`))).limit(30);
+    return db.select().from(foodItems).where(or(ilike(foodItems.name, `%${q2}%`), ilike(foodItems.brand, `%${q2}%`))).limit(30);
   },
   async createFoodItem(data) {
     const [item] = await db.insert(foodItems).values(data).returning();

@@ -1,0 +1,133 @@
+name,brand,servingSizeG,servingUnit,calories,proteinG,carbsG,fatG,fiberG,sodiumMg,sugarG,saturatedFatG,transFatG,cholesterolMg,potassiumMg,source
+Ancho Chile BBQ Sauce (2 oz.),Qdoba,57,g,60,1,13,1,1,690,11,0,0,0,50,qdoba
+"Beef, Ground (3.5 oz.)",Qdoba,99,g,190,17,4,11,1,510,1,5,0,55,350,qdoba
+"Brisket, Smoked (3.5 oz.)",Qdoba,99,g,270,20,3,20,0,1220,1,8,0,70,550,qdoba
+Black Beans (4 oz.) (v),Qdoba,113,g,140,9,24,1,14,330,1,0,0,0,360,qdoba
+"Brown Rice, seasoned (4 oz.) (v)",Qdoba,113,g,170,4,35,1,2,410,1,0,0,0,125,qdoba
+"Cheese, Cotija (.25 oz.)",Qdoba,7,g,30,2,0,13.5,0,120,0,1.5,0,5,0,qdoba
+"Cheese, Shredded (1.0 oz.)",Qdoba,28,g,110,7,1,9,0,180,0,5,0,30,29,qdoba
+"Chicken, Grilled Adobo (3.5 oz.)",Qdoba,99,g,150,16,2,9,0,360,1,3,0,70,220,qdoba
+Chorizo (3.5 oz.),Qdoba,99,g,210,16,6,13,2,790,1,5,0,65,400,qdoba
+Chopped Cilantro (0.1 oz.),Qdoba,3,g,0,0,0,0,0,0,0,0,0,0,20,qdoba
+Cilantro Lime Rice (4 oz.) (v),Qdoba,113,g,190,3,38,3,1,390,0,1,0,0,30,qdoba
+Cilantro Lime Vinaigrette(seasonal)/ 1.5 oz,Qdoba,43,g,110,0,5,10,0,360,3,1.5,0,0,41,qdoba
+"Corn Tortilla 5.5""",Qdoba,30,g,60,1,11,1,1,100,0,0,0,0,,qdoba
+Corn Tortilla Chips (4 oz.),Qdoba,113,g,560,7,75,26,9,220,2,5,0,0,0,qdoba
+Crispy Taco Shell**,Qdoba,13,g,60,1,8,3,1,0,0,1,0,0,0,qdoba
+Crunchy Flour Tortilla Bowl,Qdoba,73,g,390,7,41,22,0,150,1,5,0,0,50,qdoba
+Diced Onions (0.12 oz.),Qdoba,3.5,g,0,0,0,0,0,0,0,0,0,0,15,qdoba
+Eggs (6 oz.),Qdoba,170,g,230,19,2,16,0,440,0,5,0,600,180,qdoba
+Fajita Veggies (2 oz.),Qdoba,57,g,35,1,4,2,1,180,2,0,0,0,120,qdoba
+"Flour Tortilla (5.5"")",Qdoba,24,g,70,2,12,2,1,170,0,1,0,0,25,qdoba
+"Flour Tortilla (10"")",Qdoba,71,g,210,6,36,5,2,490,1,2,0,0,70,qdoba
+"Flour Tortilla (12.5"")",Qdoba,102,g,300,8,52,7,3,760,2,3,0,0,50,qdoba
+Habanero Salsa (2 oz.),Qdoba,57,g,20,1,3,0,1,260,2,0,0,0,0,qdoba
+Hand Smashed Guac (2 oz.),Qdoba,57,g,90,1,5,7,0,200,0,1,0,0,247,qdoba
+Hand Smashed Guac (4 oz.),Qdoba,113,g,170,2,10,14,0,400,0,2,0,0,493,qdoba
+"Lettuce, Shredded (0.25 oz.)",Qdoba,7,g,0,0,0,0,0,0,0,0,0,0,11,qdoba
+"Lettuce, Romaine (3.5 oz)",Qdoba,99,g,15,0,3,0,0,10,0,0,0,0,245,qdoba
+Mango Salsa (seasonal)/ 2 oz.,Qdoba,57,g,25,0,6,0,2,160,5,0,0,0,54,qdoba
+Mexican Caesar Dressing (1.5 oz.),Qdoba,43,g,170,2,13,13,0,3310,6,2,0,5,229,qdoba
+Picante Ranch Dressing (1.5 oz.),Qdoba,43,g,40,0,10,0,1,500,3,0,0,0,50,qdoba
+Pickled Jalapenos (1 oz.),Qdoba,28,g,15,0,3,0,0,90,2,0,0,0,30,qdoba
+Pico de Gallo (2 oz.),Qdoba,57,g,10,0,3,0,1,70,2,0,0,0,95,qdoba
+Pinto Beans (4 oz.) (v),Qdoba,113,g,130,8,23,1,14,350,1,0,0,0,440,qdoba
+Plant-Based ImpossibleTM Protein (3.1 oz.),Qdoba,88,g,180,13,9,10,2,780,1,5,0,0,460,qdoba
+"Pork, Pulled (3.5 oz.)",Qdoba,99,g,140,17,9,4,0,340,1,2,0,70,370,qdoba
+"Potatoes, Seasoned (2 oz.)",Qdoba,57,g,130,2,17,6,2,260,0,1,0,0,230,qdoba
+Queso Diablo (2 oz.),Qdoba,57,g,90,3,3,7,0,360,1,4,0,45,0,qdoba
+Chile Corn Salsa (2 oz.),Qdoba,57,g,50,2,10,1,2,105,1,0,0,0,125,qdoba
+Salsa Roja (2 oz.),Qdoba,57,g,20,1,4,0,1,460,2,0,0,0,,qdoba
+Salsa Verde (2 oz.),Qdoba,57,g,15,0,3,0,1,280,1,0,0,0,90,qdoba
+"Sour Cream, (1 oz.)",Qdoba,28,g,50,1,3,5,0,10,1,3,0,15,42,qdoba
+"Steak, Grilled (3.5 oz.)",Qdoba,99,g,230,19,4,15,0,390,1,3,0,50,360,qdoba
+3- Cheese Queso (2 oz.),Qdoba,57,g,90,3,3,8,0,350,1,5,0,25,44,qdoba
+3- Cheese Queso (4 oz.),Qdoba,113,g,190,6,6,15,0,710,1,10,0.5,50,88,qdoba
+Tortilla Soup (8 oz.) (v),Qdoba,227,g,100,3,11,5,4,1390,2,1,0,0,220,qdoba
+Tortilla Strips** (0.5 oz.),Qdoba,14,g,70,0,9,3,0,30,0,0.5,0,0,0,qdoba
+"Whole Wheat Flour Tortilla 12.5""",Qdoba,96,g,270,11,47,5,5,590,3,1,0,0,220,qdoba
+Street Style Chicken Tacos (3) Corn,Qdoba,324,g,470,24,50,22,0,1340,3,7,0,80,764,qdoba
+Street Style Chicken Tacos (3) Flour,Qdoba,298,g,520,26,52,25,0,1540,3,8,0,80,658,qdoba
+Chicken Queso Burrito,Qdoba,584,g,1080,51,127,41,0,2550,6,19,1,140,860,qdoba
+Chicken Queso Bowl,Qdoba,482,g,780,43,75,34,3,1790,4,16,1,140,809,qdoba
+Steak Fajita Quesadilla,Qdoba,491,g,1130,57,72,68,0,2420,9,30,2,190,521,qdoba
+Chicken Protein Bowl,Qdoba,546,g,610,44,48,29,0,1830,9,8,0,140,1406,qdoba
+Impossible Fajita Bowl,Qdoba,428,g,580,28,85,15,0,1930,5,6,0,0,1083,qdoba
+Smoked Brisket (Keto) Bowl (CANADA ONLY),Qdoba,369,g,620,36,18,45,0,2000,4,19,1,130,1199,qdoba
+Slow-Braised Pork Burrito (CANADA ONLY),Qdoba,569,g,1100,54,129,40,0,2570,5,20,1.5,155,958,qdoba
+Tortilla Soup (8 oz.) (v),Qdoba,227,g,100,3,11,5,4,1390,2,1,0,0,220,qdoba
+Black Beans (2 oz.),Qdoba,57,g,70,5,12,0,7,170,0,0,0,0,180,qdoba
+"Brown Rice, seasoned (2 oz.)",Qdoba,57,g,80,2,18,1,1,125,1,0,0,0,55,qdoba
+"Cheese, Shredded (1.5 oz.)",Qdoba,42,g,70,2,2,6,1,270,0,4,0,20,35,qdoba
+"Chicken, Grilled Adobo (1.75 oz.)",Qdoba,50,g,80,11,2,4,1,270,0,1,0,50,200,qdoba
+Cilantro Lime Rice (2 oz.),Qdoba,57,g,90,2,19,2,1,190,0,0,0,0,15,qdoba
+"Corn Tortilla 5.5""",Qdoba,15,g,30,1,6,0,1,50,0,0,0,0,,qdoba
+Corn Tortilla Chips (4 oz.),Qdoba,113,g,560,7,75,26,9,220,2,5,0,0,0,qdoba
+"Flour Tortilla (5.5"")",Qdoba,24,g,70,2,12,2,1,170,0,1,0,0,25,qdoba
+Hand Smashed Guacamole (1 oz.),Qdoba,28,g,45,0,2,4,1,100,0,0,0,0,125,qdoba
+Pinto Beans (2 oz.),Qdoba,57,g,70,4,12,0,7,180,0,0,0,0,220,qdoba
+"Pork, Pulled (2 oz.)",Qdoba,57,g,80,10,5,2,0,190,0,1,0,40,210,qdoba
+Sour Cream (1 oz.),Qdoba,28,g,50,1,3,5,0,10,1,3,0,15,42,qdoba
+"Steak, Grilled (1.75 oz.)",Qdoba,50,g,90,13,1,4,0,230,0,2,0,35,240,qdoba
+3- Cheese Queso (1 oz.),Qdoba,28,g,45,2,2,4,0,180,0,2.5,0,10,22,qdoba
+Burrito,Qdoba,213,g,480,18,67,15,10,1040,2,7,0,30,330,qdoba
+Quesadilla,Qdoba,77,g,260,11,25,12,2,510,1,6,0,30,75,qdoba
+Taco w/chicken,Qdoba,91,g,200,16,11,11,2,360,1,4.5,0,65,250,qdoba
+Taco w/ beef,Qdoba,91,g,220,15,11,12,1,370,1,5,0.5,50,190,qdoba
+Side (beans w/ cheese),Qdoba,120,g,160,10,24,3,14,400,1,1.5,0,10,450,qdoba
+Barq's Root Beer (Reg),Qdoba,20,fl oz,290,0,73,0,0,90,73,0,0,0,20,qdoba
+Barq's Root Beer (Lrg),Qdoba,30,fl oz,440,0,109,0,0,135,109,0,0,0,25,qdoba
+Caffeine Free Diet Coke (Reg),Qdoba,20,fl oz,0,0,0,0,0,80,0,0,0,0,70,qdoba
+Caffeine Free Diet Coke (Lrg),Qdoba,30,fl oz,0,0,0,0,0,120,0,0,0,0,110,qdoba
+Cherry Coca-Cola (Reg),Qdoba,20,fl oz,280,0,70,0,0,70,70,0,0,0,15,qdoba
+Cherry Coca-Cola (Lrg),Qdoba,30,fl oz,420,0,105,0,0,105,105,0,0,0,25,qdoba
+Coca-Cola Zero (Reg),Qdoba,20,fl oz,0,0,0,0,0,65,0,0,0,0,130,qdoba
+Coca-Cola Zero (Lrg),Qdoba,30,fl oz,0,0,0,0,0,100,0,0,0,0,190,qdoba
+Coca-Cola (Reg),Qdoba,20,fl oz,270,0,67,0,0,65,67,0,0,0,10,qdoba
+Coca-Cola (Lrg),Qdoba,30,fl oz,400,0,100,0,0,95,100,0,0,0,20,qdoba
+Diet Coke (Reg),Qdoba,20,fl oz,0,0,1,0,0,80,0,0,0,0,70,qdoba
+Diet Coke (Lrg),Qdoba,30,fl oz,0,0,1,0,0,125,0,0,0,0,110,qdoba
+Fanta Orange (Reg),Qdoba,20,fl oz,290,0,73,0,0,65,71,0,0,0,35,qdoba
+Fanta Orange (Lrg),Qdoba,30,fl oz,430,0,109,0,0,100,107,0,0,0,50,qdoba
+Fuze Raspberry Tea (Reg),Qdoba,20,fl oz,150,0,38,0,0,85,37,0,0,0,130,qdoba
+Fuze Raspberry Tea (Lrg),Qdoba,30,fl oz,230,0,57,0,0,125,55,0,0,0,190,qdoba
+Hi-C Flashin Fruit Punch (Reg),Qdoba,20,fl oz,280,0,71,0,0,120,69,0,0,0,0,qdoba
+Hi-C Flashin Fruit Punch (Lrg),Qdoba,30,fl oz,420,0,106,0,0,180,103,0,0,0,0,qdoba
+Mello Yello (Reg),Qdoba,20,fl oz,290,0,73,0,0,85,73,0,0,0,45,qdoba
+Mello Yello (Lrg),Qdoba,30,fl oz,430,0,109,0,0,125,109,0,0,0,65,qdoba
+Minute Maid Lemonade(HFCS) Reg,Qdoba,20,fl oz,250,0,63,0,0,160,60,0,0,0,30,qdoba
+Minute Maid Lemonade(HFCS) Lrg,Qdoba,30,fl oz,370,0,95,0,0,240,90,0,0,0,45,qdoba
+Minute Maid Light Lemonade (Reg),Qdoba,20,fl oz,10,0,3,0,0,70,0,0,0,0,210,qdoba
+Minute Maid Light Lemonade (Lrg),Qdoba,30,fl oz,15,0,5,0,1,105,0,0,0,0,310,qdoba
+POWERade Mountain Berry Blast (Reg),Qdoba,20,fl oz,150,0,37,0,0,190,36,0,0,0,110,qdoba
+POWERade Mountain Berry Blast (Lrg),Qdoba,30,fl oz,230,0,55,0,0,280,55,0,0,0,160,qdoba
+Gold Peak Classic Blend Tea (Reg),Qdoba,20,fl oz,0,0,0,0,0,60,0,0,0,0,0,qdoba
+Gold Peak Classic Blend Tea (Lrg),Qdoba,30,fl oz,0,0,0,0,0,90,0,0,0,0,0,qdoba
+Gold Peak Southern Tea (Reg),Qdoba,20,fl oz,280,0,70,0,0,60,70,0,0,0,0,qdoba
+Gold Peak Southern Tea (Lrg),Qdoba,30,fl oz,410,0,110,0,0,90,110,0,0,0,0,qdoba
+Gold Peak Classic Sweet Tea (Reg),Qdoba,20,fl oz,140,0,35,0,0,60,35,0,0,0,0,qdoba
+Gold Peak Classic Sweet Tea (Lrg),Qdoba,30,fl oz,205,0,55,0,0,90,55,0,0,0,0,qdoba
+Sprite (Reg),Qdoba,20,fl oz,250,0,61,0,0,115,61,0,0,0,0,qdoba
+Sprite (Lrg),Qdoba,30,fl oz,370,0,92,0,0,170,91,0,0,0,0,qdoba
+Dasani Water (16.9 fl. oz.),Qdoba,16.9,fl oz,0,0,0,0,0,0,0,0,0,0,0,qdoba
+Chocolate Milk (Lowfat 1%) (7 fl. oz.),Qdoba,7.0,fl oz,180,10,29,3,0.5,210,26,2,0,10,460,qdoba
+Coca Cola (20 fl. oz.),Qdoba,20,fl oz,240,0,65,0,0,75,65,0,0,0,0,qdoba
+Diet Coke (20 fl. oz.),Qdoba,20,fl oz,0,0,0,0,0,70,0,0,0,0,0,qdoba
+Gold Peak Lemon Ice Tea (16.9 fl. oz.),Qdoba,16.9,fl oz,180,0,45,0,0,30,44,0,0,0,0,qdoba
+Gold Peak Raspberry Ice Tea (16.9 fl. oz.),Qdoba,16.9,fl oz,170,0,44,0,0,45,44,0,0,0,0,qdoba
+Honest Tea Organic Peach (16.9 fl. oz.),Qdoba,16.9,fl oz,100,0,25,0,0,20,25,0,0,0,0,qdoba
+Honest Tea Honey Green Tea (16.9 fl. oz.),Qdoba,16.9,fl oz,70,0,19,0,0,15,19,0,0,0,0,qdoba
+Honest Tea Half and Half (16.9 fl. oz.),Qdoba,16.9,fl oz,100,0,25,0,0,0,25,0,0,0,0,qdoba
+Jarritos Soda,Qdoba,12.5,fl oz,171,0,44,0,0,40,44,0,0,0,0,qdoba
+Mexican Coca-Cola,Qdoba,12.0,fl oz,150,0,39,0,0,85,39,0,0,0,0,qdoba
+Mexican Sprite,Qdoba,12.0,fl oz,160,0,38,0,0,65,38,0,0,0,0,qdoba
+Vitamin Water Power C (20 fl. oz.),Qdoba,16.9,fl oz,100,0,27,0,0,0,27,0,0,0,0,qdoba
+Vitamin Water XXX (20 fl. oz.),Qdoba,16.9,fl oz,100,0,28,0,0,0,27,0,0,0,0,qdoba
+Vitamin Water Zero Squeezed Lemonade (20 fl. oz.),Qdoba,16.9,fl oz,5,0,4,0,0,0,0,0,0,0,0,qdoba
+White Milk lowfat 1% (7 fl. oz.)/ CA Standards,Qdoba,7,fl oz,110,9,14,2,0,140,13,2,0,10,450,qdoba
+White Milk lowfat 1% (8 fl. oz.)/ Fed Standards,Qdoba,8,fl oz,100,8,12,3,0,105,12,2,0,10,365,qdoba
+Simply Orange Juice (11.5 fl. oz.),Qdoba,11.5,fl oz,160,0,37,0,0,0,33,0,0,0,640,qdoba
+Minute Maid Kid's Apple Juice Box (6 fl. oz.),Qdoba,6,fl oz,80,0,21,0,0,15,19,0,0,0,350,qdoba
+"Apple Sauce, Natural",Qdoba,111,g,50,0,13,0,1,0,11,0,0,0,85,qdoba
+Double Chocolate Brownie,Qdoba,88,g,360,4,52,16,2,210,35,3,0,15,0,qdoba
+"Cookie, Chocolate Chunk",Qdoba,54,g,260,2,34,14,1,180,20,7,0,15,75,qdoba

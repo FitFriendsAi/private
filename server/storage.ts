@@ -1,6 +1,6 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
-import { eq, and, desc, gte, lte, gt, like, or, isNull, sql, inArray, ne } from "drizzle-orm";
+import { eq, and, desc, gte, lte, gt, like, ilike, or, isNull, sql, inArray, ne } from "drizzle-orm";
 import {
   estimate1RMKg, sessionBests, countPRs, computePointsTotal, streakFromDates,
   type StrengthSet,
@@ -142,7 +142,7 @@ export const storage = {
     // "chick-fil-a spicy chicken sandwich" don't pull cached "Chick Peas" entries.
     const q = foodQuery || query;
     return db.select().from(foodItems)
-      .where(or(like(foodItems.name, `%${q}%`), like(foodItems.brand, `%${q}%`)))
+      .where(or(ilike(foodItems.name, `%${q}%`), ilike(foodItems.brand, `%${q}%`)))
       .limit(30);
   },
   async createFoodItem(data: InsertFoodItem): Promise<FoodItem> {
