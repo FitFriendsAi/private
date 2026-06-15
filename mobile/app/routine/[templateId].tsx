@@ -6,7 +6,7 @@
  * Edit mode  — inline set/rep/weight editing, reorder (↑↓), replace, delete, add exercise
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View, Text, ScrollView, Pressable, TextInput,
   Alert, ActivityIndicator, Modal, FlatList, KeyboardAvoidingView, Platform,
@@ -45,6 +45,18 @@ function categoryColor(cat: string) {
 
 // ── Rest picker presets ───────────────────────────────────────────────────────
 const REST_PRESETS = [30, 45, 60, 90, 120, 180, 240];
+
+// ── Duration estimate ─────────────────────────────────────────────────────────
+// Rough average time to perform a single set (setup + the set itself).
+const SET_WORK_SECONDS = 45;
+
+function formatDuration(totalMinutes: number): string {
+  if (totalMinutes <= 0) return "0 min";
+  if (totalMinutes < 60) return `${totalMinutes} min`;
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface TemplateEx {
@@ -112,6 +124,15 @@ export default function RoutineDetailScreen() {
       setLocalEx(template.exercises);
     }
   }, [template, editMode]);
+
+  // ── Estimated duration ───────────────────────────────────────────────────────
+  const estimatedMinutes = useMemo(() => {
+    const totalSets = localEx.reduce((sum, ex) => sum + (ex.targetSets || 0), 0);
+    if (totalSets === 0) return 0;
+    const restCount = Math.max(0, totalSets - 1);
+    const totalSeconds = totalSets * SET_WORK_SECONDS + restCount * restSeconds;
+    return Math.round(totalSeconds / 60);
+  }, [localEx, restSeconds]);
 
   // ── Invalidation helper ──────────────────────────────────────────────────────
   const invalidate = useCallback(() => {
@@ -300,6 +321,7 @@ export default function RoutineDetailScreen() {
           {!isLoading && (
             <Text style={{ fontFamily: "Manrope", fontSize: 12, color: muted, marginTop: 1 }}>
               {localEx.length} exercise{localEx.length !== 1 ? "s" : ""}
+              {estimatedMinutes > 0 ? ` · ~${formatDuration(estimatedMinutes)}` : ""}
             </Text>
           )}
         </View>
