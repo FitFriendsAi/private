@@ -37,6 +37,7 @@ export const SEED_EXERCISES: InsertExercise[] = [
   { name: "Reverse Fly (Dumbbell)", primaryMuscle: "Back", secondaryMuscles: ["Rear Delts"], category: "isolation", equipment: "dumbbell", isCustom: false },
   { name: "Reverse Pec Deck Fly", primaryMuscle: "Back", secondaryMuscles: ["Rear Delts"], category: "isolation", equipment: "machine", isCustom: false },
   { name: "Cable Reverse Fly", primaryMuscle: "Back", secondaryMuscles: ["Rear Delts"], category: "isolation", equipment: "cable", isCustom: false },
+  { name: "Back Extension", primaryMuscle: "Back", secondaryMuscles: ["Glutes", "Hamstrings"], category: "isolation", equipment: "bodyweight", isCustom: false },
   // Shoulders
   { name: "Overhead Press", primaryMuscle: "Shoulders", secondaryMuscles: ["Triceps", "Upper Chest"], category: "compound", equipment: "barbell", isCustom: false },
   { name: "Dumbbell Shoulder Press", primaryMuscle: "Shoulders", secondaryMuscles: ["Triceps"], category: "compound", equipment: "dumbbell", isCustom: false },
