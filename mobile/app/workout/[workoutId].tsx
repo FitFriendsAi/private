@@ -26,7 +26,7 @@ import { useHealth } from "@/hooks/use-health";
 import { gramsToLbs, lbsToGrams } from "@/lib/utils";
 import { suggestNextWeight, estimate1RM } from "@shared/training";
 import { CelebrationModal } from "@/components/CelebrationModal";
-import { ArrowLeft, Check, Plus, X, Search, Timer, ChevronDown, Maximize2, Lightbulb } from "lucide-react-native";
+import { ArrowLeft, Check, Plus, X, Search, Timer, ChevronDown, ChevronUp, Maximize2, Lightbulb, Repeat } from "lucide-react-native";
 import Svg, { Circle, Line, G } from "react-native-svg";
 
 // ── Rest timer ring constants ──────────────────────────────────────
@@ -56,7 +56,7 @@ interface Exercise { id: number; name: string; primaryMuscle: string; category: 
 interface PrevPerf  { date: string; sets: { reps: number; weightGrams: number }[]; }
 type FieldSource    = "prev" | "user" | "empty";
 type SetEntry       = { reps: string; weight: string; done: boolean; repsSource: FieldSource; weightSource: FieldSource; };
-interface ActiveEx  { exercise: Exercise; sets: SetEntry[]; }
+interface ActiveEx  { exercise: Exercise; sets: SetEntry[]; templateExerciseId?: number; }
 
 // ── Helpers ───────────────────────────────────────────────────────
 function fmtElapsed(secs: number): string {
@@ -95,6 +95,8 @@ export default function WorkoutSessionScreen() {
   const [targetRepsByExerciseId, setTargetRepsByExerciseId] = useState<Record<number, string>>({});
   const [dismissedSuggestions, setDismissedSuggestions] = useState<Record<number, boolean>>({});
   const [celebration, setCelebration] = useState<{ title: string; lines: string[] } | null>(null);
+  const [replacingIndex, setReplacingIndex] = useState<number | null>(null);
+  const [routinePrompt, setRoutinePrompt] = useState<{ body: string } | null>(null);
 
   // ── Workout meta ──
   const { data: workout } = useQuery<any>({
@@ -130,6 +132,7 @@ export default function WorkoutSessionScreen() {
           category:      te.category ?? "",
           equipment:     te.equipment ?? "",
         },
+        templateExerciseId: te.id,
         sets: Array.from(
           { length: te.targetSets ?? 3 },
           (): SetEntry => ({
@@ -284,16 +287,39 @@ export default function WorkoutSessionScreen() {
     setExercises(prev => prev.filter((_, i) => i !== ei));
   };
 
+  const moveExercise = (ei: number, dir: -1 | 1) => {
+    setExercises(prev => {
+      const j = ei + dir;
+      if (j < 0 || j >= prev.length) return prev;
+      const copy = [...prev];
+      [copy[ei], copy[j]] = [copy[j], copy[ei]];
+      return copy;
+    });
+  };
+
+  const openReplaceExercise = (ei: number) => {
+    setReplacingIndex(ei);
+    setShowAddEx(true);
+  };
+
   const addExercise = (ex: Exercise) => {
-    setExercises(prev => [
-      ...prev,
-      { exercise: ex, sets: [
-        { reps: "", weight: "", done: false, repsSource: "empty", weightSource: "empty" },
-        { reps: "", weight: "", done: false, repsSource: "empty", weightSource: "empty" },
-        { reps: "", weight: "", done: false, repsSource: "empty", weightSource: "empty" },
-      ]},
-    ]);
-    // Fetch previous performance for new exercise
+    if (replacingIndex !== null) {
+      setExercises(prev => prev.map((ae, i) => i !== replacingIndex ? ae : {
+        exercise: ex,
+        templateExerciseId: undefined,
+        sets: ae.sets.map(() => ({ reps: "", weight: "", done: false, repsSource: "empty" as FieldSource, weightSource: "empty" as FieldSource })),
+      }));
+    } else {
+      setExercises(prev => [
+        ...prev,
+        { exercise: ex, sets: [
+          { reps: "", weight: "", done: false, repsSource: "empty", weightSource: "empty" },
+          { reps: "", weight: "", done: false, repsSource: "empty", weightSource: "empty" },
+          { reps: "", weight: "", done: false, repsSource: "empty", weightSource: "empty" },
+        ]},
+      ]);
+    }
+    // Fetch previous performance for the (new or replacement) exercise
     apiRequest<any>("GET", `/api/exercises/${ex.id}/history?limit=1`)
       .then(hist => {
         const last = hist?.[0];
@@ -302,12 +328,59 @@ export default function WorkoutSessionScreen() {
       .catch(() => {});
     setShowAddEx(false);
     setExSearch("");
+    setReplacingIndex(null);
   };
 
+  // ── Has the exercise list/order changed from the template it was started from? ──
+  const routineChanged = useMemo(() => {
+    if (!templateId || !template?.exercises?.length) return false;
+    const orig = [...template.exercises]
+      .sort((a: any, b: any) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0))
+      .map((te: any) => ({ templateExerciseId: te.id, exerciseId: te.exerciseId }));
+    if (orig.length !== exercises.length) return true;
+    return orig.some((o, i) =>
+      o.templateExerciseId !== exercises[i].templateExerciseId || o.exerciseId !== exercises[i].exercise.id
+    );
+  }, [templateId, template, exercises]);
+
+  // ── Apply the current exercise list/order back to the routine template ──
+  const syncRoutineToTemplate = useCallback(async () => {
+    if (!templateId) return;
+    const origExercises: any[] = template?.exercises ?? [];
+    const currentTemplateExerciseIds = new Set(
+      exercises.map(ae => ae.templateExerciseId).filter((id): id is number => id != null)
+    );
+    // Remove template exercises that were dropped or replaced
+    for (const te of origExercises) {
+      if (!currentTemplateExerciseIds.has(te.id)) {
+        await apiRequest("DELETE", `/api/template-exercises/${te.id}`);
+      }
+    }
+    // Update order for kept exercises, add rows for new/replaced ones
+    for (let i = 0; i < exercises.length; i++) {
+      const ae = exercises[i];
+      if (ae.templateExerciseId != null) {
+        await apiRequest("PATCH", `/api/template-exercises/${ae.templateExerciseId}`, { orderIndex: i });
+      } else {
+        await apiRequest("POST", `/api/templates/${templateId}/exercises`, {
+          exerciseId: ae.exercise.id,
+          orderIndex: i,
+          targetSets: ae.sets.length,
+          targetReps: targetRepsByExerciseId[ae.exercise.id] ?? "8-12",
+        });
+      }
+    }
+    qc.invalidateQueries({ queryKey: ["/api/templates"] });
+    qc.invalidateQueries({ queryKey: ["/api/templates", templateId] });
+  }, [templateId, template, exercises, targetRepsByExerciseId, qc]);
+
   // ── Finish ──
-  const finishWorkout = useCallback(async () => {
+  const finishWorkout = useCallback(async (updateRoutine: boolean) => {
     setSaving(true);
     try {
+      if (updateRoutine) {
+        await syncRoutineToTemplate();
+      }
       for (const { exercise, sets } of exercises) {
         for (let i = 0; i < sets.length; i++) {
           const s = sets[i];
@@ -363,7 +436,7 @@ export default function WorkoutSessionScreen() {
     } finally {
       setSaving(false);
     }
-  }, [exercises, prevPerf, elapsed, workoutId, qc, router]);
+  }, [exercises, prevPerf, elapsed, workoutId, qc, router, syncRoutineToTemplate]);
 
   const dismissCelebration = useCallback(() => {
     setCelebration(null);
@@ -372,11 +445,16 @@ export default function WorkoutSessionScreen() {
 
   const confirmFinish = () => {
     const doneSets = exercises.reduce((s, ae) => s + ae.sets.filter(x => x.done).length, 0);
-    setConfirm({
-      title: "Finish Workout?",
-      body: `${fmtElapsed(elapsed)} · ${exercises.length} exercise${exercises.length !== 1 ? "s" : ""} · ${doneSets} sets completed`,
-      onOk: finishWorkout,
-    });
+    const summary = `${fmtElapsed(elapsed)} · ${exercises.length} exercise${exercises.length !== 1 ? "s" : ""} · ${doneSets} sets completed`;
+    if (templateId && routineChanged) {
+      setRoutinePrompt({ body: summary });
+    } else {
+      setConfirm({
+        title: "Finish Workout?",
+        body: summary,
+        onOk: () => finishWorkout(false),
+      });
+    }
   };
 
   // ── Render ──
@@ -463,9 +541,28 @@ export default function WorkoutSessionScreen() {
                       </Text>
                     ) : null}
                   </View>
-                  <Pressable onPress={() => removeExercise(ei)} style={{ padding: 4 }}>
-                    <X size={16} color={muted} />
-                  </Pressable>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                    <Pressable
+                      onPress={() => moveExercise(ei, -1)}
+                      disabled={ei === 0}
+                      style={{ padding: 4, opacity: ei === 0 ? 0.3 : 1 }}
+                    >
+                      <ChevronUp size={16} color={muted} />
+                    </Pressable>
+                    <Pressable
+                      onPress={() => moveExercise(ei, 1)}
+                      disabled={ei === exercises.length - 1}
+                      style={{ padding: 4, opacity: ei === exercises.length - 1 ? 0.3 : 1 }}
+                    >
+                      <ChevronDown size={16} color={muted} />
+                    </Pressable>
+                    <Pressable onPress={() => openReplaceExercise(ei)} style={{ padding: 4 }}>
+                      <Repeat size={16} color={muted} />
+                    </Pressable>
+                    <Pressable onPress={() => removeExercise(ei)} style={{ padding: 4 }}>
+                      <X size={16} color={muted} />
+                    </Pressable>
+                  </View>
                 </View>
 
                 {/* Progressive-overload suggestion */}
@@ -869,6 +966,61 @@ export default function WorkoutSessionScreen() {
         </View>
       </Modal>
 
+      {/* ── Routine Changed Prompt ── */}
+      <Modal visible={!!routinePrompt} transparent animationType="fade">
+        <View style={{
+          flex: 1, backgroundColor: "rgba(0,0,0,0.6)",
+          justifyContent: "center", alignItems: "center", padding: 32,
+        }}>
+          <View style={{
+            backgroundColor: "#1a1a1a", borderRadius: 20,
+            padding: 24, width: "100%", maxWidth: 360,
+            borderWidth: 1, borderColor: "#2a2a2a",
+          }}>
+            <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 18, color: "#ffffff", marginBottom: 8 }}>
+              Finish Workout?
+            </Text>
+            <Text style={{ fontFamily: "Manrope", fontSize: 14, color: "#999999", marginBottom: 8, lineHeight: 20 }}>
+              {routinePrompt?.body}
+            </Text>
+            <Text style={{ fontFamily: "Manrope", fontSize: 13, color: "#999999", marginBottom: 20, lineHeight: 18 }}>
+              You changed the exercises in this routine. Update the saved routine to match, or just save this workout.
+            </Text>
+            <View style={{ gap: 10 }}>
+              <Pressable
+                onPress={() => { setRoutinePrompt(null); finishWorkout(true); }}
+                style={({ pressed }) => ({
+                  paddingVertical: 13, borderRadius: 14,
+                  backgroundColor: "#22c55e", alignItems: "center",
+                  opacity: pressed ? 0.7 : 1,
+                })}
+              >
+                <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: "#ffffff" }}>Update Routine</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => { setRoutinePrompt(null); finishWorkout(false); }}
+                style={({ pressed }) => ({
+                  paddingVertical: 13, borderRadius: 14,
+                  backgroundColor: "#262626", borderWidth: 1, borderColor: "#333333",
+                  alignItems: "center", opacity: pressed ? 0.7 : 1,
+                })}
+              >
+                <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: "#cccccc" }}>Just This Workout</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setRoutinePrompt(null)}
+                style={({ pressed }) => ({
+                  paddingVertical: 13, borderRadius: 14,
+                  alignItems: "center", opacity: pressed ? 0.7 : 1,
+                })}
+              >
+                <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: "#999999" }}>Cancel</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* ── Exercise Picker Modal ── */}
       <Modal visible={showAddEx} animationType="slide" presentationStyle="pageSheet">
         <View style={{ flex: 1, backgroundColor: bg }}>
@@ -876,8 +1028,10 @@ export default function WorkoutSessionScreen() {
             padding: 16, flexDirection: "row", justifyContent: "space-between",
             alignItems: "center", borderBottomWidth: 1, borderBottomColor: border,
           }}>
-            <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 18, color: text }}>Add Exercise</Text>
-            <Pressable onPress={() => { setShowAddEx(false); setExSearch(""); }}>
+            <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 18, color: text }}>
+              {replacingIndex !== null ? "Replace Exercise" : "Add Exercise"}
+            </Text>
+            <Pressable onPress={() => { setShowAddEx(false); setExSearch(""); setReplacingIndex(null); }}>
               <X size={22} color={text} />
             </Pressable>
           </View>
