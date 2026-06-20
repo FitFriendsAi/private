@@ -386,13 +386,93 @@ export const storage = {
     return t;
   },
   async upsertNutritionTarget(userId: number, data: Omit<InsertNutritionTarget, "userId">): Promise<NutritionTarget> {
-    const existing = await this.getNutritionTarget(userId);
-    if (existing) {
-      const [t] = await db.update(nutritionTargets).set({ ...data, updatedAt: new Date() }).where(eq(nutritionTargets.userId, userId)).returning();
-      return t;
-    }
-    const [t] = await db.insert(nutritionTargets).values({ userId, ...data }).returning();
+    const [t] = await db.insert(nutritionTargets).values({
+      userId,
+      ...data,
+      effectiveDate: data.effectiveDate ?? new Date().toISOString().slice(0, 10),
+    }).returning();
     return t;
+  },
+  async getNutritionTargetHistory(userId: number, limit = 10): Promise<NutritionTarget[]> {
+    return db.select().from(nutritionTargets)
+      .where(eq(nutritionTargets.userId, userId))
+      .orderBy(desc(nutritionTargets.effectiveDate))
+      .limit(limit);
+  },
+  async getNutritionAdherence(userId: number, days = 14): Promise<{
+    periods: { targetId: number; startDate: string; endDate: string; calories: number; proteinG: number; carbsG: number; fatG: number; daysLogged: number; daysHit: number; avgCalories: number; avgProtein: number; avgCarbs: number; avgFat: number }[];
+  }> {
+    const today = new Date();
+    const startDate = new Date(today);
+    startDate.setDate(startDate.getDate() - days + 1);
+    const startStr = startDate.toISOString().slice(0, 10);
+    const todayStr = today.toISOString().slice(0, 10);
+
+    const targets = await db.select().from(nutritionTargets)
+      .where(eq(nutritionTargets.userId, userId))
+      .orderBy(nutritionTargets.effectiveDate);
+
+    const dailyTotals = await db.select({
+      date: foodLog.date,
+      calories: sql<number>`coalesce(sum(${foodLog.caloriesActual}), 0)`,
+      protein: sql<number>`coalesce(sum(${foodLog.proteinActual}), 0)`,
+      carbs: sql<number>`coalesce(sum(${foodLog.carbsActual}), 0)`,
+      fat: sql<number>`coalesce(sum(${foodLog.fatActual}), 0)`,
+    }).from(foodLog)
+      .where(and(eq(foodLog.userId, userId), gte(foodLog.date, startStr), lte(foodLog.date, todayStr)))
+      .groupBy(foodLog.date);
+
+    const dailyMap = new Map(dailyTotals.map(d => [d.date, d]));
+
+    if (targets.length === 0) return { periods: [] };
+
+    const periods: { targetId: number; startDate: string; endDate: string; calories: number; proteinG: number; carbsG: number; fatG: number; daysLogged: number; daysHit: number; avgCalories: number; avgProtein: number; avgCarbs: number; avgFat: number }[] = [];
+
+    for (let dayOffset = 0; dayOffset < days; dayOffset++) {
+      const d = new Date(startDate);
+      d.setDate(d.getDate() + dayOffset);
+      const ds = d.toISOString().slice(0, 10);
+
+      let activeTarget = targets[0];
+      for (const t of targets) {
+        if (t.effectiveDate <= ds) activeTarget = t;
+        else break;
+      }
+
+      let period = periods.find(p => p.targetId === activeTarget.id);
+      if (!period) {
+        period = {
+          targetId: activeTarget.id, startDate: ds, endDate: ds,
+          calories: activeTarget.calories, proteinG: activeTarget.proteinG,
+          carbsG: activeTarget.carbsG, fatG: activeTarget.fatG,
+          daysLogged: 0, daysHit: 0, avgCalories: 0, avgProtein: 0, avgCarbs: 0, avgFat: 0,
+        };
+        periods.push(period);
+      }
+      period.endDate = ds;
+
+      const log = dailyMap.get(ds);
+      if (log && log.calories > 0) {
+        period.daysLogged++;
+        period.avgCalories += log.calories;
+        period.avgProtein += log.protein;
+        period.avgCarbs += log.carbs;
+        period.avgFat += log.fat;
+        const withinRange = Math.abs(log.calories - activeTarget.calories) / activeTarget.calories <= 0.10;
+        if (withinRange) period.daysHit++;
+      }
+    }
+
+    for (const p of periods) {
+      if (p.daysLogged > 0) {
+        p.avgCalories = Math.round(p.avgCalories / p.daysLogged);
+        p.avgProtein = Math.round(p.avgProtein / p.daysLogged);
+        p.avgCarbs = Math.round(p.avgCarbs / p.daysLogged);
+        p.avgFat = Math.round(p.avgFat / p.daysLogged);
+      }
+    }
+
+    return { periods };
   },
 
   // ── Water Log ──────────────────────────────────────────────────────────────

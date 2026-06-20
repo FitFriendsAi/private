@@ -570,11 +570,13 @@ If there are no active goals with deadlines, set goalFeasibility to [] and progr
     const userId = (req.user as any).id;
 
     try {
-      const [goals, measurements, foodSummary, currentTargets] = await Promise.all([
+      const [goals, measurements, foodSummary, currentTargets, targetHistory, adherence] = await Promise.all([
         storage.getGoals(userId),
         storage.getMeasurements(userId, 14),
         storage.getFoodLogSummary(userId, "1W"),
         storage.getNutritionTarget(userId),
+        storage.getNutritionTargetHistory(userId, 10),
+        storage.getNutritionAdherence(userId, 14),
       ]);
 
       const activeGoals = goals.filter(g => g.isActive);
@@ -607,8 +609,20 @@ If there are no active goals with deadlines, set goalFeasibility to [] and progr
           }).join("\n");
 
       const targetsText = currentTargets
-        ? `Current daily targets: ${Math.round(currentTargets.calories)} kcal, ${Math.round(currentTargets.proteinG ?? 0)}g protein, ${Math.round(currentTargets.carbsG ?? 0)}g carbs, ${Math.round(currentTargets.fatG ?? 0)}g fat`
+        ? `Current daily targets: ${Math.round(currentTargets.calories)} kcal, ${Math.round(currentTargets.proteinG ?? 0)}g protein, ${Math.round(currentTargets.carbsG ?? 0)}g carbs, ${Math.round(currentTargets.fatG ?? 0)}g fat (source: ${currentTargets.source ?? "auto_calc"})`
         : "No nutrition targets set.";
+
+      const historyText = targetHistory.length > 1
+        ? "TARGET HISTORY (most recent first):\n" + targetHistory.map(t =>
+            `  ${t.effectiveDate}: ${Math.round(t.calories)} kcal, ${Math.round(t.proteinG)}g P / ${Math.round(t.carbsG)}g C / ${Math.round(t.fatG)}g F (${t.source ?? "auto_calc"}${t.reason ? " — " + t.reason : ""})`
+          ).join("\n")
+        : "No prior target changes on record.";
+
+      const adherenceText = adherence.periods.length > 0
+        ? "TARGET ADHERENCE (last 14 days):\n" + adherence.periods.map(p =>
+            `  ${p.startDate} to ${p.endDate} (target: ${Math.round(p.calories)} kcal): logged ${p.daysLogged} days, hit target (±10%) ${p.daysHit}/${p.daysLogged} days, avg intake ${p.avgCalories} kcal, ${p.avgProtein}g P / ${p.avgCarbs}g C / ${p.avgFat}g F`
+          ).join("\n")
+        : "No adherence data available.";
 
       const hasWeightGoal = activeGoals.some(g => g.type === "weight_loss" || g.type === "weight_gain");
 
@@ -626,6 +640,16 @@ DIET (last 7 days): logged ${loggedDays.length}/7 days${avgCal ? `, avg ${avgCal
 
 ${targetsText}
 
+${historyText}
+
+${adherenceText}
+
+IMPORTANT CONTEXT FOR ADJUSTMENTS:
+- Review the target history to understand what has already been tried.
+- Check adherence data: if the user consistently missed a previous target, don't just set the same number again. If they hit their targets, the plan is working — only adjust if progress has stalled or the goal requires it.
+- Consider the user's goal timeline (deadline) and current progress rate when deciding how aggressively to adjust.
+- A user who was recently given new targets and IS hitting them does NOT need another adjustment — acknowledge their progress instead.
+
 Return ONLY valid JSON (no markdown):
 {
   "status": "on_track|behind|ahead",
@@ -633,14 +657,14 @@ Return ONLY valid JSON (no markdown):
   "observations": ["observation1", "observation2", "observation3"],
   "topAction": "Single most important thing to do this week"${hasWeightGoal ? `,
   "nutritionAdjustment": {
-    "calories": <integer: adjust from current target based on goal — deficit ~300-500 kcal for weight loss, surplus ~200-300 kcal for weight gain, or omit field entirely if no change needed>,
+    "calories": <integer>,
     "proteinG": <integer grams>,
     "carbsG": <integer grams>,
     "fatG": <integer grams>,
-    "reasoning": "1 sentence explaining the adjustment"
+    "reasoning": "1 sentence explaining adjustment — reference what changed vs previous targets and why"
   }` : ""}
 }
-${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets need meaningful adjustment based on the goal and trend. Omit the field entirely if targets are already appropriate.' : 'Do not include a nutritionAdjustment field.'}`;
+${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets need meaningful adjustment based on the goal, trend, AND adherence history. Omit the field entirely if targets are already appropriate or were recently adjusted and the user is complying.' : 'Do not include a nutritionAdjustment field.'}`;
 
       const apiKey2 = process.env.ANTHROPIC_API_KEY;
       if (!apiKey2) return res.status(500).json({ message: "AI service is not configured." });
@@ -1329,19 +1353,34 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
           patch[key] = Math.round(val);
         }
       }
+      const source = typeof req.body.__source === "string" ? req.body.__source : "manual";
+      const reason = typeof req.body.__reason === "string" ? req.body.__reason : undefined;
       const merged = {
-        effectiveDate: existing?.effectiveDate ?? new Date().toISOString().slice(0, 10),
+        effectiveDate: new Date().toISOString().slice(0, 10),
         calories: existing?.calories ?? 2200,
         proteinG: existing?.proteinG ?? 150,
         carbsG:   existing?.carbsG   ?? 220,
         fatG:     existing?.fatG     ?? 70,
         waterMl:  existing?.waterMl  ?? 2500,
         ...patch,
+        source,
+        reason: reason ?? null,
       };
       const t = await storage.upsertNutritionTarget(userId, merged);
       res.json(t);
     } catch (err: any) {
       res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/targets/history", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    try {
+      const userId = (req.user as any).id;
+      const history = await storage.getNutritionTargetHistory(userId, 20);
+      res.json(history);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 

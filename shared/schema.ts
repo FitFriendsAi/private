@@ -153,6 +153,8 @@ export const nutritionTargets = pgTable("nutrition_targets", {
   carbsG: real("carbs_g").notNull(),
   fatG: real("fat_g").notNull(),
   waterMl: real("water_ml").notNull().default(2500),
+  source: text("source").notNull().default("auto_calc"),
+  reason: text("reason"),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 

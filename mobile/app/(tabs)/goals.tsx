@@ -466,9 +466,9 @@ export default function GoalsScreen() {
       apiRequest("PATCH", "/api/targets", body),
     onSuccess: (_data, vars: any) => {
       qc.invalidateQueries({ queryKey: ["/api/targets"] });
-      if (vars.__source === "checkin") {
+      if (vars.__source === "checkin" || vars.__source === "ai_checkin") {
         setCheckInNutritionApplied(true);
-      } else if (vars.__source === "plan") {
+      } else if (vars.__source === "plan" || vars.__source === "ai_plan") {
         setPlanNutritionApplied(true);
       } else if (vars.__source === "manual") {
         setEditingTargets(false);
@@ -717,7 +717,7 @@ export default function GoalsScreen() {
                   <Text style={{ fontSize: 12, fontFamily: "Manrope-Bold", color: LIME }}>✓ Applied to daily targets</Text>
                 ) : (
                   <Pressable
-                    onPress={() => adjustNutrition.mutate({ ...checkIn.nutritionAdjustment!, __source: "checkin" } as any)}
+                    onPress={() => adjustNutrition.mutate({ ...checkIn.nutritionAdjustment!, __source: "ai_checkin", __reason: checkIn.nutritionAdjustment!.reasoning } as any)}
                     disabled={adjustNutrition.isPending}
                     style={({ pressed }) => ({
                       backgroundColor: LIME + "22", borderRadius: 10, paddingVertical: 9, paddingHorizontal: 14,
@@ -957,7 +957,8 @@ export default function GoalsScreen() {
                       proteinG: effectivePlan.nutrition.proteinG,
                       carbsG: effectivePlan.nutrition.carbsG,
                       fatG: effectivePlan.nutrition.fatG,
-                      __source: "plan",
+                      __source: "ai_plan",
+                      __reason: "AI coaching plan nutrition targets",
                     } as any)}
                     disabled={adjustNutrition.isPending}
                     style={({ pressed }) => ({

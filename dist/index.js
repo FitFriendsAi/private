@@ -245573,6 +245573,8 @@ var nutritionTargets = pgTable("nutrition_targets", {
   carbsG: real("carbs_g").notNull(),
   fatG: real("fat_g").notNull(),
   waterMl: real("water_ml").notNull().default(2500),
+  source: text("source").notNull().default("auto_calc"),
+  reason: text("reason"),
   updatedAt: timestamp("updated_at").defaultNow()
 });
 var insertNutritionTargetSchema = c(nutritionTargets).omit({ id: true });
@@ -246016,13 +246018,82 @@ var storage = {
     return t2;
   },
   async upsertNutritionTarget(userId, data) {
-    const existing = await this.getNutritionTarget(userId);
-    if (existing) {
-      const [t3] = await db.update(nutritionTargets).set({ ...data, updatedAt: /* @__PURE__ */ new Date() }).where(eq(nutritionTargets.userId, userId)).returning();
-      return t3;
-    }
-    const [t2] = await db.insert(nutritionTargets).values({ userId, ...data }).returning();
+    const [t2] = await db.insert(nutritionTargets).values({
+      userId,
+      ...data,
+      effectiveDate: data.effectiveDate ?? (/* @__PURE__ */ new Date()).toISOString().slice(0, 10)
+    }).returning();
     return t2;
+  },
+  async getNutritionTargetHistory(userId, limit = 10) {
+    return db.select().from(nutritionTargets).where(eq(nutritionTargets.userId, userId)).orderBy(desc(nutritionTargets.effectiveDate)).limit(limit);
+  },
+  async getNutritionAdherence(userId, days = 14) {
+    const today = /* @__PURE__ */ new Date();
+    const startDate = new Date(today);
+    startDate.setDate(startDate.getDate() - days + 1);
+    const startStr = startDate.toISOString().slice(0, 10);
+    const todayStr = today.toISOString().slice(0, 10);
+    const targets = await db.select().from(nutritionTargets).where(eq(nutritionTargets.userId, userId)).orderBy(nutritionTargets.effectiveDate);
+    const dailyTotals = await db.select({
+      date: foodLog.date,
+      calories: sql`coalesce(sum(${foodLog.caloriesActual}), 0)`,
+      protein: sql`coalesce(sum(${foodLog.proteinActual}), 0)`,
+      carbs: sql`coalesce(sum(${foodLog.carbsActual}), 0)`,
+      fat: sql`coalesce(sum(${foodLog.fatActual}), 0)`
+    }).from(foodLog).where(and(eq(foodLog.userId, userId), gte(foodLog.date, startStr), lte(foodLog.date, todayStr))).groupBy(foodLog.date);
+    const dailyMap = new Map(dailyTotals.map((d2) => [d2.date, d2]));
+    if (targets.length === 0) return { periods: [] };
+    const periods = [];
+    for (let dayOffset = 0; dayOffset < days; dayOffset++) {
+      const d2 = new Date(startDate);
+      d2.setDate(d2.getDate() + dayOffset);
+      const ds = d2.toISOString().slice(0, 10);
+      let activeTarget = targets[0];
+      for (const t2 of targets) {
+        if (t2.effectiveDate <= ds) activeTarget = t2;
+        else break;
+      }
+      let period = periods.find((p3) => p3.targetId === activeTarget.id);
+      if (!period) {
+        period = {
+          targetId: activeTarget.id,
+          startDate: ds,
+          endDate: ds,
+          calories: activeTarget.calories,
+          proteinG: activeTarget.proteinG,
+          carbsG: activeTarget.carbsG,
+          fatG: activeTarget.fatG,
+          daysLogged: 0,
+          daysHit: 0,
+          avgCalories: 0,
+          avgProtein: 0,
+          avgCarbs: 0,
+          avgFat: 0
+        };
+        periods.push(period);
+      }
+      period.endDate = ds;
+      const log = dailyMap.get(ds);
+      if (log && log.calories > 0) {
+        period.daysLogged++;
+        period.avgCalories += log.calories;
+        period.avgProtein += log.protein;
+        period.avgCarbs += log.carbs;
+        period.avgFat += log.fat;
+        const withinRange = Math.abs(log.calories - activeTarget.calories) / activeTarget.calories <= 0.1;
+        if (withinRange) period.daysHit++;
+      }
+    }
+    for (const p3 of periods) {
+      if (p3.daysLogged > 0) {
+        p3.avgCalories = Math.round(p3.avgCalories / p3.daysLogged);
+        p3.avgProtein = Math.round(p3.avgProtein / p3.daysLogged);
+        p3.avgCarbs = Math.round(p3.avgCarbs / p3.daysLogged);
+        p3.avgFat = Math.round(p3.avgFat / p3.daysLogged);
+      }
+    }
+    return { periods };
   },
   // ── Water Log ──────────────────────────────────────────────────────────────
   async getWaterLog(userId, date2) {
@@ -256325,11 +256396,13 @@ If there are no active goals with deadlines, set goalFeasibility to [] and progr
     if (!requireAuth(req, res)) return;
     const userId = req.user.id;
     try {
-      const [goals2, measurements, foodSummary, currentTargets] = await Promise.all([
+      const [goals2, measurements, foodSummary, currentTargets, targetHistory, adherence] = await Promise.all([
         storage.getGoals(userId),
         storage.getMeasurements(userId, 14),
         storage.getFoodLogSummary(userId, "1W"),
-        storage.getNutritionTarget(userId)
+        storage.getNutritionTarget(userId),
+        storage.getNutritionTargetHistory(userId, 10),
+        storage.getNutritionAdherence(userId, 14)
       ]);
       const activeGoals = goals2.filter((g2) => g2.isActive);
       const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
@@ -256351,7 +256424,13 @@ If there are no active goals with deadlines, set goalFeasibility to [] and progr
         const deadline = g2.deadline ? `deadline ${g2.deadline}` : "no deadline";
         return `- "${g2.label}" (${g2.type}), target: ${targetLbs ? targetLbs + " lbs" : g2.targetValue + " " + g2.unit}, ${deadline}`;
       }).join("\n");
-      const targetsText = currentTargets ? `Current daily targets: ${Math.round(currentTargets.calories)} kcal, ${Math.round(currentTargets.proteinG ?? 0)}g protein, ${Math.round(currentTargets.carbsG ?? 0)}g carbs, ${Math.round(currentTargets.fatG ?? 0)}g fat` : "No nutrition targets set.";
+      const targetsText = currentTargets ? `Current daily targets: ${Math.round(currentTargets.calories)} kcal, ${Math.round(currentTargets.proteinG ?? 0)}g protein, ${Math.round(currentTargets.carbsG ?? 0)}g carbs, ${Math.round(currentTargets.fatG ?? 0)}g fat (source: ${currentTargets.source ?? "auto_calc"})` : "No nutrition targets set.";
+      const historyText = targetHistory.length > 1 ? "TARGET HISTORY (most recent first):\n" + targetHistory.map(
+        (t2) => `  ${t2.effectiveDate}: ${Math.round(t2.calories)} kcal, ${Math.round(t2.proteinG)}g P / ${Math.round(t2.carbsG)}g C / ${Math.round(t2.fatG)}g F (${t2.source ?? "auto_calc"}${t2.reason ? " \u2014 " + t2.reason : ""})`
+      ).join("\n") : "No prior target changes on record.";
+      const adherenceText = adherence.periods.length > 0 ? "TARGET ADHERENCE (last 14 days):\n" + adherence.periods.map(
+        (p3) => `  ${p3.startDate} to ${p3.endDate} (target: ${Math.round(p3.calories)} kcal): logged ${p3.daysLogged} days, hit target (\xB110%) ${p3.daysHit}/${p3.daysLogged} days, avg intake ${p3.avgCalories} kcal, ${p3.avgProtein}g P / ${p3.avgCarbs}g C / ${p3.avgFat}g F`
+      ).join("\n") : "No adherence data available.";
       const hasWeightGoal = activeGoals.some((g2) => g2.type === "weight_loss" || g2.type === "weight_gain");
       const checkinPrompt = `You are a fitness coach giving a brief weekly check-in. Today is ${today}.
 
@@ -256367,6 +256446,16 @@ DIET (last 7 days): logged ${loggedDays.length}/7 days${avgCal ? `, avg ${avgCal
 
 ${targetsText}
 
+${historyText}
+
+${adherenceText}
+
+IMPORTANT CONTEXT FOR ADJUSTMENTS:
+- Review the target history to understand what has already been tried.
+- Check adherence data: if the user consistently missed a previous target, don't just set the same number again. If they hit their targets, the plan is working \u2014 only adjust if progress has stalled or the goal requires it.
+- Consider the user's goal timeline (deadline) and current progress rate when deciding how aggressively to adjust.
+- A user who was recently given new targets and IS hitting them does NOT need another adjustment \u2014 acknowledge their progress instead.
+
 Return ONLY valid JSON (no markdown):
 {
   "status": "on_track|behind|ahead",
@@ -256374,14 +256463,14 @@ Return ONLY valid JSON (no markdown):
   "observations": ["observation1", "observation2", "observation3"],
   "topAction": "Single most important thing to do this week"${hasWeightGoal ? `,
   "nutritionAdjustment": {
-    "calories": <integer: adjust from current target based on goal \u2014 deficit ~300-500 kcal for weight loss, surplus ~200-300 kcal for weight gain, or omit field entirely if no change needed>,
+    "calories": <integer>,
     "proteinG": <integer grams>,
     "carbsG": <integer grams>,
     "fatG": <integer grams>,
-    "reasoning": "1 sentence explaining the adjustment"
+    "reasoning": "1 sentence explaining adjustment \u2014 reference what changed vs previous targets and why"
   }` : ""}
 }
-${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets need meaningful adjustment based on the goal and trend. Omit the field entirely if targets are already appropriate.' : "Do not include a nutritionAdjustment field."}`;
+${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets need meaningful adjustment based on the goal, trend, AND adherence history. Omit the field entirely if targets are already appropriate or were recently adjusted and the user is complying.' : "Do not include a nutritionAdjustment field."}`;
       const apiKey2 = process.env.ANTHROPIC_API_KEY;
       if (!apiKey2) return res.status(500).json({ message: "AI service is not configured." });
       const client3 = new sdk_default({ apiKey: apiKey2 });
@@ -256898,19 +256987,33 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
           patch[key] = Math.round(val);
         }
       }
+      const source = typeof req.body.__source === "string" ? req.body.__source : "manual";
+      const reason = typeof req.body.__reason === "string" ? req.body.__reason : void 0;
       const merged = {
-        effectiveDate: existing?.effectiveDate ?? (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
+        effectiveDate: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
         calories: existing?.calories ?? 2200,
         proteinG: existing?.proteinG ?? 150,
         carbsG: existing?.carbsG ?? 220,
         fatG: existing?.fatG ?? 70,
         waterMl: existing?.waterMl ?? 2500,
-        ...patch
+        ...patch,
+        source,
+        reason: reason ?? null
       };
       const t2 = await storage.upsertNutritionTarget(userId, merged);
       res.json(t2);
     } catch (err) {
       res.status(400).json({ message: err.message });
+    }
+  });
+  app2.get("/api/targets/history", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    try {
+      const userId = req.user.id;
+      const history = await storage.getNutritionTargetHistory(userId, 20);
+      res.json(history);
+    } catch (err) {
+      res.status(500).json({ message: err.message });
     }
   });
   app2.get("/api/tdee", async (req, res) => {
