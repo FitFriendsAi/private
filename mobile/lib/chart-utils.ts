@@ -21,11 +21,13 @@ export interface ChartBar {
  * - period 90 (default): groups into weekly averages (13 bars).
  * - period 90 + rawPoints: returns only actual data points within the window,
  *   no zero-fill or averaging. Ideal for sparse data like body weight.
+ * - interpolate: linearly interpolate between known values instead of
+ *   dropping to 0 on days without data (ideal for body weight).
  */
 export function buildChartBars(
   rawData: { date: string; value: number }[],
   period: 7 | 30 | 90,
-  options?: { rawPoints?: boolean },
+  options?: { rawPoints?: boolean; interpolate?: boolean },
 ): ChartBar[] {
   const byDate: Record<string, number> = {};
   rawData.forEach(d => { byDate[d.date] = d.value; });
@@ -58,32 +60,35 @@ export function buildChartBars(
 
   // ── Weekly-average mode (90 days, default) ──
   if (period === 90) {
+    const filled = options?.interpolate ? interpolateDays(byDate, 90) : byDate;
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - 89);
     const weeks: ChartBar[] = [];
-    let weekTotal = 0, weekDays = 0, weekFirst: Date | null = null;
+    let weekTotal = 0, weekCount = 0, weekFirst: Date | null = null;
     let prevMonth = -1;
     for (let i = 0; i < 90; i++) {
       const d = new Date(startDate);
       d.setDate(startDate.getDate() + i);
       if (!weekFirst) weekFirst = d;
       const ds = localDateStr(d);
-      weekTotal += byDate[ds] ?? 0;
-      weekDays++;
-      if (weekDays === 7 || i === 89) {
+      const v = filled[ds] ?? 0;
+      if (v > 0) { weekTotal += v; weekCount++; }
+      if (((i + 1) % 7 === 0) || i === 89) {
         const month = (weekFirst as Date).getMonth();
         weeks.push({
-          value: weekDays > 0 ? weekTotal / weekDays : 0,
+          value: weekCount > 0 ? weekTotal / weekCount : 0,
           label: MONTH_ABBR[month],
           showLabel: month !== prevMonth,
           isToday: false,
         });
         prevMonth = month;
-        weekTotal = 0; weekDays = 0; weekFirst = null;
+        weekTotal = 0; weekCount = 0; weekFirst = null;
       }
     }
     return weeks;
   }
+
+  const filled = options?.interpolate ? interpolateDays(byDate, period) : byDate;
 
   const today = new Date();
   return Array.from({ length: period }, (_, idx) => {
@@ -100,8 +105,48 @@ export function buildChartBars(
       label = String(d.getDate());
       showLabel = idx % 5 === 0 || idx === period - 1;
     }
-    return { value: byDate[ds] ?? 0, label, showLabel, isToday, date: ds };
+    return { value: filled[ds] ?? 0, label, showLabel, isToday, date: ds };
   });
+}
+
+function interpolateDays(
+  byDate: Record<string, number>,
+  period: number,
+): Record<string, number> {
+  const today = new Date();
+  const dates: string[] = [];
+  for (let i = period - 1; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    dates.push(localDateStr(d));
+  }
+
+  const result: Record<string, number> = { ...byDate };
+  const known = dates.filter(d => (byDate[d] ?? 0) > 0);
+  if (known.length === 0) return result;
+
+  for (let i = 0; i < dates.length; i++) {
+    const ds = dates[i];
+    if ((byDate[ds] ?? 0) > 0) continue;
+
+    let prevIdx = -1, nextIdx = -1;
+    for (let j = i - 1; j >= 0; j--) {
+      if ((byDate[dates[j]] ?? 0) > 0) { prevIdx = j; break; }
+    }
+    for (let j = i + 1; j < dates.length; j++) {
+      if ((byDate[dates[j]] ?? 0) > 0) { nextIdx = j; break; }
+    }
+
+    if (prevIdx >= 0 && nextIdx >= 0) {
+      const t = (i - prevIdx) / (nextIdx - prevIdx);
+      result[ds] = byDate[dates[prevIdx]] + t * (byDate[dates[nextIdx]] - byDate[dates[prevIdx]]);
+    } else if (prevIdx >= 0) {
+      result[ds] = byDate[dates[prevIdx]];
+    } else if (nextIdx >= 0) {
+      result[ds] = byDate[dates[nextIdx]];
+    }
+  }
+  return result;
 }
 
 function localDateStr(d: Date): string {

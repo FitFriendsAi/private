@@ -396,7 +396,7 @@ export default function GoalsScreen() {
 
   const aiMutation = useMutation({
     mutationFn: (prefs: typeof currentPrefs) =>
-      apiRequest("POST", "/api/goals/ai-analysis", { preferences: prefs }),
+      apiRequest("POST", "/api/goals/ai-analysis", { preferences: prefs }, 60_000),
     onSuccess: (data: AiPlan) => {
       setAiPlan(data);
       setAiError(null);
@@ -409,7 +409,7 @@ export default function GoalsScreen() {
   });
 
   const checkinMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/goals/ai-checkin"),
+    mutationFn: () => apiRequest("POST", "/api/goals/ai-checkin", undefined, 60_000),
     onSuccess: (data: CheckInResult) => { setCheckIn(data); setCheckInError(null); },
     onError: (e: any) => setCheckInError(e?.message ?? "Failed to generate check-in"),
   });

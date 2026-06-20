@@ -6,7 +6,7 @@ import * as ImagePicker from "expo-image-picker";
 import { apiRequest } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
 import { gramsToLbs, todayStr } from "@/lib/utils";
-import Svg, { Circle, Polyline, Rect, Line } from "react-native-svg";
+import Svg, { Circle, Path, Polyline, Rect, Line } from "react-native-svg";
 import { Scale, Dumbbell, ChevronDown, X, BarChart2, LineChart as LineChartIcon, Camera, Plus, Columns2 } from "lucide-react-native";
 
 const LIME   = "#c8e84c";
@@ -472,24 +472,48 @@ function SvgText({ x, y, fontSize, fontWeight, fill, textAnchor, children }: any
 }
 
 // ── Weight sparkline ──────────────────────────────────────────────
-function WeightLine({ data, color, w, h = 100 }: { data: number[]; color: string; w: number; h?: number }) {
+function WeightLine({ data, dates, color, w, h = 100 }: { data: number[]; dates?: string[]; color: string; w: number; h?: number }) {
   if (data.length < 2 || w <= 0) return null;
   const pad = 8;
   const min = Math.min(...data) - 2;
   const max = Math.max(...data) + 2;
   const rng = max - min || 1;
-  const pts = data.map((v, i) => {
-    const x = pad + (i / (data.length - 1)) * (w - pad * 2);
-    const y = pad + ((max - v) / rng) * (h - pad * 2);
-    return `${x},${y}`;
-  }).join(" ");
-  const lastX = pad + (w - pad * 2);
-  const lastY = pad + ((max - data[data.length - 1]) / rng) * (h - pad * 2);
+  const cw = w - pad * 2;
+  const ch = h - pad * 2;
+
+  let timestamps: number[] | null = null;
+  if (dates && dates.length === data.length) {
+    timestamps = dates.map(d => new Date(d + "T12:00:00").getTime());
+  }
+  const tMin = timestamps ? timestamps[0] : 0;
+  const tMax = timestamps ? timestamps[timestamps.length - 1] : data.length - 1;
+  const tRng = (tMax - tMin) || 1;
+
+  const points = data.map((v, i) => {
+    const xFrac = timestamps ? (timestamps[i] - tMin) / tRng : i / (data.length - 1);
+    return { x: pad + xFrac * cw, y: pad + ((max - v) / rng) * ch };
+  });
+
+  let pathD = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 1; i < points.length; i++) {
+    const p0 = points[Math.max(i - 2, 0)];
+    const p1 = points[i - 1];
+    const p2 = points[i];
+    const p3 = points[Math.min(i + 1, points.length - 1)];
+    const tension = 0.3;
+    const cp1x = p1.x + (p2.x - p0.x) * tension;
+    const cp1y = p1.y + (p2.y - p0.y) * tension;
+    const cp2x = p2.x - (p3.x - p1.x) * tension;
+    const cp2y = p2.y - (p3.y - p1.y) * tension;
+    pathD += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
+  }
+
+  const last = points[points.length - 1];
   return (
     <Svg width={w} height={h}>
-      <Polyline points={pts} fill="none" stroke={color}
+      <Path d={pathD} fill="none" stroke={color}
         strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-      <Circle cx={lastX} cy={lastY} r={4} fill={color} />
+      <Circle cx={last.x} cy={last.y} r={4} fill={color} />
     </Svg>
   );
 }
@@ -789,7 +813,11 @@ export default function ProgressScreen() {
   const filteredMeasurements = measurements.filter((m: any) =>
     period === "All" || new Date(m.date + "T00:00:00") >= cutoff
   );
-  const weightData = [...filteredMeasurements].reverse().map((m: any) => gramsToLbs(m.weightGrams));
+  const weightPoints = [...filteredMeasurements].reverse().map((m: any) => ({
+    value: gramsToLbs(m.weightGrams),
+    date: m.date as string,
+  }));
+  const weightData = weightPoints.map(p => p.value);
   const latestLbs  = measurements[0] ? gramsToLbs(measurements[0].weightGrams) : null;
   const weightChange = weightData.length >= 2 ? weightData[weightData.length - 1] - weightData[0] : 0;
   const weeksElapsed = filteredMeasurements.length >= 2
@@ -1006,7 +1034,7 @@ export default function ProgressScreen() {
               {weightData.length >= 2 ? (
                 <>
                   <View onLayout={e => setWeightChartW(Math.floor(e.nativeEvent.layout.width))}>
-                    <WeightLine data={weightData} color={LIME} w={weightChartW} h={100} />
+                    <WeightLine data={weightData} dates={weightPoints.map(p => p.date)} color={LIME} w={weightChartW} h={100} />
                   </View>
                   <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 6 }}>
                     <Text style={{ fontSize: 10, fontFamily: "Manrope", color: muted }}>
