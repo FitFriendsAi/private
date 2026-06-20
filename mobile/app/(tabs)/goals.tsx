@@ -222,6 +222,13 @@ interface CheckInResult {
   headline: string;
   observations: string[];
   topAction: string;
+  nutritionAdjustment?: {
+    calories: number;
+    proteinG: number;
+    carbsG: number;
+    fatG: number;
+    reasoning: string;
+  };
 }
 
 interface AdaptiveProposal {
@@ -340,6 +347,17 @@ export default function GoalsScreen() {
   const [expandedDays, setExpandedDays] = useState<Record<number, boolean>>({});
   const [checkIn, setCheckIn]           = useState<CheckInResult | null>(null);
   const [checkInError, setCheckInError] = useState<string | null>(null);
+  const [checkInNutritionApplied, setCheckInNutritionApplied] = useState(false);
+
+  // ── Manual target editing ──
+  const [editingTargets, setEditingTargets] = useState(false);
+  const [draftCal, setDraftCal]   = useState("");
+  const [draftPro, setDraftPro]   = useState("");
+  const [draftCarb, setDraftCarb] = useState("");
+  const [draftFat, setDraftFat]   = useState("");
+
+  // ── Plan nutrition applied state ──
+  const [planNutritionApplied, setPlanNutritionApplied] = useState(false);
 
   // ── Adaptive plan adjustments ──
   const [adaptProposals, setAdaptProposals] = useState<AdaptiveProposal[] | null>(null);
@@ -446,12 +464,40 @@ export default function GoalsScreen() {
   const adjustNutrition = useMutation({
     mutationFn: (body: { calories: number; proteinG: number; carbsG: number; fatG: number }) =>
       apiRequest("PATCH", "/api/targets", body),
-    onSuccess: () => {
-      setAdjustChosen("adjust_nutrition");
+    onSuccess: (_data, vars: any) => {
       qc.invalidateQueries({ queryKey: ["/api/targets"] });
+      if (vars.__source === "checkin") {
+        setCheckInNutritionApplied(true);
+      } else if (vars.__source === "plan") {
+        setPlanNutritionApplied(true);
+      } else if (vars.__source === "manual") {
+        setEditingTargets(false);
+      } else {
+        setAdjustChosen("adjust_nutrition");
+      }
     },
     onError: (e: any) => setAiError(e?.message ?? "Could not update targets"),
   });
+
+  function openTargetEditor() {
+    setDraftCal(String(Math.round(targets?.calories ?? 2000)));
+    setDraftPro(String(Math.round(targets?.proteinG ?? 150)));
+    setDraftCarb(String(Math.round(targets?.carbsG ?? 200)));
+    setDraftFat(String(Math.round(targets?.fatG ?? 65)));
+    setEditingTargets(true);
+  }
+
+  function saveTargets() {
+    const cal = parseInt(draftCal);
+    const pro = parseInt(draftPro);
+    const carb = parseInt(draftCarb);
+    const fat = parseInt(draftFat);
+    if ([cal, pro, carb, fat].some(isNaN) || cal <= 0) {
+      Alert.alert("Invalid values", "Please enter valid numbers for all fields.");
+      return;
+    }
+    adjustNutrition.mutate({ calories: cal, proteinG: pro, carbsG: carb, fatG: fat, __source: "manual" } as any);
+  }
 
   // ── New goal modal state ──
   const [modalOpen, setModalOpen]           = useState(false);
@@ -648,6 +694,44 @@ export default function GoalsScreen() {
                 {checkIn.topAction}
               </Text>
             </View>
+
+            {/* Nutrition adjustment suggestion */}
+            {checkIn.nutritionAdjustment && (
+              <View style={{
+                backgroundColor: "#0f172a", borderRadius: 12, padding: 14, marginTop: 10,
+                borderWidth: 1, borderColor: LIME + "66",
+              }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                  <Utensils size={13} color={LIME} />
+                  <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: LIME, letterSpacing: 0.5 }}>
+                    SUGGESTED NUTRITION ADJUSTMENT
+                  </Text>
+                </View>
+                <Text style={{ fontSize: 12, fontFamily: "Manrope", color: "#e2e8f0", lineHeight: 17, marginBottom: 8 }}>
+                  {checkIn.nutritionAdjustment.reasoning}
+                </Text>
+                <Text style={{ fontSize: 11, fontFamily: "Manrope-SemiBold", color: muted, marginBottom: 10 }}>
+                  {checkIn.nutritionAdjustment.calories} kcal · {checkIn.nutritionAdjustment.proteinG}g protein · {checkIn.nutritionAdjustment.carbsG}g carbs · {checkIn.nutritionAdjustment.fatG}g fat
+                </Text>
+                {checkInNutritionApplied ? (
+                  <Text style={{ fontSize: 12, fontFamily: "Manrope-Bold", color: LIME }}>✓ Applied to daily targets</Text>
+                ) : (
+                  <Pressable
+                    onPress={() => adjustNutrition.mutate({ ...checkIn.nutritionAdjustment!, __source: "checkin" } as any)}
+                    disabled={adjustNutrition.isPending}
+                    style={({ pressed }) => ({
+                      backgroundColor: LIME + "22", borderRadius: 10, paddingVertical: 9, paddingHorizontal: 14,
+                      alignItems: "center", borderWidth: 1, borderColor: LIME + "66",
+                      opacity: (pressed || adjustNutrition.isPending) ? 0.6 : 1,
+                    })}
+                  >
+                    <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: LIME }}>
+                      {adjustNutrition.isPending ? "Applying…" : "Apply Adjustment"}
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
+            )}
           </View>
         )}
 
@@ -861,6 +945,33 @@ export default function GoalsScreen() {
                   <Text style={{ fontSize: 12, fontFamily: "Manrope", color: text, flex: 1, lineHeight: 18 }}>{tip}</Text>
                 </View>
               ))}
+              <View style={{ marginTop: 14 }}>
+                {planNutritionApplied ? (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <Text style={{ fontSize: 12, fontFamily: "Manrope-Bold", color: LIME }}>✓ Targets updated</Text>
+                  </View>
+                ) : (
+                  <Pressable
+                    onPress={() => adjustNutrition.mutate({
+                      calories: effectivePlan.nutrition.calories,
+                      proteinG: effectivePlan.nutrition.proteinG,
+                      carbsG: effectivePlan.nutrition.carbsG,
+                      fatG: effectivePlan.nutrition.fatG,
+                      __source: "plan",
+                    } as any)}
+                    disabled={adjustNutrition.isPending}
+                    style={({ pressed }) => ({
+                      backgroundColor: LIME + "22", borderRadius: 12, paddingVertical: 10,
+                      alignItems: "center", borderWidth: 1, borderColor: LIME + "55",
+                      opacity: (pressed || adjustNutrition.isPending) ? 0.6 : 1,
+                    })}
+                  >
+                    <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: LIME }}>
+                      {adjustNutrition.isPending ? "Applying…" : "Apply to Daily Targets"}
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
             </Section>
 
             {/* Hydration section */}
@@ -1145,47 +1256,102 @@ export default function GoalsScreen() {
         {targets && (
           <View style={{
             backgroundColor: card, borderRadius: 20, padding: 18,
-            borderWidth: 1, borderColor: border, marginBottom: 20,
+            borderWidth: 1, borderColor: editingTargets ? LIME + "88" : border, marginBottom: 20,
           }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 14 }}>
               <Target size={16} color={LIME} />
-              <Text style={{ fontSize: 14, fontFamily: "Manrope-Bold", color: text }}>
-                Daily Targets (Auto-calculated)
+              <Text style={{ flex: 1, fontSize: 14, fontFamily: "Manrope-Bold", color: text }}>
+                Daily Targets
               </Text>
+              {editingTargets ? (
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <Pressable
+                    onPress={() => setEditingTargets(false)}
+                    style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+                  >
+                    <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: muted }}>Cancel</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={saveTargets}
+                    disabled={adjustNutrition.isPending}
+                    style={({ pressed }) => ({
+                      backgroundColor: LIME, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 5,
+                      opacity: (pressed || adjustNutrition.isPending) ? 0.7 : 1,
+                    })}
+                  >
+                    <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: "#0a0a0a" }}>
+                      {adjustNutrition.isPending ? "…" : "Save"}
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <Pressable onPress={openTargetEditor} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+                  <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: LIME }}>Edit</Text>
+                </Pressable>
+              )}
             </View>
 
-            {(() => {
-              const sh = macroCalShares(targets.proteinG ?? 0, targets.carbsG ?? 0, targets.fatG ?? 0);
-              return (
-                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                  {[
-                    { label: "Calories", value: Math.round(targets.calories),      unit: "kcal", color: text,   pct: null as number | null },
-                    { label: "Protein",  value: Math.round(targets.proteinG ?? 0), unit: "g",    color: LIME,   pct: sh.protein },
-                    { label: "Carbs",    value: Math.round(targets.carbsG   ?? 0), unit: "g",    color: BLUE,   pct: sh.carbs },
-                    { label: "Fat",      value: Math.round(targets.fatG     ?? 0), unit: "g",    color: PURPLE, pct: sh.fat },
-                  ].map(m => (
-                    <View key={m.label} style={{ alignItems: "center" }}>
-                      <Text style={{ ...(DOT as any), fontSize: 26, color: m.color, lineHeight: 30 }}>
-                        {m.value}
-                      </Text>
-                      <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted, marginTop: 2 }}>
-                        {m.unit}
-                      </Text>
-                      <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted }}>
-                        {m.label}
-                      </Text>
-                      {m.pct != null && (
-                        <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: m.color, marginTop: 2 }}>{m.pct}%</Text>
-                      )}
-                    </View>
-                  ))}
-                </View>
-              );
-            })()}
+            {editingTargets ? (
+              <View style={{ gap: 12 }}>
+                {[
+                  { label: "Calories", unit: "kcal", value: draftCal,  set: setDraftCal,  color: text },
+                  { label: "Protein",  unit: "g",    value: draftPro,  set: setDraftPro,  color: LIME },
+                  { label: "Carbs",    unit: "g",    value: draftCarb, set: setDraftCarb, color: BLUE },
+                  { label: "Fat",      unit: "g",    value: draftFat,  set: setDraftFat,  color: PURPLE },
+                ].map(f => (
+                  <View key={f.label} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                    <Text style={{ width: 64, fontSize: 12, fontFamily: "Manrope-Bold", color: f.color }}>{f.label}</Text>
+                    <TextInput
+                      value={f.value}
+                      onChangeText={f.set}
+                      keyboardType="numeric"
+                      style={{
+                        flex: 1, backgroundColor: "#1a1a1a", borderRadius: 10,
+                        paddingHorizontal: 12, paddingVertical: 8,
+                        fontSize: 16, fontFamily: "Manrope-Bold", color: f.color,
+                        borderWidth: 1, borderColor: f.color + "44",
+                      }}
+                    />
+                    <Text style={{ width: 32, fontSize: 11, fontFamily: "Manrope", color: muted }}>{f.unit}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : (
+              (() => {
+                const sh = macroCalShares(targets.proteinG ?? 0, targets.carbsG ?? 0, targets.fatG ?? 0);
+                return (
+                  <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                    {[
+                      { label: "Calories", value: Math.round(targets.calories),      unit: "kcal", color: text,   pct: null as number | null },
+                      { label: "Protein",  value: Math.round(targets.proteinG ?? 0), unit: "g",    color: LIME,   pct: sh.protein },
+                      { label: "Carbs",    value: Math.round(targets.carbsG   ?? 0), unit: "g",    color: BLUE,   pct: sh.carbs },
+                      { label: "Fat",      value: Math.round(targets.fatG     ?? 0), unit: "g",    color: PURPLE, pct: sh.fat },
+                    ].map(m => (
+                      <View key={m.label} style={{ alignItems: "center" }}>
+                        <Text style={{ ...(DOT as any), fontSize: 26, color: m.color, lineHeight: 30 }}>
+                          {m.value}
+                        </Text>
+                        <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted, marginTop: 2 }}>
+                          {m.unit}
+                        </Text>
+                        <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted }}>
+                          {m.label}
+                        </Text>
+                        {m.pct != null && (
+                          <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: m.color, marginTop: 2 }}>{m.pct}%</Text>
+                        )}
+                      </View>
+                    ))}
+                  </View>
+                );
+              })()
+            )}
 
-            <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted, marginTop: 14, lineHeight: 16 }}>
-              Targets update automatically when you log a new weight or change your goals.
-            </Text>
+            {!editingTargets && (
+              <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted, marginTop: 14, lineHeight: 16 }}>
+                Auto-calculated from your goals. Tap Edit to set manually.
+              </Text>
+            )}
           </View>
         )}
 
