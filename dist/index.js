@@ -1,4 +1,4 @@
-import { createRequire } from 'module'; import { fileURLToPath } from 'url'; import path0 from 'path'; const require = createRequire(import.meta.url); const __filename = fileURLToPath(import.meta.url); const __dirname = path0.dirname(__filename);
+import { createRequire } from 'module'; import { fileURLToPath } from 'url'; import { dirname } from 'path'; const require = createRequire(import.meta.url); const __filename = fileURLToPath(import.meta.url); const __dirname = dirname(__filename);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -256325,10 +256325,11 @@ If there are no active goals with deadlines, set goalFeasibility to [] and progr
     if (!requireAuth(req, res)) return;
     const userId = req.user.id;
     try {
-      const [goals2, measurements, foodSummary] = await Promise.all([
+      const [goals2, measurements, foodSummary, currentTargets] = await Promise.all([
         storage.getGoals(userId),
         storage.getMeasurements(userId, 14),
-        storage.getFoodLogSummary(userId, "1W")
+        storage.getFoodLogSummary(userId, "1W"),
+        storage.getNutritionTarget(userId)
       ]);
       const activeGoals = goals2.filter((g2) => g2.isActive);
       const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
@@ -256350,6 +256351,8 @@ If there are no active goals with deadlines, set goalFeasibility to [] and progr
         const deadline = g2.deadline ? `deadline ${g2.deadline}` : "no deadline";
         return `- "${g2.label}" (${g2.type}), target: ${targetLbs ? targetLbs + " lbs" : g2.targetValue + " " + g2.unit}, ${deadline}`;
       }).join("\n");
+      const targetsText = currentTargets ? `Current daily targets: ${Math.round(currentTargets.calories)} kcal, ${Math.round(currentTargets.proteinG ?? 0)}g protein, ${Math.round(currentTargets.carbsG ?? 0)}g carbs, ${Math.round(currentTargets.fatG ?? 0)}g fat` : "No nutrition targets set.";
+      const hasWeightGoal = activeGoals.some((g2) => g2.type === "weight_loss" || g2.type === "weight_gain");
       const checkinPrompt = `You are a fitness coach giving a brief weekly check-in. Today is ${today}.
 
 ACTIVE GOALS:
@@ -256362,19 +256365,29 @@ ${trendText}
 
 DIET (last 7 days): logged ${loggedDays.length}/7 days${avgCal ? `, avg ${avgCal} kcal/day` : ", no data"}.
 
+${targetsText}
+
 Return ONLY valid JSON (no markdown):
 {
   "status": "on_track|behind|ahead",
   "headline": "1 sentence assessment",
   "observations": ["observation1", "observation2", "observation3"],
-  "topAction": "Single most important thing to do this week"
-}`;
+  "topAction": "Single most important thing to do this week"${hasWeightGoal ? `,
+  "nutritionAdjustment": {
+    "calories": <integer: adjust from current target based on goal \u2014 deficit ~300-500 kcal for weight loss, surplus ~200-300 kcal for weight gain, or omit field entirely if no change needed>,
+    "proteinG": <integer grams>,
+    "carbsG": <integer grams>,
+    "fatG": <integer grams>,
+    "reasoning": "1 sentence explaining the adjustment"
+  }` : ""}
+}
+${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets need meaningful adjustment based on the goal and trend. Omit the field entirely if targets are already appropriate.' : "Do not include a nutritionAdjustment field."}`;
       const apiKey2 = process.env.ANTHROPIC_API_KEY;
       if (!apiKey2) return res.status(500).json({ message: "AI service is not configured." });
       const client3 = new sdk_default({ apiKey: apiKey2 });
       const msg = await client3.messages.create({
         model: "claude-sonnet-4-5",
-        max_tokens: 512,
+        max_tokens: 800,
         messages: [{ role: "user", content: checkinPrompt }]
       });
       const rawText = msg.content[0].text ?? "";
@@ -257980,6 +257993,7 @@ var SEED_EXERCISES = [
   { name: "Cable Crossover (Low to High)", primaryMuscle: "Chest", secondaryMuscles: [], category: "isolation", equipment: "cable", isCustom: false },
   { name: "Pec Deck Machine", primaryMuscle: "Chest", secondaryMuscles: [], category: "isolation", equipment: "machine", isCustom: false },
   { name: "Machine Chest Press", primaryMuscle: "Chest", secondaryMuscles: ["Triceps", "Front Delts"], category: "compound", equipment: "machine", isCustom: false },
+  { name: "Lying Chest Press (Machine)", primaryMuscle: "Chest", secondaryMuscles: ["Triceps", "Front Delts"], category: "compound", equipment: "machine", isCustom: false },
   // Back
   { name: "Barbell Deadlift", primaryMuscle: "Back", secondaryMuscles: ["Glutes", "Hamstrings", "Traps"], category: "compound", equipment: "barbell", isCustom: false },
   { name: "Barbell Row", primaryMuscle: "Back", secondaryMuscles: ["Biceps", "Rear Delts"], category: "compound", equipment: "barbell", isCustom: false },
@@ -257998,6 +258012,7 @@ var SEED_EXERCISES = [
   { name: "Reverse Fly (Dumbbell)", primaryMuscle: "Back", secondaryMuscles: ["Rear Delts"], category: "isolation", equipment: "dumbbell", isCustom: false },
   { name: "Reverse Pec Deck Fly", primaryMuscle: "Back", secondaryMuscles: ["Rear Delts"], category: "isolation", equipment: "machine", isCustom: false },
   { name: "Cable Reverse Fly", primaryMuscle: "Back", secondaryMuscles: ["Rear Delts"], category: "isolation", equipment: "cable", isCustom: false },
+  { name: "Back Extension", primaryMuscle: "Back", secondaryMuscles: ["Glutes", "Hamstrings"], category: "isolation", equipment: "bodyweight", isCustom: false },
   // Shoulders
   { name: "Overhead Press", primaryMuscle: "Shoulders", secondaryMuscles: ["Triceps", "Upper Chest"], category: "compound", equipment: "barbell", isCustom: false },
   { name: "Dumbbell Shoulder Press", primaryMuscle: "Shoulders", secondaryMuscles: ["Triceps"], category: "compound", equipment: "dumbbell", isCustom: false },
@@ -258039,6 +258054,7 @@ var SEED_EXERCISES = [
   { name: "Romanian Deadlift", primaryMuscle: "Hamstrings", secondaryMuscles: ["Glutes", "Back"], category: "compound", equipment: "barbell", isCustom: false },
   { name: "Romanian Deadlift (Smith Machine)", primaryMuscle: "Hamstrings", secondaryMuscles: ["Glutes", "Back"], category: "compound", equipment: "smith_machine", isCustom: false },
   { name: "Leg Curl", primaryMuscle: "Hamstrings", secondaryMuscles: [], category: "isolation", equipment: "machine", isCustom: false },
+  { name: "Lying Leg Curl (Machine)", primaryMuscle: "Hamstrings", secondaryMuscles: [], category: "isolation", equipment: "machine", isCustom: false },
   { name: "Leg Extension", primaryMuscle: "Quads", secondaryMuscles: [], category: "isolation", equipment: "machine", isCustom: false },
   { name: "Bulgarian Split Squat", primaryMuscle: "Quads", secondaryMuscles: ["Glutes", "Hamstrings"], category: "compound", equipment: "dumbbell", isCustom: false },
   { name: "Hip Thrust", primaryMuscle: "Glutes", secondaryMuscles: ["Hamstrings"], category: "compound", equipment: "barbell", isCustom: false },
