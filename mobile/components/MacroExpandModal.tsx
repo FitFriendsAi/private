@@ -128,8 +128,20 @@ export function MacroExpandModal({
     { key: "fat" as MacroFilter, label: "FAT", val: todayFat, target: targetFat, color: PURPLE, avg: avgFat, share: todayShares.fat },
   ];
 
+  const targetShares = useMemo(() => {
+    const pCal = targetProtein * 4, cCal = targetCarbs * 4, fCal = targetFat * 9;
+    const total = pCal + cCal + fCal;
+    if (total <= 0) return { protein: 0, carbs: 0, fat: 0 };
+    return { protein: Math.round((pCal / total) * 100), carbs: Math.round((cCal / total) * 100), fat: Math.round((fCal / total) * 100) };
+  }, [targetProtein, targetCarbs, targetFat]);
+
   // Chart data depends on filter + percent mode
   const { chartMax, goalLineY, goalLabel } = useMemo(() => {
+    if (showPercent && filter !== "all") {
+      const targetPct = (targetShares as any)[filter] as number;
+      const y = targetPct > 0 ? (1 - targetPct / 100) * BAR_MAX_H + (CHART_H - BAR_MAX_H) : null;
+      return { chartMax: 100, goalLineY: y, goalLabel: `${targetPct}%` };
+    }
     if (showPercent) {
       return { chartMax: 100, goalLineY: null, goalLabel: "" };
     }
@@ -144,7 +156,7 @@ export function MacroExpandModal({
       1,
     );
     return { chartMax: stackedMax, goalLineY: null, goalLabel: "" };
-  }, [filter, showPercent, proteinBars, carbsBars, fatBars, targetProtein, targetCarbs, targetFat]);
+  }, [filter, showPercent, targetShares, proteinBars, carbsBars, fatBars, targetProtein, targetCarbs, targetFat]);
 
   const pctSuffix = showPercent ? "%" : "";
   const yTicks = [
