@@ -18,8 +18,8 @@ const BG     = "#0d0d0d";
 
 const CHART_H  = 120;
 const BAR_MAX_H = 105;
-const MINI_H   = 70;
-const MINI_BAR = 58;
+const MINI_H   = 100;
+const MINI_BAR = 85;
 const Y_AXIS_W  = 34;
 
 type MacroFilter = "all" | "protein" | "carbs" | "fat";
@@ -186,7 +186,7 @@ export function MacroExpandModal({
     );
   }
 
-  function renderMiniChart(label: string, bars: typeof proteinBars, color: string, target: number, targetPct: number) {
+  function renderMiniChart(label: string, bars: typeof proteinBars, color: string, target: number, targetPct: number, showTooltip: boolean) {
     if (chartW <= 0 || bars.length === 0) return null;
     const isPct = showPercent;
     const displayBars = isPct ? (() => {
@@ -206,8 +206,11 @@ export function MacroExpandModal({
     const goalY = goalVal > 0 ? (1 - goalVal / max) * MINI_BAR + (MINI_H - MINI_BAR) : null;
     const suffix = isPct ? "%" : "g";
 
+    const n = displayBars.length;
+    const barW = n > 0 ? (chartW - barGap * (n - 1)) / n : 0;
+
     return (
-      <View key={label} style={{ marginBottom: 10 }}>
+      <View key={label} style={{ marginBottom: 6 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
           <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color }} />
           <Text style={{ fontFamily: "Manrope-Bold", fontSize: 10, color: "rgba(255,255,255,0.5)" }}>{label.toUpperCase()}</Text>
@@ -227,10 +230,15 @@ export function MacroExpandModal({
             <View style={{ flexDirection: "row", alignItems: "flex-end", gap: barGap, height: MINI_H, position: "absolute", left: 0, right: 0, top: 0 }}>
               {displayBars.map((b, i) => {
                 const h = max > 0 ? Math.max((b.value / max) * MINI_BAR, b.value > 0 ? 2 : 1) : 1;
+                const dimmed = selectedIdx !== null && selectedIdx !== i;
+                const highlighted = selectedIdx === i;
                 return (
-                  <View key={i} style={{ flex: 1, justifyContent: "flex-end", height: MINI_H }}>
-                    <View style={{ width: "100%", borderRadius: 2, height: h, backgroundColor: color, opacity: b.isToday ? 1 : 0.65 }} />
-                  </View>
+                  <Pressable key={i} onPress={() => setSelectedIdx(prev => prev === i ? null : i)} style={{ flex: 1, justifyContent: "flex-end", height: MINI_H }}>
+                    <View style={{
+                      width: "100%", borderRadius: 2, height: h, backgroundColor: color,
+                      opacity: dimmed ? 0.2 : highlighted ? 1 : b.isToday ? 1 : 0.65,
+                    }} />
+                  </Pressable>
                 );
               })}
             </View>
@@ -239,6 +247,36 @@ export function MacroExpandModal({
                 <SvgLine x1={0} y1={goalY} x2={chartW} y2={goalY} stroke={color} strokeOpacity={0.5} strokeWidth={1} strokeDasharray="4,3" />
               </Svg>
             )}
+
+            {/* Tooltip — only on the first chart (Protein) to avoid three tooltips */}
+            {showTooltip && selectedIdx !== null && selectedIdx < n && (() => {
+              const cx = selectedIdx * (barW + barGap) + barW / 2;
+              const pVal = isPct ? (pctBars.protein[selectedIdx]?.value ?? 0) : (proteinBars[selectedIdx]?.value ?? 0);
+              const cVal = isPct ? (pctBars.carbs[selectedIdx]?.value ?? 0) : (carbsBars[selectedIdx]?.value ?? 0);
+              const fVal = isPct ? (pctBars.fat[selectedIdx]?.value ?? 0) : (fatBars[selectedIdx]?.value ?? 0);
+              const tipW = 120;
+              const tipX = Math.max(0, Math.min(cx - tipW / 2, chartW - tipW));
+              return (
+                <View pointerEvents="none" style={{ position: "absolute", left: tipX, top: 0, width: tipW, alignItems: "center" }}>
+                  <View style={{ backgroundColor: "rgba(20,20,20,0.95)", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, width: tipW }}>
+                    {[
+                      { l: "Protein", v: pVal, c: LIME },
+                      { l: "Carbs", v: cVal, c: BLUE },
+                      { l: "Fat", v: fVal, c: PURPLE },
+                    ].map(r => (
+                      <View key={r.l} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 2 }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                          <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: r.c }} />
+                          <Text style={{ fontFamily: "Manrope-Bold", fontSize: 9, color: "rgba(255,255,255,0.5)" }}>{r.l}</Text>
+                        </View>
+                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 9, color: r.c }}>{Math.round(r.v)}{isPct ? "%" : "g"}</Text>
+                      </View>
+                    ))}
+                  </View>
+                  <View style={{ width: 0, height: 0, borderLeftWidth: 5, borderRightWidth: 5, borderTopWidth: 5, borderStyle: "solid", borderLeftColor: "transparent", borderRightColor: "transparent", borderTopColor: "rgba(20,20,20,0.95)" }} />
+                </View>
+              );
+            })()}
           </View>
         </View>
       </View>
@@ -388,9 +426,9 @@ export function MacroExpandModal({
                   <>
                     {/* Small multiples — one chart per macro */}
                     <View onLayout={e => { if (chartW === 0) setChartW(e.nativeEvent.layout.width - Y_AXIS_W - 4); }}>
-                      {renderMiniChart("Protein", proteinBars, LIME, targetProtein, targetShares.protein)}
-                      {renderMiniChart("Carbs", carbsBars, BLUE, targetCarbs, targetShares.carbs)}
-                      {renderMiniChart("Fat", fatBars, PURPLE, targetFat, targetShares.fat)}
+                      {renderMiniChart("Protein", proteinBars, LIME, targetProtein, targetShares.protein, true)}
+                      {renderMiniChart("Carbs", carbsBars, BLUE, targetCarbs, targetShares.carbs, false)}
+                      {renderMiniChart("Fat", fatBars, PURPLE, targetFat, targetShares.fat, false)}
                     </View>
                     {/* Shared x-axis labels */}
                     <View style={{ flexDirection: "row", gap: barGap, marginLeft: Y_AXIS_W + 4 }}>

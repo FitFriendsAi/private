@@ -195,7 +195,7 @@ export default function WorkoutDetailScreen() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
-      aspect: [16, 9],
+      aspect: [1, 1],
       quality: 0.85,
     });
     if (!result.canceled && result.assets[0]?.uri) {
@@ -213,7 +213,7 @@ export default function WorkoutDetailScreen() {
     }
     const result = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
-      aspect: [16, 9],
+      aspect: [1, 1],
       quality: 0.85,
     });
     if (!result.canceled && result.assets[0]?.uri) {
@@ -441,7 +441,7 @@ export default function WorkoutDetailScreen() {
               <View style={{ borderRadius: 18, overflow: "hidden" }}>
                 <Image
                   source={{ uri: photoUri }}
-                  style={{ width: "100%", aspectRatio: 16 / 9 }}
+                  style={{ width: "100%", aspectRatio: 1 }}
                   resizeMode="cover"
                 />
                 {/* Dark gradient overlay at bottom */}
