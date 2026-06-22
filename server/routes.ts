@@ -1651,6 +1651,45 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
     res.sendStatus(204);
   });
 
+  app.post("/api/templates/:id/share", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = (req.user as any).id;
+    const templateId = Number(req.params.id);
+    const { friendUserId } = req.body as { friendUserId: number };
+    if (!friendUserId) return res.status(400).json({ message: "friendUserId is required" });
+
+    try {
+      const friendship = await storage.getFriendship(userId, friendUserId);
+      if (!friendship || friendship.status !== "accepted") {
+        return res.status(403).json({ message: "You can only share routines with accepted friends" });
+      }
+
+      const userTemplates = await storage.getTemplates(userId);
+      const srcTemplate = userTemplates.find(t => t.id === templateId);
+      if (!srcTemplate) return res.status(404).json({ message: "Routine not found" });
+
+      const srcExercises = await storage.getTemplateExercises(templateId);
+
+      const newTemplate = await storage.createTemplate({ userId: friendUserId, name: srcTemplate.name, description: srcTemplate.description });
+
+      for (const ex of srcExercises) {
+        await storage.addTemplateExercise({
+          templateId: newTemplate.id,
+          exerciseId: ex.exerciseId,
+          orderIndex: ex.orderIndex,
+          targetSets: ex.targetSets,
+          targetReps: ex.targetReps,
+          targetWeightGrams: ex.targetWeightGrams,
+        });
+      }
+
+      const sender = await storage.getUserById(userId);
+      res.status(201).json({ templateId: newTemplate.id, sharedTo: friendUserId, name: newTemplate.name, sharedBy: sender?.name ?? "a friend" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/templates/:id/exercises", async (req, res) => {
     if (!requireAuth(req, res)) return;
     try {

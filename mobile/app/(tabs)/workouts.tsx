@@ -10,9 +10,10 @@ import Svg, { Circle } from "react-native-svg";
 import { apiRequest } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
 import { estimateRoutineMinutes, formatDuration } from "@shared/training";
+import { Platform } from "react-native";
 import {
   Zap, Plus, X, Clock, Upload, ChevronRight, Trash2,
-  MoreHorizontal, Pencil, Sparkles, Moon, Dumbbell,
+  MoreHorizontal, Pencil, Sparkles, Moon, Dumbbell, Share2, Users, Check,
 } from "lucide-react-native";
 
 const LIME   = "#c8e84c";
@@ -96,6 +97,30 @@ export default function WorkoutsScreen() {
 
   // Workout history delete
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+
+  // Share routine
+  const [shareTemplateId, setShareTemplateId] = useState<number | null>(null);
+  const [shareSuccess, setShareSuccess] = useState<string | null>(null);
+
+  const { data: friends = [] } = useQuery<any[]>({
+    queryKey: ["/api/friends"],
+    queryFn: () => apiRequest("GET", "/api/friends"),
+  });
+
+  const shareRoutine = useMutation({
+    mutationFn: ({ templateId, friendUserId }: { templateId: number; friendUserId: number }) =>
+      apiRequest("POST", `/api/templates/${templateId}/share`, { friendUserId }, 15_000),
+    onSuccess: (data: any) => {
+      setShareTemplateId(null);
+      const friendName = friends.find((f: any) => f.id === data.sharedTo)?.name ?? "friend";
+      setShareSuccess(`Routine "${data.name}" shared with ${friendName}!`);
+      setTimeout(() => setShareSuccess(null), 4000);
+    },
+    onError: (e: any) => {
+      if (Platform.OS === "web") { alert(e?.message ?? "Could not share routine"); }
+      else { Alert.alert("Share failed", e?.message ?? "Could not share routine"); }
+    },
+  });
 
   // AI Generate
   const [showAiModal,     setShowAiModal]     = useState(false);
@@ -268,6 +293,14 @@ export default function WorkoutsScreen() {
             </View>
           );
         })()}
+
+        {/* Share success banner */}
+        {shareSuccess && (
+          <View style={{ marginHorizontal: 16, marginBottom: 10, backgroundColor: LIME + "22", borderRadius: 14, padding: 12, flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderColor: LIME + "44" }}>
+            <Check size={16} color={LIME} />
+            <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: LIME, flex: 1 }}>{shareSuccess}</Text>
+          </View>
+        )}
 
         {/* MY ROUTINES */}
         <View style={{ paddingHorizontal: 16 }}>
@@ -606,6 +639,22 @@ export default function WorkoutsScreen() {
             <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 16, color: text }}>Rename Routine</Text>
           </Pressable>
 
+          {/* Share */}
+          <Pressable
+            onPress={() => {
+              setShareTemplateId(menuTemplateId);
+              setMenuTemplateId(null);
+            }}
+            style={({ pressed }) => ({
+              flexDirection: "row", alignItems: "center", gap: 14,
+              paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: "#1e1e1e",
+              opacity: pressed ? 0.7 : 1,
+            })}
+          >
+            <Share2 size={20} color={text} />
+            <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 16, color: text }}>Share with Friend</Text>
+          </Pressable>
+
           {/* Delete */}
           <Pressable
             onPress={() => {
@@ -620,6 +669,53 @@ export default function WorkoutsScreen() {
             <Trash2 size={20} color="#ef4444" />
             <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 16, color: "#ef4444" }}>Delete Routine</Text>
           </Pressable>
+        </View>
+      </Modal>
+
+      {/* ── Share Friend Picker Modal ── */}
+      <Modal visible={shareTemplateId !== null} transparent animationType="fade" onRequestClose={() => setShareTemplateId(null)}>
+        <Pressable onPress={() => setShareTemplateId(null)} style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)" }} />
+        <View style={{
+          backgroundColor: "#141414", borderTopLeftRadius: 24, borderTopRightRadius: 24,
+          borderWidth: 1, borderColor: "#2a2a2a", paddingHorizontal: 20, paddingTop: 16, paddingBottom: 40,
+        }}>
+          <View style={{ width: 36, height: 4, backgroundColor: "#333", borderRadius: 2, alignSelf: "center", marginBottom: 18 }} />
+          <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 18, color: "#f4f4f4", marginBottom: 16 }}>Share Routine</Text>
+          {friends.length === 0 ? (
+            <View style={{ alignItems: "center", paddingVertical: 24, gap: 8 }}>
+              <Users size={28} color="#555" />
+              <Text style={{ fontFamily: "Manrope", fontSize: 13, color: "#888" }}>No friends to share with yet</Text>
+            </View>
+          ) : (
+            friends.map((f: any) => (
+              <Pressable
+                key={f.id}
+                onPress={() => {
+                  if (shareTemplateId && f.id) shareRoutine.mutate({ templateId: shareTemplateId, friendUserId: f.id });
+                }}
+                disabled={shareRoutine.isPending}
+                style={({ pressed }) => ({
+                  flexDirection: "row", alignItems: "center", gap: 12,
+                  paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "#1e1e1e",
+                  opacity: pressed || shareRoutine.isPending ? 0.6 : 1,
+                })}
+              >
+                <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: (f.color ?? LIME) + "22", alignItems: "center", justifyContent: "center" }}>
+                  <Text style={{ fontFamily: "Manrope-Bold", fontSize: 14, color: f.color ?? LIME }}>
+                    {(f.initials ?? f.name?.[0] ?? "?").toUpperCase()}
+                  </Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 15, color: "#f4f4f4" }}>{f.name ?? "Friend"}</Text>
+                </View>
+                {shareRoutine.isPending ? (
+                  <ActivityIndicator size="small" color={LIME} />
+                ) : (
+                  <Share2 size={16} color={LIME} />
+                )}
+              </Pressable>
+            ))
+          )}
         </View>
       </Modal>
 
