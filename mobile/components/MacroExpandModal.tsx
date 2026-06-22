@@ -18,6 +18,8 @@ const BG     = "#0d0d0d";
 
 const CHART_H  = 120;
 const BAR_MAX_H = 105;
+const MINI_H   = 70;
+const MINI_BAR = 58;
 const Y_AXIS_W  = 34;
 
 type MacroFilter = "all" | "protein" | "carbs" | "fat";
@@ -165,56 +167,80 @@ export function MacroExpandModal({
     { label: "0" + pctSuffix, top: CHART_H - 14 },
   ];
 
-  function renderBars() {
-    if (chartW <= 0 || proteinBars.length === 0) return null;
-    const n = proteinBars.length;
-    const barW = Math.max(1, (chartW - barGap * (n - 1)) / n);
-
-    if (filter !== "all") {
-      const bars = showPercent ? activeBarsForFilter : (filter === "protein" ? proteinBars : filter === "carbs" ? carbsBars : fatBars);
-      const color = MACRO_COLOR[filter];
-      return (
-        <View style={{ flexDirection: "row", alignItems: "flex-end", gap: barGap, height: CHART_H, position: "absolute", left: 0, right: 0, top: 0 }}>
-          {bars.map((b, i) => {
-            const h = chartMax > 0 ? Math.max((b.value / chartMax) * BAR_MAX_H, b.value > 0 ? 3 : 1) : 1;
-            const dimmed = selectedIdx !== null && selectedIdx !== i;
-            return (
-              <Pressable key={i} onPress={() => setSelectedIdx(prev => prev === i ? null : i)} style={{ flex: 1, justifyContent: "flex-end", height: CHART_H }}>
-                <View style={{ width: "100%", borderRadius: 3, height: h, backgroundColor: color, opacity: dimmed ? 0.25 : b.isToday ? 1 : 0.7 }} />
-              </Pressable>
-            );
-          })}
-        </View>
-      );
-    }
-
-    const pBars = showPercent ? pctBars.protein : proteinBars;
-    const cBars = showPercent ? pctBars.carbs : carbsBars;
-    const fBars = showPercent ? pctBars.fat : fatBars;
-
+  function renderSingleMacroBars() {
+    if (chartW <= 0 || proteinBars.length === 0 || filter === "all") return null;
+    const bars = showPercent ? activeBarsForFilter : (filter === "protein" ? proteinBars : filter === "carbs" ? carbsBars : fatBars);
+    const color = MACRO_COLOR[filter];
     return (
       <View style={{ flexDirection: "row", alignItems: "flex-end", gap: barGap, height: CHART_H, position: "absolute", left: 0, right: 0, top: 0 }}>
-        {pBars.map((b, i) => {
-          const pVal = b.value;
-          const cVal = cBars[i]?.value ?? 0;
-          const fVal = fBars[i]?.value ?? 0;
-          const total = pVal + cVal + fVal;
-          const totalH = chartMax > 0 ? Math.max((total / chartMax) * BAR_MAX_H, total > 0 ? 3 : 1) : 1;
+        {bars.map((b, i) => {
+          const h = chartMax > 0 ? Math.max((b.value / chartMax) * BAR_MAX_H, b.value > 0 ? 3 : 1) : 1;
           const dimmed = selectedIdx !== null && selectedIdx !== i;
-          const pctP = total > 0 ? pVal / total : 0;
-          const pctC = total > 0 ? cVal / total : 0;
-          const pctF = total > 0 ? fVal / total : 0;
-
           return (
             <Pressable key={i} onPress={() => setSelectedIdx(prev => prev === i ? null : i)} style={{ flex: 1, justifyContent: "flex-end", height: CHART_H }}>
-              <View style={{ width: "100%", height: totalH, borderRadius: 3, overflow: "hidden", opacity: dimmed ? 0.25 : 1 }}>
-                {fVal > 0 && <View style={{ height: pctF * totalH, backgroundColor: PURPLE }} />}
-                {cVal > 0 && <View style={{ height: pctC * totalH, backgroundColor: BLUE }} />}
-                {pVal > 0 && <View style={{ height: pctP * totalH, backgroundColor: LIME }} />}
-              </View>
+              <View style={{ width: "100%", borderRadius: 3, height: h, backgroundColor: color, opacity: dimmed ? 0.25 : b.isToday ? 1 : 0.7 }} />
             </Pressable>
           );
         })}
+      </View>
+    );
+  }
+
+  function renderMiniChart(label: string, bars: typeof proteinBars, color: string, target: number, targetPct: number) {
+    if (chartW <= 0 || bars.length === 0) return null;
+    const isPct = showPercent;
+    const displayBars = isPct ? (() => {
+      const out: typeof bars = [];
+      for (let i = 0; i < bars.length; i++) {
+        const pCal = proteinBars[i].value * 4;
+        const cCal = (carbsBars[i]?.value ?? 0) * 4;
+        const fCal = (fatBars[i]?.value ?? 0) * 9;
+        const total = pCal + cCal + fCal;
+        const macroVal = label === "Protein" ? pCal : label === "Carbs" ? cCal : fCal;
+        out.push({ ...bars[i], value: total > 0 ? (macroVal / total) * 100 : 0 });
+      }
+      return out;
+    })() : bars;
+    const max = isPct ? 100 : Math.max(...bars.map(b => b.value), target, 1);
+    const goalVal = isPct ? targetPct : target;
+    const goalY = goalVal > 0 ? (1 - goalVal / max) * MINI_BAR + (MINI_H - MINI_BAR) : null;
+    const suffix = isPct ? "%" : "g";
+
+    return (
+      <View key={label} style={{ marginBottom: 10 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
+          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color }} />
+          <Text style={{ fontFamily: "Manrope-Bold", fontSize: 10, color: "rgba(255,255,255,0.5)" }}>{label.toUpperCase()}</Text>
+          <Text style={{ fontFamily: "Manrope-Bold", fontSize: 10, color }}>
+            {isPct ? (label === "Protein" ? todayShares.protein : label === "Carbs" ? todayShares.carbs : todayShares.fat) + "%" : (label === "Protein" ? todayProtein : label === "Carbs" ? todayCarbs : todayFat) + "g"}
+          </Text>
+          {goalVal > 0 && (
+            <Text style={{ fontFamily: "Manrope", fontSize: 9, color: "rgba(255,255,255,0.3)" }}>/ {goalVal}{suffix} goal</Text>
+          )}
+        </View>
+        <View style={{ flexDirection: "row" }}>
+          <View style={{ width: Y_AXIS_W, height: MINI_H, marginRight: 4 }}>
+            <Text style={{ position: "absolute", top: 1, right: 2, fontFamily: "Manrope-Bold", fontSize: 7, color: "rgba(255,255,255,0.25)", textAlign: "right" }}>{yFmt(max)}{isPct ? "%" : ""}</Text>
+            <Text style={{ position: "absolute", top: MINI_H - 12, right: 2, fontFamily: "Manrope-Bold", fontSize: 7, color: "rgba(255,255,255,0.25)", textAlign: "right" }}>0</Text>
+          </View>
+          <View style={{ flex: 1, height: MINI_H }}>
+            <View style={{ flexDirection: "row", alignItems: "flex-end", gap: barGap, height: MINI_H, position: "absolute", left: 0, right: 0, top: 0 }}>
+              {displayBars.map((b, i) => {
+                const h = max > 0 ? Math.max((b.value / max) * MINI_BAR, b.value > 0 ? 2 : 1) : 1;
+                return (
+                  <View key={i} style={{ flex: 1, justifyContent: "flex-end", height: MINI_H }}>
+                    <View style={{ width: "100%", borderRadius: 2, height: h, backgroundColor: color, opacity: b.isToday ? 1 : 0.65 }} />
+                  </View>
+                );
+              })}
+            </View>
+            {goalY != null && chartW > 0 && (
+              <Svg width={chartW} height={MINI_H} style={{ position: "absolute", left: 0, top: 0 }} pointerEvents="none">
+                <SvgLine x1={0} y1={goalY} x2={chartW} y2={goalY} stroke={color} strokeOpacity={0.5} strokeWidth={1} strokeDasharray="4,3" />
+              </Svg>
+            )}
+          </View>
+        </View>
       </View>
     );
   }
@@ -358,79 +384,91 @@ export function MacroExpandModal({
                   ))}
                 </View>
 
-                {/* Chart label */}
-                <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: "rgba(255,255,255,0.35)", letterSpacing: 0.6, marginBottom: 10 }}>
-                  {showPercent
-                    ? (filter === "all"
-                        ? (period === 90 ? "MACRO SHARE % (WEEKLY AVG)" : "DAILY MACRO SHARE (%)")
-                        : `${filter.toUpperCase()} (% OF MACRO CALORIES)`)
-                    : (filter === "all"
-                        ? (period === 90 ? "MACROS (WEEKLY AVG)" : "DAILY MACROS (g)")
-                        : `${filter.toUpperCase()} (g)`)}
-                </Text>
+                {filter === "all" ? (
+                  <>
+                    {/* Small multiples — one chart per macro */}
+                    <View onLayout={e => { if (chartW === 0) setChartW(e.nativeEvent.layout.width - Y_AXIS_W - 4); }}>
+                      {renderMiniChart("Protein", proteinBars, LIME, targetProtein, targetShares.protein)}
+                      {renderMiniChart("Carbs", carbsBars, BLUE, targetCarbs, targetShares.carbs)}
+                      {renderMiniChart("Fat", fatBars, PURPLE, targetFat, targetShares.fat)}
+                    </View>
+                    {/* Shared x-axis labels */}
+                    <View style={{ flexDirection: "row", gap: barGap, marginLeft: Y_AXIS_W + 4 }}>
+                      {proteinBars.map((b, i) => (
+                        <View key={i} style={{ flex: 1, alignItems: "center" }}>
+                          {b.showLabel && (
+                            <Text style={{ fontFamily: "Manrope-Bold", fontSize: period === 7 ? 9 : 8, color: b.isToday ? "#ffffff" : "rgba(255,255,255,0.3)" } as any} numberOfLines={1}>{b.label}</Text>
+                          )}
+                        </View>
+                      ))}
+                    </View>
+                  </>
+                ) : (
+                  <>
+                    {/* Chart label */}
+                    <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: "rgba(255,255,255,0.35)", letterSpacing: 0.6, marginBottom: 10 }}>
+                      {showPercent ? `${filter.toUpperCase()} (% OF MACRO CALORIES)` : `${filter.toUpperCase()} (g)`}
+                    </Text>
 
-                {/* Y-axis + Chart */}
-                <View style={{ flexDirection: "row" }}>
-                  <View style={{ width: Y_AXIS_W, height: CHART_H, marginRight: 4 }}>
-                    {yTicks.map(t => (
-                      <Text key={t.label + t.top} style={{ position: "absolute", top: t.top, right: 2, fontFamily: "Manrope-Bold", fontSize: 8, color: "rgba(255,255,255,0.28)", textAlign: "right" }}>
-                        {t.label}
-                      </Text>
-                    ))}
-                  </View>
-
-                  <View style={{ flex: 1, height: CHART_H }} onLayout={e => setChartW(e.nativeEvent.layout.width)}>
-                    {renderBars()}
-
-                    {/* Grid lines */}
-                    {chartW > 0 && (
-                      <Svg width={chartW} height={CHART_H} style={{ position: "absolute", left: 0, top: 0 }} pointerEvents="none">
-                        <SvgLine x1={0} y1={CHART_H - BAR_MAX_H} x2={chartW} y2={CHART_H - BAR_MAX_H} stroke="white" strokeOpacity={0.07} strokeWidth={1} />
-                        <SvgLine x1={0} y1={CHART_H - BAR_MAX_H / 2} x2={chartW} y2={CHART_H - BAR_MAX_H / 2} stroke="white" strokeOpacity={0.07} strokeWidth={1} />
-                      </Svg>
-                    )}
-
-                    {/* Goal target line — rendered on top of bars and grid */}
-                    {goalLineY != null && chartW > 0 && (
-                      <Svg width={chartW} height={CHART_H} style={{ position: "absolute", left: 0, top: 0 }} pointerEvents="none">
-                        <SvgLine x1={0} y1={goalLineY} x2={chartW} y2={goalLineY} stroke={MACRO_COLOR[filter] ?? "#fff"} strokeOpacity={0.7} strokeWidth={1.5} strokeDasharray="5,4" />
-                      </Svg>
-                    )}
-                    {goalLineY != null && (
-                      <View pointerEvents="none" style={{ position: "absolute", right: 0, top: (goalLineY ?? 0) - 14 }}>
-                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 9, color: MACRO_COLOR[filter] ?? "#fff" }}>
-                          Goal {goalLabel}
-                        </Text>
+                    {/* Y-axis + Chart */}
+                    <View style={{ flexDirection: "row" }}>
+                      <View style={{ width: Y_AXIS_W, height: CHART_H, marginRight: 4 }}>
+                        {yTicks.map(t => (
+                          <Text key={t.label + t.top} style={{ position: "absolute", top: t.top, right: 2, fontFamily: "Manrope-Bold", fontSize: 8, color: "rgba(255,255,255,0.28)", textAlign: "right" }}>
+                            {t.label}
+                          </Text>
+                        ))}
                       </View>
-                    )}
 
-                    {renderTooltip()}
-                  </View>
-                </View>
+                      <View style={{ flex: 1, height: CHART_H }} onLayout={e => setChartW(e.nativeEvent.layout.width)}>
+                        {renderSingleMacroBars()}
 
-                {/* X-axis labels */}
-                <View style={{ flexDirection: "row", gap: barGap, marginTop: 5, marginLeft: Y_AXIS_W + 4 }}>
-                  {proteinBars.map((b, i) => (
-                    <View key={i} style={{ flex: 1, alignItems: "center" }}>
-                      {b.showLabel && (
-                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: period === 7 ? 9 : 8, color: b.isToday ? "#ffffff" : "rgba(255,255,255,0.3)" } as any} numberOfLines={1}>{b.label}</Text>
-                      )}
+                        {/* Grid lines */}
+                        {chartW > 0 && (
+                          <Svg width={chartW} height={CHART_H} style={{ position: "absolute", left: 0, top: 0 }} pointerEvents="none">
+                            <SvgLine x1={0} y1={CHART_H - BAR_MAX_H} x2={chartW} y2={CHART_H - BAR_MAX_H} stroke="white" strokeOpacity={0.07} strokeWidth={1} />
+                            <SvgLine x1={0} y1={CHART_H - BAR_MAX_H / 2} x2={chartW} y2={CHART_H - BAR_MAX_H / 2} stroke="white" strokeOpacity={0.07} strokeWidth={1} />
+                          </Svg>
+                        )}
+
+                        {/* Goal target line */}
+                        {goalLineY != null && chartW > 0 && (
+                          <Svg width={chartW} height={CHART_H} style={{ position: "absolute", left: 0, top: 0 }} pointerEvents="none">
+                            <SvgLine x1={0} y1={goalLineY} x2={chartW} y2={goalLineY} stroke={MACRO_COLOR[filter] ?? "#fff"} strokeOpacity={0.7} strokeWidth={1.5} strokeDasharray="5,4" />
+                          </Svg>
+                        )}
+                        {goalLineY != null && (
+                          <View pointerEvents="none" style={{ position: "absolute", right: 0, top: (goalLineY ?? 0) - 14 }}>
+                            <Text style={{ fontFamily: "Manrope-Bold", fontSize: 9, color: MACRO_COLOR[filter] ?? "#fff" }}>
+                              Goal {goalLabel}
+                            </Text>
+                          </View>
+                        )}
+
+                        {renderTooltip()}
+                      </View>
                     </View>
-                  ))}
-                </View>
 
-                {/* Legend */}
-                <View style={{ flexDirection: "row", gap: 16, marginTop: 14, marginBottom: 8, marginLeft: Y_AXIS_W + 4 }}>
-                  {(filter === "all"
-                    ? [{ label: "Protein", color: LIME }, { label: "Carbs", color: BLUE }, { label: "Fat", color: PURPLE }]
-                    : [{ label: filter.charAt(0).toUpperCase() + filter.slice(1), color: MACRO_COLOR[filter] }]
-                  ).map(l => (
-                    <View key={l.label} style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-                      <View style={{ width: 16, height: 3, borderRadius: 1, backgroundColor: l.color }} />
-                      <Text style={{ fontFamily: "Manrope", fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{l.label}</Text>
+                    {/* X-axis labels */}
+                    <View style={{ flexDirection: "row", gap: barGap, marginTop: 5, marginLeft: Y_AXIS_W + 4 }}>
+                      {proteinBars.map((b, i) => (
+                        <View key={i} style={{ flex: 1, alignItems: "center" }}>
+                          {b.showLabel && (
+                            <Text style={{ fontFamily: "Manrope-Bold", fontSize: period === 7 ? 9 : 8, color: b.isToday ? "#ffffff" : "rgba(255,255,255,0.3)" } as any} numberOfLines={1}>{b.label}</Text>
+                          )}
+                        </View>
+                      ))}
                     </View>
-                  ))}
-                </View>
+
+                    {/* Legend */}
+                    <View style={{ flexDirection: "row", gap: 16, marginTop: 14, marginBottom: 8, marginLeft: Y_AXIS_W + 4 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                        <View style={{ width: 16, height: 3, borderRadius: 1, backgroundColor: MACRO_COLOR[filter] }} />
+                        <Text style={{ fontFamily: "Manrope", fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{filter.charAt(0).toUpperCase() + filter.slice(1)}</Text>
+                      </View>
+                    </View>
+                  </>
+                )}
 
               </ScrollView>
             </SafeAreaView>
