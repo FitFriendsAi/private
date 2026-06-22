@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   View, Text, Image, TextInput, Pressable, KeyboardAvoidingView,
-  Platform, ActivityIndicator, ScrollView, Alert,
+  Platform, ActivityIndicator, ScrollView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -16,16 +16,17 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [submitting, setSubmitting] = useState(false);
-
   const [statusMsg, setStatusMsg] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
 
   async function handleSubmit() {
+    setErrorMsg("");
     const trimmedEmail = email.trim().toLowerCase();
     const trimmedPass  = password.trim();
-    if (!trimmedEmail) { Alert.alert("Missing email", "Please enter your email address."); return; }
-    if (!trimmedPass)  { Alert.alert("Missing password", "Please enter your password."); return; }
+    if (!trimmedEmail) { setErrorMsg("Please enter your email address."); return; }
+    if (!trimmedPass)  { setErrorMsg("Please enter your password."); return; }
     if (tab === "register" && trimmedPass.length < 8) {
-      Alert.alert("Password too short", "Password must be at least 8 characters.");
+      setErrorMsg("Password must be at least 8 characters.");
       return;
     }
     setSubmitting(true);
@@ -50,7 +51,7 @@ export default function LoginScreen() {
       const msg = err instanceof ApiError
         ? err.message
         : (err as any)?.message ?? "Something went wrong";
-      Alert.alert("Sign in failed", msg);
+      setErrorMsg(msg);
       setStatusMsg("");
     } finally {
       setSubmitting(false);
@@ -64,7 +65,6 @@ export default function LoginScreen() {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={0}
       >
-        {/* Scrollable content */}
         <ScrollView
           contentContainerStyle={{ flexGrow: 1, justifyContent: "center", padding: 28, paddingBottom: 12 }}
           keyboardShouldPersistTaps="handled"
@@ -87,7 +87,7 @@ export default function LoginScreen() {
             {(["login", "register"] as const).map((t) => (
               <Pressable
                 key={t}
-                onPress={() => setTab(t)}
+                onPress={() => { setTab(t); setErrorMsg(""); }}
                 style={{
                   flex: 1, paddingVertical: 10, borderRadius: 10,
                   backgroundColor: tab === t ? "#ffffff" : "transparent",
@@ -100,6 +100,17 @@ export default function LoginScreen() {
               </Pressable>
             ))}
           </View>
+
+          {/* Error banner */}
+          {errorMsg !== "" && (
+            <View style={{
+              backgroundColor: "#ff4444", borderRadius: 12, padding: 14, marginBottom: 14,
+            }}>
+              <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: "#ffffff" }}>
+                {errorMsg}
+              </Text>
+            </View>
+          )}
 
           {/* Name field (register only) */}
           {tab === "register" && (
@@ -126,7 +137,7 @@ export default function LoginScreen() {
             <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: "#888888", marginBottom: 6 }}>EMAIL</Text>
             <TextInput
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(t) => { setEmail(t); setErrorMsg(""); }}
               placeholder="you@example.com"
               placeholderTextColor="#555"
               keyboardType="email-address"
@@ -146,7 +157,7 @@ export default function LoginScreen() {
             <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: "#888888", marginBottom: 6 }}>PASSWORD</Text>
             <TextInput
               value={password}
-              onChangeText={setPassword}
+              onChangeText={(t) => { setPassword(t); setErrorMsg(""); }}
               placeholder="••••••••"
               placeholderTextColor="#555"
               secureTextEntry
@@ -163,7 +174,7 @@ export default function LoginScreen() {
           </View>
         </ScrollView>
 
-        {/* Submit button — pinned above keyboard, never hidden */}
+        {/* Submit button */}
         <View style={{ paddingHorizontal: 28, paddingBottom: 16, paddingTop: 12, backgroundColor: "#0a0a0a" }}>
           <Pressable
             onPress={handleSubmit}
