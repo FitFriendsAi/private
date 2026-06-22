@@ -22,6 +22,7 @@ import { apiRequest } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
 import { gramsToLbs, lbsToGrams } from "@/lib/utils";
 import { ArrowLeft, Clock, Dumbbell, Scale, BarChart2, Check, Camera, ImagePlus, Trash2, Pencil, X, Maximize2 } from "lucide-react-native";
+import { ImageCropModal } from "@/components/ImageCropModal";
 
 const LIME = "#c8e84c";
 
@@ -182,6 +183,7 @@ export default function WorkoutDetailScreen() {
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [photoLoading, setPhotoLoading] = useState(false);
   const [photoFullscreen, setPhotoFullscreen] = useState(false);
+  const [cropUri, setCropUri] = useState<string | null>(null);
 
   useEffect(() => {
     AsyncStorage.getItem(photoKey).then(uri => { if (uri) setPhotoUri(uri); });
@@ -193,17 +195,28 @@ export default function WorkoutDetailScreen() {
       Alert.alert("Permission needed", "Allow photo library access to add a workout photo.");
       return;
     }
+    const isWeb = Platform.OS === "web";
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
+      allowsEditing: !isWeb,
       aspect: [1, 1],
       quality: 0.85,
     });
     if (!result.canceled && result.assets[0]?.uri) {
       const uri = result.assets[0].uri;
-      setPhotoUri(uri);
-      await AsyncStorage.setItem(photoKey, uri);
+      if (isWeb) {
+        setCropUri(uri);
+      } else {
+        setPhotoUri(uri);
+        await AsyncStorage.setItem(photoKey, uri);
+      }
     }
+  }, [photoKey]);
+
+  const handleCropSave = useCallback(async (croppedUri: string) => {
+    setCropUri(null);
+    setPhotoUri(croppedUri);
+    await AsyncStorage.setItem(photoKey, croppedUri);
   }, [photoKey]);
 
   const takePhoto = useCallback(async () => {
@@ -550,6 +563,14 @@ export default function WorkoutDetailScreen() {
               </View>
             </View>
           </Modal>
+
+          {/* ── Image crop modal (web only) ── */}
+          <ImageCropModal
+            visible={cropUri !== null}
+            imageUri={cropUri}
+            onSave={handleCropSave}
+            onCancel={() => setCropUri(null)}
+          />
 
           {/* ── Tap-to-edit hint ── */}
           <Text style={{
