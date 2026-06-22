@@ -2,21 +2,23 @@
  * MacroExpandModal — expanded view for Protein / Carbs / Fat.
  * Tap a macro card to isolate that macro with color-coded bars + target line.
  * "All" view shows stacked colored bars (protein/carbs/fat).
- * Chart expands to fill available height.
  */
 import React, { useRef, useEffect, useState, useMemo, useCallback } from "react";
-import { View, Text, Pressable, Modal, Animated, Easing } from "react-native";
+import { View, Text, Pressable, Modal, ScrollView, Animated, Easing } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Rect, Line as SvgLine, Polyline } from "react-native-svg";
 import { buildChartBars } from "@/lib/chart-utils";
+
+const AnimatedPolyline = Animated.createAnimatedComponent(Polyline);
 
 const LIME   = "#c8e84c";
 const BLUE   = "#9bd1ff";
 const PURPLE = "#d3a8ff";
 const BG     = "#0d0d0d";
 
+const CHART_H  = 120;
+const BAR_MAX_H = 105;
 const Y_AXIS_W  = 34;
-const MIN_CHART_H = 120;
 
 type MacroFilter = "all" | "protein" | "carbs" | "fat";
 const MACRO_COLOR: Record<string, string> = { protein: LIME, carbs: BLUE, fat: PURPLE };
@@ -52,13 +54,9 @@ export function MacroExpandModal({
 
   const [showing, setShowing] = useState(false);
   const [chartW, setChartW] = useState(0);
-  const [chartAreaH, setChartAreaH] = useState(MIN_CHART_H);
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const [filter, setFilter] = useState<MacroFilter>("all");
   const [showPercent, setShowPercent] = useState(false);
-
-  const chartH = Math.max(chartAreaH - 30, MIN_CHART_H);
-  const barMaxH = chartH - 15;
 
   useEffect(() => { setSelectedIdx(null); }, [period, filter, showPercent]);
 
@@ -118,11 +116,11 @@ export function MacroExpandModal({
   const activeBarsForFilter = filter === "protein" ? pctBars.protein : filter === "carbs" ? pctBars.carbs : pctBars.fat;
 
   const avgPct = useMemo(() => {
-    if (!showPercent) return { protein: 0, carbs: 0, fat: 0 };
+    if (!showPercent || filter === "all") return { protein: 0, carbs: 0, fat: 0 };
     const nz = (bars: typeof proteinBars) => bars.filter(b => b.value > 0);
     const a = (bars: typeof proteinBars) => { const v = nz(bars); return v.length ? Math.round(v.reduce((s, b) => s + b.value, 0) / v.length) : 0; };
     return { protein: a(pctBars.protein), carbs: a(pctBars.carbs), fat: a(pctBars.fat) };
-  }, [showPercent, pctBars]);
+  }, [showPercent, filter, pctBars]);
 
   const macroCards = [
     { key: "protein" as MacroFilter, label: "PROTEIN", val: todayProtein, target: targetProtein, color: LIME, avg: avgProtein, share: todayShares.protein },
@@ -137,10 +135,11 @@ export function MacroExpandModal({
     return { protein: Math.round((pCal / total) * 100), carbs: Math.round((cCal / total) * 100), fat: Math.round((fCal / total) * 100) };
   }, [targetProtein, targetCarbs, targetFat]);
 
+  // Chart data depends on filter + percent mode
   const { chartMax, goalLineY, goalLabel } = useMemo(() => {
     if (showPercent && filter !== "all") {
       const targetPct = (targetShares as any)[filter] as number;
-      const y = targetPct > 0 ? (1 - targetPct / 100) * barMaxH + (chartH - barMaxH) : null;
+      const y = targetPct > 0 ? (1 - targetPct / 100) * BAR_MAX_H + (CHART_H - BAR_MAX_H) : null;
       return { chartMax: 100, goalLineY: y, goalLabel: `${targetPct}%` };
     }
     if (showPercent) {
@@ -150,36 +149,37 @@ export function MacroExpandModal({
       const target = filter === "protein" ? targetProtein : filter === "carbs" ? targetCarbs : targetFat;
       const bars = filter === "protein" ? proteinBars : filter === "carbs" ? carbsBars : fatBars;
       const m = Math.max(...bars.map(b => b.value), target, 1);
-      return { chartMax: m, goalLineY: target > 0 ? (1 - target / m) * barMaxH + (chartH - barMaxH) : null, goalLabel: `${target}g` };
+      return { chartMax: m, goalLineY: target > 0 ? (1 - target / m) * BAR_MAX_H + (CHART_H - BAR_MAX_H) : null, goalLabel: `${target}g` };
     }
     const stackedMax = Math.max(
       ...proteinBars.map((b, i) => b.value + (carbsBars[i]?.value ?? 0) + (fatBars[i]?.value ?? 0)),
       1,
     );
     return { chartMax: stackedMax, goalLineY: null, goalLabel: "" };
-  }, [filter, showPercent, targetShares, proteinBars, carbsBars, fatBars, targetProtein, targetCarbs, targetFat, chartH, barMaxH]);
+  }, [filter, showPercent, targetShares, proteinBars, carbsBars, fatBars, targetProtein, targetCarbs, targetFat]);
 
   const pctSuffix = showPercent ? "%" : "";
   const yTicks = [
     { label: yFmt(chartMax) + pctSuffix, top: 4 },
-    { label: yFmt(chartMax / 2) + pctSuffix, top: chartH / 2 - 5 },
-    { label: "0" + pctSuffix, top: chartH - 14 },
+    { label: yFmt(chartMax / 2) + pctSuffix, top: CHART_H / 2 - 5 },
+    { label: "0" + pctSuffix, top: CHART_H - 14 },
   ];
 
   function renderBars() {
     if (chartW <= 0 || proteinBars.length === 0) return null;
     const n = proteinBars.length;
+    const barW = Math.max(1, (chartW - barGap * (n - 1)) / n);
 
     if (filter !== "all") {
       const bars = showPercent ? activeBarsForFilter : (filter === "protein" ? proteinBars : filter === "carbs" ? carbsBars : fatBars);
       const color = MACRO_COLOR[filter];
       return (
-        <View style={{ flexDirection: "row", alignItems: "flex-end", gap: barGap, height: chartH, position: "absolute", left: 0, right: 0, top: 0 }}>
+        <View style={{ flexDirection: "row", alignItems: "flex-end", gap: barGap, height: CHART_H, position: "absolute", left: 0, right: 0, top: 0 }}>
           {bars.map((b, i) => {
-            const h = chartMax > 0 ? Math.max((b.value / chartMax) * barMaxH, b.value > 0 ? 3 : 1) : 1;
+            const h = chartMax > 0 ? Math.max((b.value / chartMax) * BAR_MAX_H, b.value > 0 ? 3 : 1) : 1;
             const dimmed = selectedIdx !== null && selectedIdx !== i;
             return (
-              <Pressable key={i} onPress={() => setSelectedIdx(prev => prev === i ? null : i)} style={{ flex: 1, justifyContent: "flex-end", height: chartH }}>
+              <Pressable key={i} onPress={() => setSelectedIdx(prev => prev === i ? null : i)} style={{ flex: 1, justifyContent: "flex-end", height: CHART_H }}>
                 <View style={{ width: "100%", borderRadius: 3, height: h, backgroundColor: color, opacity: dimmed ? 0.25 : b.isToday ? 1 : 0.7 }} />
               </Pressable>
             );
@@ -193,20 +193,20 @@ export function MacroExpandModal({
     const fBars = showPercent ? pctBars.fat : fatBars;
 
     return (
-      <View style={{ flexDirection: "row", alignItems: "flex-end", gap: barGap, height: chartH, position: "absolute", left: 0, right: 0, top: 0 }}>
+      <View style={{ flexDirection: "row", alignItems: "flex-end", gap: barGap, height: CHART_H, position: "absolute", left: 0, right: 0, top: 0 }}>
         {pBars.map((b, i) => {
           const pVal = b.value;
           const cVal = cBars[i]?.value ?? 0;
           const fVal = fBars[i]?.value ?? 0;
           const total = pVal + cVal + fVal;
-          const totalH = chartMax > 0 ? Math.max((total / chartMax) * barMaxH, total > 0 ? 3 : 1) : 1;
+          const totalH = chartMax > 0 ? Math.max((total / chartMax) * BAR_MAX_H, total > 0 ? 3 : 1) : 1;
           const dimmed = selectedIdx !== null && selectedIdx !== i;
           const pctP = total > 0 ? pVal / total : 0;
           const pctC = total > 0 ? cVal / total : 0;
           const pctF = total > 0 ? fVal / total : 0;
 
           return (
-            <Pressable key={i} onPress={() => setSelectedIdx(prev => prev === i ? null : i)} style={{ flex: 1, justifyContent: "flex-end", height: chartH }}>
+            <Pressable key={i} onPress={() => setSelectedIdx(prev => prev === i ? null : i)} style={{ flex: 1, justifyContent: "flex-end", height: CHART_H }}>
               <View style={{ width: "100%", height: totalH, borderRadius: 3, overflow: "hidden", opacity: dimmed ? 0.25 : 1 }}>
                 {fVal > 0 && <View style={{ height: pctF * totalH, backgroundColor: PURPLE }} />}
                 {cVal > 0 && <View style={{ height: pctC * totalH, backgroundColor: BLUE }} />}
@@ -270,7 +270,6 @@ export function MacroExpandModal({
           <Animated.View style={{ flex: 1, opacity: contentAnim }}>
             <SafeAreaView style={{ flex: 1 }} edges={["top", "bottom"]}>
 
-              {/* Header */}
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 24, paddingTop: 16, paddingBottom: 8 }}>
                 <Text style={{ fontFamily: "Manrope-ExtraBold", fontSize: 20, color: "#ffffff" }}>Macros</Text>
                 <Pressable onPress={close} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.1)", alignItems: "center", justifyContent: "center" }}>
@@ -278,10 +277,10 @@ export function MacroExpandModal({
                 </Pressable>
               </View>
 
-              {/* Fixed controls */}
-              <View style={{ paddingHorizontal: 24 }}>
+              <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 48 }} showsVerticalScrollIndicator={false}>
+
                 {/* Tappable macro cards */}
-                <View style={{ flexDirection: "row", gap: 10, marginBottom: 16, marginTop: 8 }}>
+                <View style={{ flexDirection: "row", gap: 10, marginBottom: 24, marginTop: 8 }}>
                   {macroCards.map(m => {
                     const active = filter === m.key;
                     const pctTarget = m.target > 0 ? Math.round((m.val / m.target) * 100) : 0;
@@ -291,14 +290,14 @@ export function MacroExpandModal({
                         onPress={() => setFilter(prev => prev === m.key ? "all" : m.key)}
                         style={{
                           flex: 1, backgroundColor: active ? `${m.color}15` : "rgba(255,255,255,0.07)",
-                          borderRadius: 18, padding: 12, alignItems: "center",
+                          borderRadius: 18, padding: 14, alignItems: "center",
                           borderWidth: active ? 1.5 : 0, borderColor: active ? `${m.color}55` : "transparent",
                         }}
                       >
-                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 9, color: active ? m.color : "rgba(255,255,255,0.4)", letterSpacing: 0.7, marginBottom: 4 }}>{m.label}</Text>
-                        <Text style={{ fontFamily: "Doto", fontSize: 26, color: m.color, lineHeight: 30 }}>{showPercent ? m.share : m.val}</Text>
+                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 9, color: active ? m.color : "rgba(255,255,255,0.4)", letterSpacing: 0.7, marginBottom: 6 }}>{m.label}</Text>
+                        <Text style={{ fontFamily: "Doto", fontSize: 28, color: m.color, lineHeight: 32 }}>{showPercent ? m.share : m.val}</Text>
                         <Text style={{ fontFamily: "Manrope-Bold", fontSize: 9, color: "rgba(255,255,255,0.3)", marginTop: 2 }}>{showPercent ? "% of macros" : `/ ${m.target}g`}</Text>
-                        <View style={{ width: "100%", height: 3, backgroundColor: "rgba(255,255,255,0.1)", borderRadius: 2, marginTop: 6, overflow: "hidden" }}>
+                        <View style={{ width: "100%", height: 3, backgroundColor: "rgba(255,255,255,0.1)", borderRadius: 2, marginTop: 8, overflow: "hidden" }}>
                           <View style={{ width: `${Math.min(pctTarget, 100)}%`, height: "100%", backgroundColor: m.color, borderRadius: 2 }} />
                         </View>
                       </Pressable>
@@ -306,18 +305,20 @@ export function MacroExpandModal({
                   })}
                 </View>
 
-                {/* Avg stats with goal */}
-                <View style={{ flexDirection: "row", gap: 10, marginBottom: 14 }}>
+                {/* Avg stats */}
+                <View style={{ flexDirection: "row", gap: 10, marginBottom: 24 }}>
                   {macroCards.filter(m => filter === "all" || filter === m.key).map(m => {
                     const isPct = showPercent;
                     const displayAvg = isPct ? (avgPct as any)[m.key] : m.avg;
                     const diff = !isPct && m.avg > 0 ? m.avg - m.target : null;
                     return (
                       <View key={m.key} style={{ flex: 1, backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 14, padding: 10, alignItems: "center" }}>
-                        <Text style={{ fontFamily: "Doto", fontSize: 20, color: m.color, lineHeight: 24 }}>{displayAvg || "—"}</Text>
+                        <Text style={{ fontFamily: "Doto", fontSize: 22, color: m.color, lineHeight: 26 }}>{displayAvg || "—"}</Text>
                         <Text style={{ fontFamily: "Manrope-Bold", fontSize: 8, color: "rgba(255,255,255,0.35)", letterSpacing: 0.5, marginTop: 2 }}>{isPct ? "% avg" : "g/day avg"}</Text>
                         {!isPct && (
-                          <Text style={{ fontFamily: "Manrope-Bold", fontSize: 8, color: "rgba(255,255,255,0.3)", marginTop: 2 }}>Goal: {m.target}g</Text>
+                          <Text style={{ fontFamily: "Manrope-Bold", fontSize: 8, color: "rgba(255,255,255,0.3)", marginTop: 3 }}>
+                            Goal: {m.target}g
+                          </Text>
                         )}
                         {diff != null && (
                           <Text style={{ fontFamily: "Manrope-Bold", fontSize: 8, color: diff > 0 ? LIME : diff < 0 ? "#ff6b6b" : "rgba(255,255,255,0.3)", marginTop: 1 }}>
@@ -329,36 +330,36 @@ export function MacroExpandModal({
                   })}
                 </View>
 
-                {/* Period + toggle row */}
-                <View style={{ flexDirection: "row", gap: 10, marginBottom: 12 }}>
-                  <View style={{ flex: 1, flexDirection: "row", backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 12, padding: 3 }}>
-                    {([7, 30, 90] as const).map(p => (
-                      <Pressable key={p} onPress={() => onPeriodChange(p)} style={{
-                        flex: 1, paddingVertical: 6, borderRadius: 10, alignItems: "center",
-                        backgroundColor: period === p ? "rgba(255,255,255,0.15)" : "transparent",
-                      }}>
-                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: period === p ? "#ffffff" : "rgba(255,255,255,0.4)" }}>
-                          {p === 7 ? "7D" : p === 30 ? "30D" : "90D"}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                  <View style={{ flexDirection: "row", backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 12, padding: 3 }}>
-                    {([{ key: false, label: "g" }, { key: true, label: "%" }] as const).map(opt => (
-                      <Pressable key={opt.label} onPress={() => setShowPercent(opt.key)} style={{
-                        paddingVertical: 6, paddingHorizontal: 14, borderRadius: 10, alignItems: "center",
-                        backgroundColor: showPercent === opt.key ? "rgba(255,255,255,0.15)" : "transparent",
-                      }}>
-                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: showPercent === opt.key ? "#ffffff" : "rgba(255,255,255,0.4)" }}>
-                          {opt.label}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </View>
+                {/* Period selector */}
+                <View style={{ flexDirection: "row", backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 12, padding: 3, marginBottom: 20 }}>
+                  {([7, 30, 90] as const).map(p => (
+                    <Pressable key={p} onPress={() => onPeriodChange(p)} style={{
+                      flex: 1, paddingVertical: 7, borderRadius: 10, alignItems: "center",
+                      backgroundColor: period === p ? "rgba(255,255,255,0.15)" : "transparent",
+                    }}>
+                      <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: period === p ? "#ffffff" : "rgba(255,255,255,0.4)" }}>
+                        {p === 7 ? "7 Days" : p === 30 ? "30 Days" : "90 Days"}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                {/* Grams / Percent toggle */}
+                <View style={{ flexDirection: "row", backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 12, padding: 3, marginBottom: 16, alignSelf: "flex-start" }}>
+                  {([{ key: false, label: "Grams" }, { key: true, label: "Percent" }] as const).map(opt => (
+                    <Pressable key={opt.label} onPress={() => setShowPercent(opt.key)} style={{
+                      paddingVertical: 7, paddingHorizontal: 16, borderRadius: 10, alignItems: "center",
+                      backgroundColor: showPercent === opt.key ? "rgba(255,255,255,0.15)" : "transparent",
+                    }}>
+                      <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: showPercent === opt.key ? "#ffffff" : "rgba(255,255,255,0.4)" }}>
+                        {opt.label}
+                      </Text>
+                    </Pressable>
+                  ))}
                 </View>
 
                 {/* Chart label */}
-                <Text style={{ fontFamily: "Manrope-Bold", fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: 0.6, marginBottom: 8 }}>
+                <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: "rgba(255,255,255,0.35)", letterSpacing: 0.6, marginBottom: 10 }}>
                   {showPercent
                     ? (filter === "all"
                         ? (period === 90 ? "MACRO SHARE % (WEEKLY AVG)" : "DAILY MACRO SHARE (%)")
@@ -367,13 +368,10 @@ export function MacroExpandModal({
                         ? (period === 90 ? "MACROS (WEEKLY AVG)" : "DAILY MACROS (g)")
                         : `${filter.toUpperCase()} (g)`)}
                 </Text>
-              </View>
 
-              {/* Chart area — fills remaining space */}
-              <View style={{ flex: 1, paddingHorizontal: 24, paddingBottom: 16 }}>
-                <View style={{ flex: 1, flexDirection: "row" }} onLayout={e => setChartAreaH(e.nativeEvent.layout.height)}>
-                  {/* Y-axis */}
-                  <View style={{ width: Y_AXIS_W, height: chartH, marginRight: 4 }}>
+                {/* Y-axis + Chart */}
+                <View style={{ flexDirection: "row" }}>
+                  <View style={{ width: Y_AXIS_W, height: CHART_H, marginRight: 4 }}>
                     {yTicks.map(t => (
                       <Text key={t.label + t.top} style={{ position: "absolute", top: t.top, right: 2, fontFamily: "Manrope-Bold", fontSize: 8, color: "rgba(255,255,255,0.28)", textAlign: "right" }}>
                         {t.label}
@@ -381,21 +379,20 @@ export function MacroExpandModal({
                     ))}
                   </View>
 
-                  {/* Chart */}
-                  <View style={{ flex: 1, height: chartH }} onLayout={e => setChartW(e.nativeEvent.layout.width)}>
+                  <View style={{ flex: 1, height: CHART_H }} onLayout={e => setChartW(e.nativeEvent.layout.width)}>
                     {renderBars()}
 
                     {/* Grid lines */}
                     {chartW > 0 && (
-                      <Svg width={chartW} height={chartH} style={{ position: "absolute", left: 0, top: 0 }} pointerEvents="none">
-                        <SvgLine x1={0} y1={chartH - barMaxH} x2={chartW} y2={chartH - barMaxH} stroke="white" strokeOpacity={0.07} strokeWidth={1} />
-                        <SvgLine x1={0} y1={chartH - barMaxH / 2} x2={chartW} y2={chartH - barMaxH / 2} stroke="white" strokeOpacity={0.07} strokeWidth={1} />
+                      <Svg width={chartW} height={CHART_H} style={{ position: "absolute", left: 0, top: 0 }} pointerEvents="none">
+                        <SvgLine x1={0} y1={CHART_H - BAR_MAX_H} x2={chartW} y2={CHART_H - BAR_MAX_H} stroke="white" strokeOpacity={0.07} strokeWidth={1} />
+                        <SvgLine x1={0} y1={CHART_H - BAR_MAX_H / 2} x2={chartW} y2={CHART_H - BAR_MAX_H / 2} stroke="white" strokeOpacity={0.07} strokeWidth={1} />
                       </Svg>
                     )}
 
-                    {/* Goal target line */}
+                    {/* Goal target line — rendered on top of bars and grid */}
                     {goalLineY != null && chartW > 0 && (
-                      <Svg width={chartW} height={chartH} style={{ position: "absolute", left: 0, top: 0 }} pointerEvents="none">
+                      <Svg width={chartW} height={CHART_H} style={{ position: "absolute", left: 0, top: 0 }} pointerEvents="none">
                         <SvgLine x1={0} y1={goalLineY} x2={chartW} y2={goalLineY} stroke={MACRO_COLOR[filter] ?? "#fff"} strokeOpacity={0.7} strokeWidth={1.5} strokeDasharray="5,4" />
                       </Svg>
                     )}
@@ -412,7 +409,7 @@ export function MacroExpandModal({
                 </View>
 
                 {/* X-axis labels */}
-                <View style={{ flexDirection: "row", gap: barGap, marginTop: 4, marginLeft: Y_AXIS_W + 4 }}>
+                <View style={{ flexDirection: "row", gap: barGap, marginTop: 5, marginLeft: Y_AXIS_W + 4 }}>
                   {proteinBars.map((b, i) => (
                     <View key={i} style={{ flex: 1, alignItems: "center" }}>
                       {b.showLabel && (
@@ -423,7 +420,7 @@ export function MacroExpandModal({
                 </View>
 
                 {/* Legend */}
-                <View style={{ flexDirection: "row", gap: 16, marginTop: 8, marginLeft: Y_AXIS_W + 4 }}>
+                <View style={{ flexDirection: "row", gap: 16, marginTop: 14, marginBottom: 8, marginLeft: Y_AXIS_W + 4 }}>
                   {(filter === "all"
                     ? [{ label: "Protein", color: LIME }, { label: "Carbs", color: BLUE }, { label: "Fat", color: PURPLE }]
                     : [{ label: filter.charAt(0).toUpperCase() + filter.slice(1), color: MACRO_COLOR[filter] }]
@@ -434,8 +431,8 @@ export function MacroExpandModal({
                     </View>
                   ))}
                 </View>
-              </View>
 
+              </ScrollView>
             </SafeAreaView>
           </Animated.View>
         </Animated.View>
