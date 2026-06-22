@@ -467,13 +467,11 @@ export default function GoalsScreen() {
     onSuccess: (data: any, vars: any) => {
       if (data) qc.setQueryData(["/api/targets"], data);
       qc.invalidateQueries({ queryKey: ["/api/targets"] });
-      if (vars.__source === "checkin" || vars.__source === "ai_checkin") {
-        setCheckInNutritionApplied(true);
-      } else if (vars.__source === "plan" || vars.__source === "ai_plan") {
-        setPlanNutritionApplied(true);
-      } else if (vars.__source === "manual") {
+      setCheckInNutritionApplied(true);
+      setPlanNutritionApplied(true);
+      if (vars.__source === "manual") {
         setEditingTargets(false);
-      } else {
+      } else if (!vars.__source || vars.__source === "adjust_nutrition") {
         setAdjustChosen("adjust_nutrition");
       }
     },
@@ -947,32 +945,42 @@ export default function GoalsScreen() {
                 </View>
               ))}
               <View style={{ marginTop: 14 }}>
-                {planNutritionApplied ? (
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                    <Text style={{ fontSize: 12, fontFamily: "Manrope-Bold", color: LIME }}>✓ Targets updated</Text>
-                  </View>
-                ) : (
-                  <Pressable
-                    onPress={() => adjustNutrition.mutate({
-                      calories: effectivePlan.nutrition.calories,
-                      proteinG: effectivePlan.nutrition.proteinG,
-                      carbsG: effectivePlan.nutrition.carbsG,
-                      fatG: effectivePlan.nutrition.fatG,
-                      __source: "ai_plan",
-                      __reason: "AI coaching plan nutrition targets",
-                    } as any)}
-                    disabled={adjustNutrition.isPending}
-                    style={({ pressed }) => ({
-                      backgroundColor: LIME + "22", borderRadius: 12, paddingVertical: 10,
-                      alignItems: "center", borderWidth: 1, borderColor: LIME + "55",
-                      opacity: (pressed || adjustNutrition.isPending) ? 0.6 : 1,
-                    })}
-                  >
-                    <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: LIME }}>
-                      {adjustNutrition.isPending ? "Applying…" : "Apply to Daily Targets"}
-                    </Text>
-                  </Pressable>
-                )}
+                {(() => {
+                  const planMatchesTargets = targets &&
+                    Math.round(effectivePlan.nutrition.calories) === Math.round(targets.calories) &&
+                    Math.round(effectivePlan.nutrition.proteinG) === Math.round(targets.proteinG ?? 0) &&
+                    Math.round(effectivePlan.nutrition.carbsG) === Math.round(targets.carbsG ?? 0) &&
+                    Math.round(effectivePlan.nutrition.fatG) === Math.round(targets.fatG ?? 0);
+                  if (planMatchesTargets || planNutritionApplied) {
+                    return (
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <Text style={{ fontSize: 12, fontFamily: "Manrope-Bold", color: LIME }}>✓ Daily targets are up to date</Text>
+                      </View>
+                    );
+                  }
+                  return (
+                    <Pressable
+                      onPress={() => adjustNutrition.mutate({
+                        calories: effectivePlan.nutrition.calories,
+                        proteinG: effectivePlan.nutrition.proteinG,
+                        carbsG: effectivePlan.nutrition.carbsG,
+                        fatG: effectivePlan.nutrition.fatG,
+                        __source: "ai_plan",
+                        __reason: "AI coaching plan nutrition targets",
+                      } as any)}
+                      disabled={adjustNutrition.isPending}
+                      style={({ pressed }) => ({
+                        backgroundColor: LIME + "22", borderRadius: 12, paddingVertical: 10,
+                        alignItems: "center", borderWidth: 1, borderColor: LIME + "55",
+                        opacity: (pressed || adjustNutrition.isPending) ? 0.6 : 1,
+                      })}
+                    >
+                      <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: LIME }}>
+                        {adjustNutrition.isPending ? "Applying…" : "Apply to Daily Targets"}
+                      </Text>
+                    </Pressable>
+                  );
+                })()}
               </View>
             </Section>
 
