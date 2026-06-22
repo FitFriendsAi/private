@@ -1,5 +1,5 @@
 import "../global.css";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Stack } from "expo-router";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -26,15 +26,20 @@ export default function RootLayout() {
     "Manrope-SemiBold": Manrope_600SemiBold,
     "Manrope-Bold": Manrope_700Bold,
     "Manrope-ExtraBold": Manrope_800ExtraBold,
-    // Doto Black — heavy pixel/dot-matrix display font
     Doto: Doto_900Black,
   });
 
+  const [fontTimeout, setFontTimeout] = useState(false);
   useEffect(() => {
-    if (fontsLoaded) SplashScreen.hideAsync();
-  }, [fontsLoaded]);
+    const id = setTimeout(() => setFontTimeout(true), 5000);
+    return () => clearTimeout(id);
+  }, []);
 
-  if (!fontsLoaded) return null;
+  useEffect(() => {
+    if (fontsLoaded || fontTimeout) SplashScreen.hideAsync();
+  }, [fontsLoaded, fontTimeout]);
+
+  if (!fontsLoaded && !fontTimeout) return null;
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

@@ -6,7 +6,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useAuth } from "@/hooks/use-auth";
-import { ApiError } from "@/lib/api";
+import { apiRequest, ApiError } from "@/lib/api";
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -24,6 +24,10 @@ export default function LoginScreen() {
     const trimmedPass  = password.trim();
     if (!trimmedEmail) { Alert.alert("Missing email", "Please enter your email address."); return; }
     if (!trimmedPass)  { Alert.alert("Missing password", "Please enter your password."); return; }
+    if (tab === "register" && trimmedPass.length < 8) {
+      Alert.alert("Password too short", "Password must be at least 8 characters.");
+      return;
+    }
     setSubmitting(true);
     setStatusMsg("Connecting…");
     try {
@@ -31,7 +35,6 @@ export default function LoginScreen() {
         setStatusMsg("Signing in…");
         await login(trimmedEmail, trimmedPass);
       } else {
-        const { apiRequest } = await import("@/lib/api");
         setStatusMsg("Creating account…");
         await apiRequest("POST", "/api/auth/register", {
           email: trimmedEmail,
