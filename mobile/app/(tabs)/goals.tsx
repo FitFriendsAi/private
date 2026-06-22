@@ -463,8 +463,9 @@ export default function GoalsScreen() {
   // Adjust nutrition targets
   const adjustNutrition = useMutation({
     mutationFn: (body: { calories: number; proteinG: number; carbsG: number; fatG: number }) =>
-      apiRequest("PATCH", "/api/targets", body),
-    onSuccess: (_data, vars: any) => {
+      apiRequest("PATCH", "/api/targets", body, 30_000),
+    onSuccess: (data: any, vars: any) => {
+      if (data) qc.setQueryData(["/api/targets"], data);
       qc.invalidateQueries({ queryKey: ["/api/targets"] });
       if (vars.__source === "checkin" || vars.__source === "ai_checkin") {
         setCheckInNutritionApplied(true);
