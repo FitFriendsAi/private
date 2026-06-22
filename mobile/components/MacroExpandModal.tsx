@@ -382,26 +382,26 @@ export function MacroExpandModal({
                   <View style={{ flex: 1, height: CHART_H }} onLayout={e => setChartW(e.nativeEvent.layout.width)}>
                     {renderBars()}
 
-                    {/* Goal target line */}
-                    {goalLineY != null && chartW > 0 && (
-                      <Svg width={chartW} height={CHART_H} style={{ position: "absolute", left: 0, top: 0 }} pointerEvents="none">
-                        <SvgLine x1={0} y1={goalLineY} x2={chartW} y2={goalLineY} stroke={MACRO_COLOR[filter] ?? "#fff"} strokeOpacity={0.5} strokeWidth={1} strokeDasharray="4,3" />
-                      </Svg>
-                    )}
-                    {goalLineY != null && (
-                      <View pointerEvents="none" style={{ position: "absolute", right: 0, top: (goalLineY ?? 0) - 14 }}>
-                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 8, color: MACRO_COLOR[filter] ?? "#fff", opacity: 0.7 }}>
-                          Goal {goalLabel}
-                        </Text>
-                      </View>
-                    )}
-
                     {/* Grid lines */}
                     {chartW > 0 && (
                       <Svg width={chartW} height={CHART_H} style={{ position: "absolute", left: 0, top: 0 }} pointerEvents="none">
                         <SvgLine x1={0} y1={CHART_H - BAR_MAX_H} x2={chartW} y2={CHART_H - BAR_MAX_H} stroke="white" strokeOpacity={0.07} strokeWidth={1} />
                         <SvgLine x1={0} y1={CHART_H - BAR_MAX_H / 2} x2={chartW} y2={CHART_H - BAR_MAX_H / 2} stroke="white" strokeOpacity={0.07} strokeWidth={1} />
                       </Svg>
+                    )}
+
+                    {/* Goal target line — rendered on top of bars and grid */}
+                    {goalLineY != null && chartW > 0 && (
+                      <Svg width={chartW} height={CHART_H} style={{ position: "absolute", left: 0, top: 0 }} pointerEvents="none">
+                        <SvgLine x1={0} y1={goalLineY} x2={chartW} y2={goalLineY} stroke={MACRO_COLOR[filter] ?? "#fff"} strokeOpacity={0.7} strokeWidth={1.5} strokeDasharray="5,4" />
+                      </Svg>
+                    )}
+                    {goalLineY != null && (
+                      <View pointerEvents="none" style={{ position: "absolute", right: 0, top: (goalLineY ?? 0) - 14 }}>
+                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 9, color: MACRO_COLOR[filter] ?? "#fff" }}>
+                          Goal {goalLabel}
+                        </Text>
+                      </View>
                     )}
 
                     {renderTooltip()}
