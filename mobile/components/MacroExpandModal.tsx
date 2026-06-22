@@ -141,8 +141,8 @@ export function MacroExpandModal({
   const { chartMax, goalLineY, goalLabel } = useMemo(() => {
     if (showPercent && filter !== "all") {
       const targetPct = (targetShares as any)[filter] as number;
-      const y = targetPct > 0 ? (1 - targetPct / 100) * BAR_MAX_H + (CHART_H - BAR_MAX_H) : null;
-      return { chartMax: 100, goalLineY: y, goalLabel: `${targetPct}%` };
+      const y = targetPct > 0 ? (1 - targetPct / 50) * BAR_MAX_H + (CHART_H - BAR_MAX_H) : null;
+      return { chartMax: 50, goalLineY: y, goalLabel: `${targetPct}%` };
     }
     if (showPercent) {
       return { chartMax: 100, goalLineY: null, goalLabel: "" };
