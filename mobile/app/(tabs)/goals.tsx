@@ -910,73 +910,6 @@ export default function GoalsScreen() {
               </View>
             )}
 
-            {/* Nutrition section — always shows current daily targets */}
-            <Section icon={<Utensils size={16} color={LIME} />} title="Nutrition Targets" color={LIME} palette={palette}>
-              {(() => {
-                const cal  = targets ? Math.round(targets.calories) : effectivePlan.nutrition.calories;
-                const pro  = targets ? Math.round(targets.proteinG ?? 0) : effectivePlan.nutrition.proteinG;
-                const carb = targets ? Math.round(targets.carbsG ?? 0) : effectivePlan.nutrition.carbsG;
-                const fat  = targets ? Math.round(targets.fatG ?? 0) : effectivePlan.nutrition.fatG;
-                const sh = macroCalShares(pro, carb, fat);
-                return (
-                  <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 12 }}>
-                    {[
-                      { label: "Calories", value: cal,  unit: "kcal", color: text,   pct: null as number | null },
-                      { label: "Protein",  value: pro,  unit: "g",    color: LIME,   pct: sh.protein },
-                      { label: "Carbs",    value: carb, unit: "g",    color: BLUE,   pct: sh.carbs },
-                      { label: "Fat",      value: fat,  unit: "g",    color: PURPLE, pct: sh.fat },
-                    ].map(m => (
-                      <View key={m.label} style={{ alignItems: "center" }}>
-                        <Text style={{ ...(DOT as any), fontSize: 24, color: m.color, lineHeight: 28 }}>{m.value}</Text>
-                        <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted, marginTop: 1 }}>{m.unit}</Text>
-                        <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted }}>{m.label}</Text>
-                        {m.pct != null && (
-                          <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: m.color, marginTop: 2 }}>{m.pct}%</Text>
-                        )}
-                      </View>
-                    ))}
-                  </View>
-                );
-              })()}
-              {(() => {
-                const planMatchesCurrent = targets &&
-                  Math.round(effectivePlan.nutrition.calories) === Math.round(targets.calories) &&
-                  Math.round(effectivePlan.nutrition.proteinG) === Math.round(targets.proteinG ?? 0);
-                if (planMatchesCurrent) {
-                  return (
-                    <>
-                      <Text style={{ fontSize: 12, fontFamily: "Manrope", color: muted, lineHeight: 18, marginBottom: 10 }}>
-                        {effectivePlan.nutrition.reasoning}
-                      </Text>
-                      {effectivePlan.nutrition.tips.map((tip: string, i: number) => (
-                        <View key={i} style={{ flexDirection: "row", gap: 8, marginBottom: 4 }}>
-                          <Text style={{ fontSize: 12, color: LIME }}>•</Text>
-                          <Text style={{ fontSize: 12, fontFamily: "Manrope", color: text, flex: 1, lineHeight: 18 }}>{tip}</Text>
-                        </View>
-                      ))}
-                    </>
-                  );
-                }
-                const reason = checkIn?.nutritionAdjustment?.reasoning;
-                return (
-                  <>
-                    {reason ? (
-                      <Text style={{ fontSize: 12, fontFamily: "Manrope", color: muted, lineHeight: 18, marginBottom: 6 }}>
-                        {reason}
-                      </Text>
-                    ) : (
-                      <Text style={{ fontSize: 12, fontFamily: "Manrope", color: muted, lineHeight: 18, marginBottom: 6 }}>
-                        Targets adjusted from your latest check-in.
-                      </Text>
-                    )}
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 }}>
-                      <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: LIME }}>✓ Updated from latest check-in</Text>
-                    </View>
-                  </>
-                );
-              })()}
-            </Section>
-
             {/* Hydration section */}
             <Section icon={<Droplets size={16} color={BLUE} />} title="Hydration" color={BLUE} palette={palette}>
               <View style={{ flexDirection: "row", alignItems: "baseline", gap: 6, marginBottom: 8 }}>
@@ -1350,11 +1283,38 @@ export default function GoalsScreen() {
               })()
             )}
 
-            {!editingTargets && (
-              <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted, marginTop: 14, lineHeight: 16 }}>
-                Auto-calculated from your goals. Tap Edit to set manually.
-              </Text>
-            )}
+            {!editingTargets && (() => {
+              const reason = checkIn?.nutritionAdjustment?.reasoning;
+              const planTips = effectivePlan?.nutrition?.tips;
+              const planReasoning = effectivePlan?.nutrition?.reasoning;
+              if (reason) {
+                return (
+                  <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted, marginTop: 14, lineHeight: 16 }}>
+                    {reason}
+                  </Text>
+                );
+              }
+              if (planReasoning) {
+                return (
+                  <View style={{ marginTop: 14 }}>
+                    <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted, lineHeight: 16, marginBottom: 6 }}>
+                      {planReasoning}
+                    </Text>
+                    {planTips?.map((tip: string, i: number) => (
+                      <View key={i} style={{ flexDirection: "row", gap: 6, marginBottom: 3 }}>
+                        <Text style={{ fontSize: 11, color: LIME }}>•</Text>
+                        <Text style={{ fontSize: 11, fontFamily: "Manrope", color: text, flex: 1, lineHeight: 16 }}>{tip}</Text>
+                      </View>
+                    ))}
+                  </View>
+                );
+              }
+              return (
+                <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted, marginTop: 14, lineHeight: 16 }}>
+                  Auto-calculated from your goals. Tap Edit to set manually.
+                </Text>
+              );
+            })()}
           </View>
         )}
 
