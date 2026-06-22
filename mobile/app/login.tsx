@@ -40,7 +40,7 @@ export default function LoginScreen() {
           email: trimmedEmail,
           password: trimmedPass,
           name: name.trim() || trimmedEmail,
-        });
+        }, 30_000);
         setStatusMsg("Signing in…");
         await login(trimmedEmail, trimmedPass);
       }
@@ -150,6 +150,8 @@ export default function LoginScreen() {
               placeholder="••••••••"
               placeholderTextColor="#555"
               secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
               returnKeyType="go"
               onSubmitEditing={handleSubmit}
               style={{

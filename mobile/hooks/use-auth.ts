@@ -23,7 +23,7 @@ export function useAuth() {
       try {
         const token = await getToken();
         if (!token) { setLoading(false); return; }
-        const me = await apiRequest<AuthUser>("GET", "/api/auth/me-mobile");
+        const me = await apiRequest<AuthUser>("GET", "/api/auth/me-mobile", undefined, 30_000);
         setUser(me);
       } catch {
         await clearToken();
@@ -37,7 +37,7 @@ export function useAuth() {
     const { token, user } = await apiRequest<LoginResponse>("POST", "/api/auth/login-mobile", {
       email,
       password,
-    });
+    }, 30_000);
     await setToken(token);
     setUser(user);
     queryClient.clear();
