@@ -223,7 +223,14 @@ export default function WorkoutDetailScreen() {
     }
   }, [photoKey]);
 
-  const removePhoto = useCallback(() => {
+  const removePhoto = useCallback(async () => {
+    if (Platform.OS === "web") {
+      if (confirm("Remove workout photo?")) {
+        setPhotoUri(null);
+        await AsyncStorage.removeItem(photoKey);
+      }
+      return;
+    }
     Alert.alert("Remove photo?", "This can't be undone.", [
       { text: "Cancel", style: "cancel" },
       { text: "Remove", style: "destructive", onPress: async () => {
@@ -233,7 +240,13 @@ export default function WorkoutDetailScreen() {
     ]);
   }, [photoKey]);
 
+  const isWeb = Platform.OS === "web";
+
   const showPhotoOptions = useCallback(() => {
+    if (isWeb) {
+      pickPhoto();
+      return;
+    }
     if (photoUri) {
       Alert.alert("Workout Photo", "What would you like to do?", [
         { text: "Replace from Library", onPress: pickPhoto },
@@ -248,7 +261,7 @@ export default function WorkoutDetailScreen() {
         { text: "Cancel", style: "cancel" },
       ]);
     }
-  }, [photoUri, pickPhoto, takePhoto, removePhoto]);
+  }, [photoUri, pickPhoto, takePhoto, removePhoto, isWeb]);
 
   // ── Local editable state keyed by set ID ──
   const [edits, setEdits] = useState<Record<number, SetEdit>>({});
