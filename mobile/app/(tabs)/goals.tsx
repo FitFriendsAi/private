@@ -5,6 +5,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "expo-router";
 import { apiRequest } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
 import { gramsToLbs, lbsToGrams } from "@/lib/utils";
@@ -12,7 +13,7 @@ import {
   Target, TrendingDown, TrendingUp, Dumbbell, Activity,
   Plus, X, ChevronRight, CheckCircle2, Trash2,
   Sparkles, Utensils, Droplets, Calendar, Zap, ChevronDown, ChevronUp,
-  Clock, RefreshCw,
+  Clock, RefreshCw, Wrench, PlusCircle, Check, ArrowLeft,
 } from "lucide-react-native";
 
 // ── Accent colours ────────────────────────────────────────────────
@@ -316,6 +317,7 @@ function feasibilityMeta(status: AiGoalFeasibility["status"]) {
 export default function GoalsScreen() {
   const { palette } = useTheme();
   const qc          = useQueryClient();
+  const router      = useRouter();
 
   const bg     = palette.bg;
   const card   = palette.card;
@@ -447,6 +449,41 @@ export default function GoalsScreen() {
       qc.invalidateQueries({ queryKey: ["/api/templates"] });
     },
     onError: (e: any) => Alert.alert("Couldn't apply update", e?.message ?? "Please try again."),
+  });
+
+  // AI routine adjustment
+  const [adjustMode, setAdjustMode] = useState<"idle" | "pick" | "instruct" | "review">("idle");
+  const [adjustTemplateId, setAdjustTemplateId] = useState<number | null>(null);
+  const [adjustInstruction, setAdjustInstruction] = useState("");
+  const [adjustResult, setAdjustResult] = useState<{ proposedExercises: any[]; changes: string[] } | null>(null);
+  const [adjustError, setAdjustError] = useState<string | null>(null);
+
+  const { data: myTemplates = [] } = useQuery<any[]>({
+    queryKey: ["/api/templates"],
+    queryFn: () => apiRequest("GET", "/api/templates"),
+  });
+
+  const aiAdjustMutation = useMutation({
+    mutationFn: ({ templateId, instruction }: { templateId: number; instruction: string }) =>
+      apiRequest("POST", "/api/routines/adjust-ai", { templateId, instruction }, 60_000),
+    onSuccess: (data: any) => {
+      setAdjustResult({ proposedExercises: data.proposedExercises, changes: data.changes });
+      setAdjustMode("review");
+      setAdjustError(null);
+    },
+    onError: (e: any) => setAdjustError(e?.message ?? "Failed to generate adjustments"),
+  });
+
+  const applyAdjustMutation = useMutation({
+    mutationFn: ({ templateId, exercises }: { templateId: number; exercises: any[] }) =>
+      apiRequest("POST", "/api/routines/apply-adjustment", { templateId, exercises }, 30_000),
+    onSuccess: () => {
+      setAdjustMode("idle");
+      setAdjustResult(null);
+      setAdjustTemplateId(null);
+      qc.invalidateQueries({ queryKey: ["/api/templates"] });
+    },
+    onError: (e: any) => setAdjustError(e?.message ?? "Failed to apply changes"),
   });
 
   // Extend goal deadline
@@ -1061,6 +1098,204 @@ export default function GoalsScreen() {
                 <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted, marginTop: 6, textAlign: "center", lineHeight: 16 }}>
                   Missed days roll forward automatically — check the Train tab for what's next.
                 </Text>
+              )}
+            </Section>
+
+            {/* AI Routine Modification */}
+            <Section icon={<Wrench size={16} color={PURPLE} />} title="AI Routine Coach" color={PURPLE} palette={palette}>
+              {adjustMode === "idle" && (
+                <View style={{ gap: 10 }}>
+                  <Text style={{ fontSize: 12, fontFamily: "Manrope", color: muted, lineHeight: 18, marginBottom: 4 }}>
+                    Let AI adjust an existing routine based on your performance, or create a brand new one.
+                  </Text>
+                  <Pressable
+                    onPress={() => setAdjustMode("pick")}
+                    style={({ pressed }) => ({
+                      flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+                      backgroundColor: `${PURPLE}1A`, borderRadius: 12, paddingVertical: 12,
+                      borderWidth: 1, borderColor: `${PURPLE}44`,
+                      opacity: pressed ? 0.6 : 1,
+                    })}
+                  >
+                    <Wrench size={14} color={PURPLE} />
+                    <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: PURPLE }}>Adjust Existing Routine</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => router.push("/(tabs)/workouts")}
+                    style={({ pressed }) => ({
+                      flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+                      backgroundColor: `${LIME}1A`, borderRadius: 12, paddingVertical: 12,
+                      borderWidth: 1, borderColor: `${LIME}44`,
+                      opacity: pressed ? 0.6 : 1,
+                    })}
+                  >
+                    <PlusCircle size={14} color={LIME} />
+                    <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: LIME }}>Create New Routine with AI</Text>
+                  </Pressable>
+                </View>
+              )}
+
+              {adjustMode === "pick" && (
+                <View>
+                  <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
+                    <Pressable onPress={() => setAdjustMode("idle")} style={{ marginRight: 10 }}>
+                      <ArrowLeft size={18} color={muted} />
+                    </Pressable>
+                    <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: text }}>Select a routine to adjust</Text>
+                  </View>
+                  {myTemplates.length === 0 ? (
+                    <Text style={{ fontSize: 12, fontFamily: "Manrope", color: muted, textAlign: "center", paddingVertical: 16 }}>
+                      No routines yet — create one first on the Workouts tab.
+                    </Text>
+                  ) : (
+                    myTemplates.map((t: any) => (
+                      <Pressable
+                        key={t.id}
+                        onPress={() => { setAdjustTemplateId(t.id); setAdjustMode("instruct"); setAdjustInstruction(""); }}
+                        style={({ pressed }) => ({
+                          flexDirection: "row", alignItems: "center", gap: 10,
+                          backgroundColor: `${PURPLE}11`, borderRadius: 12, padding: 14, marginBottom: 8,
+                          borderWidth: 1, borderColor: `${PURPLE}33`,
+                          opacity: pressed ? 0.7 : 1,
+                        })}
+                      >
+                        <Dumbbell size={16} color={PURPLE} />
+                        <Text style={{ flex: 1, fontSize: 14, fontFamily: "Manrope-SemiBold", color: text }}>{t.name}</Text>
+                        <ChevronRight size={16} color={muted} />
+                      </Pressable>
+                    ))
+                  )}
+                </View>
+              )}
+
+              {adjustMode === "instruct" && (
+                <View>
+                  <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
+                    <Pressable onPress={() => setAdjustMode("pick")} style={{ marginRight: 10 }}>
+                      <ArrowLeft size={18} color={muted} />
+                    </Pressable>
+                    <Text style={{ flex: 1, fontSize: 13, fontFamily: "Manrope-Bold", color: text }} numberOfLines={1}>
+                      Adjusting: {myTemplates.find((t: any) => t.id === adjustTemplateId)?.name}
+                    </Text>
+                  </View>
+                  <Text style={{ fontSize: 12, fontFamily: "Manrope", color: muted, lineHeight: 18, marginBottom: 10 }}>
+                    Describe what you'd like changed, or leave blank for AI to suggest improvements based on your performance.
+                  </Text>
+                  <TextInput
+                    value={adjustInstruction}
+                    onChangeText={setAdjustInstruction}
+                    placeholder="e.g. Add more back exercises, increase weight on squats, swap bench for dumbbell press..."
+                    placeholderTextColor="#555"
+                    multiline
+                    style={{
+                      backgroundColor: "#1a1a1a", borderRadius: 12, padding: 14,
+                      color: text, fontFamily: "Manrope", fontSize: 14,
+                      borderWidth: 1, borderColor: `${PURPLE}44`,
+                      minHeight: 80, textAlignVertical: "top",
+                      marginBottom: 12,
+                    }}
+                  />
+                  {adjustError && (
+                    <Text style={{ fontSize: 12, fontFamily: "Manrope", color: "#ef4444", marginBottom: 10 }}>{adjustError}</Text>
+                  )}
+                  <Pressable
+                    onPress={() => adjustTemplateId && aiAdjustMutation.mutate({ templateId: adjustTemplateId, instruction: adjustInstruction })}
+                    disabled={aiAdjustMutation.isPending}
+                    style={({ pressed }) => ({
+                      flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+                      backgroundColor: PURPLE, borderRadius: 12, paddingVertical: 12,
+                      opacity: (pressed || aiAdjustMutation.isPending) ? 0.6 : 1,
+                    })}
+                  >
+                    {aiAdjustMutation.isPending
+                      ? <ActivityIndicator size="small" color="#1a1a1a" />
+                      : <Sparkles size={14} color="#1a1a1a" />}
+                    <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: "#1a1a1a" }}>
+                      {aiAdjustMutation.isPending ? "Analyzing…" : "Generate Adjustments"}
+                    </Text>
+                  </Pressable>
+                </View>
+              )}
+
+              {adjustMode === "review" && adjustResult && (
+                <View>
+                  <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
+                    <Pressable onPress={() => { setAdjustMode("instruct"); setAdjustResult(null); }} style={{ marginRight: 10 }}>
+                      <ArrowLeft size={18} color={muted} />
+                    </Pressable>
+                    <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: text }}>Review Changes</Text>
+                  </View>
+
+                  {adjustResult.changes.length > 0 && (
+                    <View style={{ marginBottom: 14 }}>
+                      {adjustResult.changes.map((c, i) => (
+                        <View key={i} style={{ flexDirection: "row", gap: 6, marginBottom: 4 }}>
+                          <Text style={{ fontSize: 12, color: PURPLE }}>•</Text>
+                          <Text style={{ fontSize: 12, fontFamily: "Manrope", color: text, flex: 1, lineHeight: 18 }}>{c}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
+                  {adjustResult.proposedExercises.map((ex, i) => {
+                    const actionColor = ex.action === "added" ? LIME : ex.action === "removed" ? "#ef4444" : ex.action === "modified" ? BLUE : muted;
+                    const actionLabel = ex.action === "added" ? "NEW" : ex.action === "removed" ? "REMOVED" : ex.action === "modified" ? "MODIFIED" : "KEPT";
+                    return (
+                      <View key={i} style={{
+                        flexDirection: "row", alignItems: "center", gap: 10,
+                        backgroundColor: ex.action === "removed" ? "#ef444411" : `${actionColor}11`,
+                        borderRadius: 10, padding: 10, marginBottom: 4,
+                        opacity: ex.action === "removed" ? 0.6 : 1,
+                      }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{
+                            fontSize: 13, fontFamily: "Manrope-SemiBold", color: text,
+                            textDecorationLine: ex.action === "removed" ? "line-through" : "none",
+                          }}>{ex.name}</Text>
+                          <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>{ex.sets}×{ex.reps}</Text>
+                          {ex.weightNote && (
+                            <Text style={{ fontSize: 11, fontFamily: "Manrope", color: PURPLE, marginTop: 2 }}>{ex.weightNote}</Text>
+                          )}
+                        </View>
+                        <View style={{ backgroundColor: `${actionColor}22`, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 }}>
+                          <Text style={{ fontSize: 9, fontFamily: "Manrope-Bold", color: actionColor, letterSpacing: 0.5 }}>{actionLabel}</Text>
+                        </View>
+                      </View>
+                    );
+                  })}
+
+                  {adjustError && (
+                    <Text style={{ fontSize: 12, fontFamily: "Manrope", color: "#ef4444", marginTop: 8 }}>{adjustError}</Text>
+                  )}
+
+                  <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
+                    <Pressable
+                      onPress={() => { setAdjustMode("instruct"); setAdjustResult(null); }}
+                      style={({ pressed }) => ({
+                        flex: 1, alignItems: "center", paddingVertical: 12, borderRadius: 12,
+                        backgroundColor: `${muted}22`, opacity: pressed ? 0.6 : 1,
+                      })}
+                    >
+                      <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: muted }}>Back</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => adjustTemplateId && applyAdjustMutation.mutate({ templateId: adjustTemplateId, exercises: adjustResult.proposedExercises })}
+                      disabled={applyAdjustMutation.isPending}
+                      style={({ pressed }) => ({
+                        flex: 2, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+                        backgroundColor: PURPLE, borderRadius: 12, paddingVertical: 12,
+                        opacity: (pressed || applyAdjustMutation.isPending) ? 0.6 : 1,
+                      })}
+                    >
+                      {applyAdjustMutation.isPending
+                        ? <ActivityIndicator size="small" color="#1a1a1a" />
+                        : <Check size={14} color="#1a1a1a" />}
+                      <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: "#1a1a1a" }}>
+                        {applyAdjustMutation.isPending ? "Applying…" : "Apply Changes"}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
               )}
             </Section>
 

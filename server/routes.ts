@@ -2160,6 +2160,178 @@ Return ONLY valid JSON (no markdown, no explanation):
     }
   });
 
+  // ── AI Routine Adjustment ─────────────────────────────────────────────────
+  app.post("/api/routines/adjust-ai", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = (req.user as any).id;
+    try {
+      const { templateId, instruction } = req.body as { templateId: number; instruction?: string };
+      if (!templateId) return res.status(400).json({ message: "templateId is required" });
+
+      const userTemplates = await storage.getTemplates(userId);
+      const template = userTemplates.find(t => t.id === templateId);
+      if (!template) return res.status(404).json({ message: "Routine not found" });
+
+      const templateExs = await storage.getTemplateExercisesWithDetails(templateId);
+      const allExercises = await storage.getExercises(userId);
+      const loggedExerciseIds = await storage.getLoggedExerciseIds(userId);
+
+      const topExerciseIds = loggedExerciseIds.slice(0, 20);
+      const lastWeights = topExerciseIds.length > 0
+        ? await storage.getLastWeightsForExercises(userId, topExerciseIds)
+        : {};
+      const exerciseNameMap: Record<number, string> = {};
+      for (const ex of allExercises) exerciseNameMap[ex.id] = ex.name;
+
+      const currentExercises = templateExs.map((te: any) => {
+        const lbs = lastWeights[te.exerciseId] ? Math.round(lastWeights[te.exerciseId] / 453.592) : null;
+        return `  - ${te.exerciseName ?? exerciseNameMap[te.exerciseId] ?? "?"}: ${te.targetSets}×${te.targetReps}${lbs ? ` (last used: ${lbs} lbs)` : ""}`;
+      }).join("\n");
+
+      const goals = await storage.getGoals(userId);
+      const activeGoals = goals.filter(g => g.isActive);
+      const goalsText = activeGoals.length > 0
+        ? activeGoals.map(g => `  - ${g.label} (${g.type})`).join("\n")
+        : "  No active goals set.";
+
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) return res.status(500).json({ message: "AI service is not configured." });
+      const client = new Anthropic({ apiKey });
+
+      const prompt = `You are an expert personal trainer adjusting an existing workout routine.
+
+━━━ CURRENT ROUTINE: "${template.name}" ━━━
+${currentExercises}
+
+━━━ USER'S ACTIVE GOALS ━━━
+${goalsText}
+
+━━━ ADJUSTMENT REQUEST ━━━
+${instruction || "Review the routine and suggest improvements based on the user's performance data and goals. Consider progressive overload, exercise variety, and muscle balance."}
+
+━━━ INSTRUCTIONS ━━━
+Modify the routine by:
+- Adjusting weights/reps for progressive overload where lift history shows the user is ready
+- Adding exercises to address gaps or imbalances
+- Removing or replacing exercises that overlap or are less effective
+- Adjusting sets/reps to match the user's goals (strength = lower reps, hypertrophy = 8-12, endurance = 15+)
+
+Return ONLY valid JSON:
+{
+  "name": "${template.name}",
+  "exercises": [
+    {
+      "name": "Exercise name",
+      "sets": 3,
+      "reps": "8-12",
+      "muscle": "primary muscle group",
+      "weightNote": "explanation of any change — e.g. 'Increased from 3 to 4 sets based on your progress' or null",
+      "action": "keep|modified|added|removed"
+    }
+  ],
+  "changes": [
+    "Summary of each change made and why"
+  ]
+}
+
+Include ALL exercises in the final list (kept, modified, and added). Mark removed exercises with "action": "removed" — they won't be added to the updated routine. Every exercise must be DISTINCT.`;
+
+      const msg = await client.messages.create({
+        model: "claude-sonnet-4-5",
+        max_tokens: 2000,
+        messages: [{ role: "user", content: prompt }],
+      });
+
+      const rawText = (msg.content[0] as any).text ?? "";
+      const stripped = rawText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      const jsonStart = stripped.indexOf("{");
+      const jsonEnd   = stripped.lastIndexOf("}");
+      if (jsonStart === -1 || jsonEnd === -1) {
+        return res.status(500).json({ message: "AI returned an unexpected format. Please try again." });
+      }
+      const result = JSON.parse(stripped.slice(jsonStart, jsonEnd + 1));
+
+      res.json({
+        templateId,
+        templateName: template.name,
+        proposedExercises: result.exercises ?? [],
+        changes: result.changes ?? [],
+      });
+    } catch (err: any) {
+      console.error("AI routine adjustment error:", err);
+      res.status(500).json({ message: "Failed to adjust routine. Please try again." });
+    }
+  });
+
+  app.post("/api/routines/apply-adjustment", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = (req.user as any).id;
+    try {
+      const { templateId, exercises } = req.body as { templateId: number; exercises: any[] };
+      if (!templateId || !exercises) return res.status(400).json({ message: "templateId and exercises required" });
+
+      const userTemplates = await storage.getTemplates(userId);
+      if (!userTemplates.find(t => t.id === templateId)) return res.status(404).json({ message: "Routine not found" });
+
+      const allExercises = await storage.getExercises(userId);
+      const norm = (s: string) => s.toLowerCase().trim();
+      const wordsOf = (s: string) => new Set(norm(s).split(/\s+/).filter(w => w.length > 2));
+      const resolveExercise = (name: string): any | undefined => {
+        const target = norm(name);
+        let m = allExercises.find((e: any) => norm(e.name) === target);
+        if (m) return m;
+        m = allExercises.find((e: any) => { const n = norm(e.name); return n.includes(target) || target.includes(n); });
+        if (m) return m;
+        const tw = wordsOf(name);
+        let best: any = undefined, bestScore = 0;
+        for (const e of allExercises) {
+          const ew = wordsOf(e.name);
+          let common = 0; for (const w of tw) if (ew.has(w)) common++;
+          const score = tw.size ? common / Math.max(tw.size, ew.size) : 0;
+          if (score > bestScore) { bestScore = score; best = e; }
+        }
+        return bestScore >= 0.6 ? best : undefined;
+      };
+
+      const existingTes = await storage.getTemplateExercises(templateId);
+      for (const te of existingTes) await storage.removeTemplateExercise(te.id);
+
+      const kept = exercises.filter((e: any) => e.action !== "removed");
+      const usedIds = new Set<number>();
+      let orderIndex = 0;
+      for (const ae of kept) {
+        if (!ae?.name) continue;
+        let match = resolveExercise(ae.name);
+        if (match && usedIds.has(match.id)) match = undefined;
+        if (!match) {
+          match = await storage.createExercise({
+            name: ae.name,
+            primaryMuscle: ae.muscle ?? "other",
+            secondaryMuscles: [],
+            category: "compound",
+            equipment: "other",
+            isCustom: true,
+            userId,
+          });
+        }
+        usedIds.add(match.id);
+        await storage.addTemplateExercise({
+          templateId,
+          exerciseId: match.id,
+          orderIndex: orderIndex++,
+          targetSets: ae.sets ?? 3,
+          targetReps: ae.reps ?? "8-12",
+          targetWeightGrams: null,
+        });
+      }
+
+      res.json({ templateId, exerciseCount: orderIndex });
+    } catch (err: any) {
+      console.error("Apply adjustment error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ── Active Routine (applied AI weekly plan) ─────────────────────────────────
 
   /**

@@ -257668,6 +257668,163 @@ Return ONLY valid JSON (no markdown, no explanation):
       res.status(500).json({ message: "Failed to generate routine. Please try again." });
     }
   });
+  app2.post("/api/routines/adjust-ai", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = req.user.id;
+    try {
+      const { templateId, instruction } = req.body;
+      if (!templateId) return res.status(400).json({ message: "templateId is required" });
+      const userTemplates = await storage.getTemplates(userId);
+      const template = userTemplates.find((t2) => t2.id === templateId);
+      if (!template) return res.status(404).json({ message: "Routine not found" });
+      const templateExs = await storage.getTemplateExercisesWithDetails(templateId);
+      const allExercises = await storage.getExercises(userId);
+      const loggedExerciseIds = await storage.getLoggedExerciseIds(userId);
+      const topExerciseIds = loggedExerciseIds.slice(0, 20);
+      const lastWeights = topExerciseIds.length > 0 ? await storage.getLastWeightsForExercises(userId, topExerciseIds) : {};
+      const exerciseNameMap = {};
+      for (const ex of allExercises) exerciseNameMap[ex.id] = ex.name;
+      const currentExercises = templateExs.map((te2) => {
+        const lbs = lastWeights[te2.exerciseId] ? Math.round(lastWeights[te2.exerciseId] / 453.592) : null;
+        return `  - ${te2.exerciseName ?? exerciseNameMap[te2.exerciseId] ?? "?"}: ${te2.targetSets}\xD7${te2.targetReps}${lbs ? ` (last used: ${lbs} lbs)` : ""}`;
+      }).join("\n");
+      const goals2 = await storage.getGoals(userId);
+      const activeGoals = goals2.filter((g2) => g2.isActive);
+      const goalsText = activeGoals.length > 0 ? activeGoals.map((g2) => `  - ${g2.label} (${g2.type})`).join("\n") : "  No active goals set.";
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) return res.status(500).json({ message: "AI service is not configured." });
+      const client3 = new sdk_default({ apiKey });
+      const prompt = `You are an expert personal trainer adjusting an existing workout routine.
+
+\u2501\u2501\u2501 CURRENT ROUTINE: "${template.name}" \u2501\u2501\u2501
+${currentExercises}
+
+\u2501\u2501\u2501 USER'S ACTIVE GOALS \u2501\u2501\u2501
+${goalsText}
+
+\u2501\u2501\u2501 ADJUSTMENT REQUEST \u2501\u2501\u2501
+${instruction || "Review the routine and suggest improvements based on the user's performance data and goals. Consider progressive overload, exercise variety, and muscle balance."}
+
+\u2501\u2501\u2501 INSTRUCTIONS \u2501\u2501\u2501
+Modify the routine by:
+- Adjusting weights/reps for progressive overload where lift history shows the user is ready
+- Adding exercises to address gaps or imbalances
+- Removing or replacing exercises that overlap or are less effective
+- Adjusting sets/reps to match the user's goals (strength = lower reps, hypertrophy = 8-12, endurance = 15+)
+
+Return ONLY valid JSON:
+{
+  "name": "${template.name}",
+  "exercises": [
+    {
+      "name": "Exercise name",
+      "sets": 3,
+      "reps": "8-12",
+      "muscle": "primary muscle group",
+      "weightNote": "explanation of any change \u2014 e.g. 'Increased from 3 to 4 sets based on your progress' or null",
+      "action": "keep|modified|added|removed"
+    }
+  ],
+  "changes": [
+    "Summary of each change made and why"
+  ]
+}
+
+Include ALL exercises in the final list (kept, modified, and added). Mark removed exercises with "action": "removed" \u2014 they won't be added to the updated routine. Every exercise must be DISTINCT.`;
+      const msg = await client3.messages.create({
+        model: "claude-sonnet-4-5",
+        max_tokens: 2e3,
+        messages: [{ role: "user", content: prompt }]
+      });
+      const rawText = msg.content[0].text ?? "";
+      const stripped = rawText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      const jsonStart = stripped.indexOf("{");
+      const jsonEnd = stripped.lastIndexOf("}");
+      if (jsonStart === -1 || jsonEnd === -1) {
+        return res.status(500).json({ message: "AI returned an unexpected format. Please try again." });
+      }
+      const result = JSON.parse(stripped.slice(jsonStart, jsonEnd + 1));
+      res.json({
+        templateId,
+        templateName: template.name,
+        proposedExercises: result.exercises ?? [],
+        changes: result.changes ?? []
+      });
+    } catch (err) {
+      console.error("AI routine adjustment error:", err);
+      res.status(500).json({ message: "Failed to adjust routine. Please try again." });
+    }
+  });
+  app2.post("/api/routines/apply-adjustment", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = req.user.id;
+    try {
+      const { templateId, exercises: exercises2 } = req.body;
+      if (!templateId || !exercises2) return res.status(400).json({ message: "templateId and exercises required" });
+      const userTemplates = await storage.getTemplates(userId);
+      if (!userTemplates.find((t2) => t2.id === templateId)) return res.status(404).json({ message: "Routine not found" });
+      const allExercises = await storage.getExercises(userId);
+      const norm2 = (s2) => s2.toLowerCase().trim();
+      const wordsOf = (s2) => new Set(norm2(s2).split(/\s+/).filter((w2) => w2.length > 2));
+      const resolveExercise = (name) => {
+        const target = norm2(name);
+        let m3 = allExercises.find((e2) => norm2(e2.name) === target);
+        if (m3) return m3;
+        m3 = allExercises.find((e2) => {
+          const n2 = norm2(e2.name);
+          return n2.includes(target) || target.includes(n2);
+        });
+        if (m3) return m3;
+        const tw = wordsOf(name);
+        let best = void 0, bestScore = 0;
+        for (const e2 of allExercises) {
+          const ew = wordsOf(e2.name);
+          let common = 0;
+          for (const w2 of tw) if (ew.has(w2)) common++;
+          const score = tw.size ? common / Math.max(tw.size, ew.size) : 0;
+          if (score > bestScore) {
+            bestScore = score;
+            best = e2;
+          }
+        }
+        return bestScore >= 0.6 ? best : void 0;
+      };
+      const existingTes = await storage.getTemplateExercises(templateId);
+      for (const te2 of existingTes) await storage.removeTemplateExercise(te2.id);
+      const kept = exercises2.filter((e2) => e2.action !== "removed");
+      const usedIds = /* @__PURE__ */ new Set();
+      let orderIndex = 0;
+      for (const ae2 of kept) {
+        if (!ae2?.name) continue;
+        let match = resolveExercise(ae2.name);
+        if (match && usedIds.has(match.id)) match = void 0;
+        if (!match) {
+          match = await storage.createExercise({
+            name: ae2.name,
+            primaryMuscle: ae2.muscle ?? "other",
+            secondaryMuscles: [],
+            category: "compound",
+            equipment: "other",
+            isCustom: true,
+            userId
+          });
+        }
+        usedIds.add(match.id);
+        await storage.addTemplateExercise({
+          templateId,
+          exerciseId: match.id,
+          orderIndex: orderIndex++,
+          targetSets: ae2.sets ?? 3,
+          targetReps: ae2.reps ?? "8-12",
+          targetWeightGrams: null
+        });
+      }
+      res.json({ templateId, exerciseCount: orderIndex });
+    } catch (err) {
+      console.error("Apply adjustment error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
   app2.post("/api/routine/apply", async (req, res) => {
     if (!requireAuth(req, res)) return;
     const userId = req.user.id;
