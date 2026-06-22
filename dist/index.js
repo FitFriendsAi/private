@@ -255999,8 +255999,13 @@ async function recalculateTargets(userId) {
     intake,
     weights: weightRows.map((w2) => ({ date: String(w2.date).slice(0, 10), weightKg: w2.weightGrams / 1e3 }))
   });
+  let blendedTdee;
   if (adaptive) {
     await storage.upsertProfile(userId, { estimatedTdee: adaptive.tdee, tdeeUpdatedAt: /* @__PURE__ */ new Date() });
+    const formulaBmr = calculateBMR(weightKg, heightCm, ageYears, sex);
+    const formulaTdee = calculateTDEE(formulaBmr, activityLevel);
+    const w2 = adaptive.confidence === "high" ? 1 : adaptive.confidence === "medium" ? 0.6 : 0.3;
+    blendedTdee = Math.round(formulaTdee * (1 - w2) + adaptive.tdee * w2);
   }
   const targets = calculateMacroTargets({
     weightKg,
@@ -256011,9 +256016,9 @@ async function recalculateTargets(userId) {
     goalType,
     targetWeightKg,
     deadlineDays,
-    overrideTdee: adaptive?.tdee
+    overrideTdee: blendedTdee
   });
-  await storage.upsertNutritionTarget(userId, { effectiveDate: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), ...targets });
+  await storage.upsertNutritionTarget(userId, { effectiveDate: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), ...targets, source: "auto_calc", reason: blendedTdee ? `blended TDEE (${adaptive.confidence} confidence)` : null });
 }
 function registerRoutes(app2) {
   app2.post("/api/auth/register", async (req, res) => {
@@ -257043,14 +257048,27 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
       intake,
       weights: weightRows.map((w2) => ({ date: String(w2.date).slice(0, 10), weightKg: w2.weightGrams / 1e3 }))
     });
+    let tdee = formulaTdee;
+    let method = "formula";
+    let blendWeight = null;
+    if (adaptive && formulaTdee) {
+      const w2 = adaptive.confidence === "high" ? 1 : adaptive.confidence === "medium" ? 0.6 : 0.3;
+      tdee = Math.round(formulaTdee * (1 - w2) + adaptive.tdee * w2);
+      method = w2 === 1 ? "adaptive" : "blended";
+      blendWeight = w2;
+    } else if (adaptive) {
+      tdee = adaptive.tdee;
+      method = "adaptive";
+    }
     res.json({
-      method: adaptive ? "adaptive" : "formula",
-      tdee: adaptive?.tdee ?? formulaTdee,
+      method,
+      tdee,
       formulaTdee,
       bmr,
       activityLevel,
       sex,
       adaptive,
+      blendWeight,
       updatedAt: profile?.tdeeUpdatedAt ?? null
     });
   });

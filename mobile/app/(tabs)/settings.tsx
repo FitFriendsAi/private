@@ -412,17 +412,26 @@ export default function SettingsScreen() {
               <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 14, color: muted, marginBottom: 5 }}>kcal / day</Text>
             </View>
 
-            {tdee?.method === "adaptive" && tdee?.adaptive ? (
+            {tdee?.adaptive ? (
               <>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8 }}>
                   <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20, backgroundColor: `${accent}22` }}>
                     <Text style={{ fontFamily: "Manrope-Bold", fontSize: 10, color: accent, letterSpacing: 0.4 }}>
-                      MEASURED · {String(tdee.adaptive.confidence).toUpperCase()} CONFIDENCE
+                      {tdee.method === "blended" ? "BLENDED" : "MEASURED"} · {String(tdee.adaptive.confidence).toUpperCase()} CONFIDENCE
                     </Text>
                   </View>
                 </View>
                 <Text style={{ fontFamily: "Manrope", fontSize: 12.5, color: muted, marginTop: 10, lineHeight: 18 }}>
-                  Back-solved from {tdee.adaptive.loggedDays} days of food logs and your weight trend of{" "}
+                  {tdee.method === "blended" ? (
+                    <>
+                      Blended from your measured metabolism ({Math.round(tdee.blendWeight * 100)}% weight) and the BMR formula ({Math.round((1 - tdee.blendWeight) * 100)}% weight).
+                      Measured from {tdee.adaptive.loggedDays} days of food logs and a weight trend of{" "}
+                    </>
+                  ) : (
+                    <>
+                      Back-solved from {tdee.adaptive.loggedDays} days of food logs and your weight trend of{" "}
+                    </>
+                  )}
                   <Text style={{ color: text, fontFamily: "Manrope-SemiBold" }}>
                     {tdee.adaptive.weightSlopeKgPerWeek > 0 ? "+" : ""}
                     {(weightUnit === "kg"
@@ -430,11 +439,13 @@ export default function SettingsScreen() {
                       : Math.round(tdee.adaptive.weightSlopeKgPerWeek * 2.20462 * 10) / 10
                     )} {weightUnit}/week
                   </Text>
-                  . Your calorie target now adapts to this instead of a formula estimate.
+                  {tdee.method === "blended"
+                    ? ". As you log more data, the measured value will take over fully."
+                    : ". Your calorie target now adapts to this instead of a formula estimate."}
                 </Text>
-                {tdee?.formulaTdee != null && (
+                {tdee?.formulaTdee != null && tdee?.adaptive?.tdee != null && (
                   <Text style={{ fontFamily: "Manrope", fontSize: 11.5, color: muted, marginTop: 6 }}>
-                    Formula estimate: {Math.round(tdee.formulaTdee).toLocaleString()} kcal
+                    Formula: {Math.round(tdee.formulaTdee).toLocaleString()} kcal · Measured: {Math.round(tdee.adaptive.tdee).toLocaleString()} kcal
                   </Text>
                 )}
               </>
