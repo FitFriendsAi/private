@@ -10,7 +10,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   View, Text, ScrollView, Pressable, ActivityIndicator,
-  TextInput, KeyboardAvoidingView, Platform, Image, Alert,
+  TextInput, KeyboardAvoidingView, Platform, Image, Alert, Modal,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -21,7 +21,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { apiRequest } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
 import { gramsToLbs, lbsToGrams } from "@/lib/utils";
-import { ArrowLeft, Clock, Dumbbell, Scale, BarChart2, Check, Camera, ImagePlus, Trash2 } from "lucide-react-native";
+import { ArrowLeft, Clock, Dumbbell, Scale, BarChart2, Check, Camera, ImagePlus, Trash2, Pencil, X, Maximize2 } from "lucide-react-native";
 
 const LIME = "#c8e84c";
 
@@ -181,6 +181,7 @@ export default function WorkoutDetailScreen() {
   const photoKey = `workout_photo_${workoutId}`;
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [photoLoading, setPhotoLoading] = useState(false);
+  const [photoFullscreen, setPhotoFullscreen] = useState(false);
 
   useEffect(() => {
     AsyncStorage.getItem(photoKey).then(uri => { if (uri) setPhotoUri(uri); });
@@ -432,53 +433,64 @@ export default function WorkoutDetailScreen() {
           </View>
 
           {/* ── Workout photo zone ── */}
-          <Pressable
-            onPress={showPhotoOptions}
-            style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1, marginBottom: 14 })}
-          >
-            {photoUri ? (
-              /* ── Has photo — show full-width image with overlay controls ── */
-              <View style={{ borderRadius: 18, overflow: "hidden" }}>
+          {photoUri ? (
+            <View style={{ borderRadius: 18, overflow: "hidden", marginBottom: 14 }}>
+              {/* Tap image to view fullscreen */}
+              <Pressable onPress={() => setPhotoFullscreen(true)} style={({ pressed }) => ({ opacity: pressed ? 0.9 : 1 })}>
                 <Image
                   source={{ uri: photoUri }}
                   style={{ width: "100%", aspectRatio: 1 }}
                   resizeMode="cover"
                 />
-                {/* Dark gradient overlay at bottom */}
-                <View style={{
-                  position: "absolute", bottom: 0, left: 0, right: 0,
-                  flexDirection: "row", alignItems: "center", justifyContent: "flex-end",
-                  padding: 10, gap: 8,
-                  backgroundColor: "rgba(0,0,0,0.45)",
-                }}>
-                  <Pressable
-                    onPress={showPhotoOptions}
-                    style={({ pressed }) => ({
-                      flexDirection: "row", alignItems: "center", gap: 5,
-                      backgroundColor: "rgba(255,255,255,0.15)",
-                      borderRadius: 10, paddingHorizontal: 10, paddingVertical: 5,
-                      opacity: pressed ? 0.7 : 1,
-                    })}
-                  >
-                    <Camera size={13} color="#ffffff" />
-                    <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: "#ffffff" }}>
-                      Change
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={removePhoto}
-                    style={({ pressed }) => ({
-                      backgroundColor: "rgba(239,68,68,0.25)",
-                      borderRadius: 10, padding: 5,
-                      opacity: pressed ? 0.7 : 1,
-                    })}
-                  >
-                    <Trash2 size={13} color="#ff8888" />
-                  </Pressable>
-                </View>
+              </Pressable>
+              {/* Controls overlay */}
+              <View style={{
+                position: "absolute", bottom: 0, left: 0, right: 0,
+                flexDirection: "row", alignItems: "center", justifyContent: "flex-end",
+                padding: 10, gap: 8,
+                backgroundColor: "rgba(0,0,0,0.45)",
+              }}>
+                <Pressable
+                  onPress={() => setPhotoFullscreen(true)}
+                  style={({ pressed }) => ({
+                    flexDirection: "row", alignItems: "center", gap: 4,
+                    backgroundColor: "rgba(255,255,255,0.15)",
+                    borderRadius: 10, paddingHorizontal: 10, paddingVertical: 5,
+                    opacity: pressed ? 0.7 : 1,
+                  })}
+                >
+                  <Maximize2 size={12} color="#ffffff" />
+                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 11, color: "#ffffff" }}>View</Text>
+                </Pressable>
+                <Pressable
+                  onPress={pickPhoto}
+                  style={({ pressed }) => ({
+                    flexDirection: "row", alignItems: "center", gap: 4,
+                    backgroundColor: "rgba(255,255,255,0.15)",
+                    borderRadius: 10, paddingHorizontal: 10, paddingVertical: 5,
+                    opacity: pressed ? 0.7 : 1,
+                  })}
+                >
+                  <Pencil size={12} color="#ffffff" />
+                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 11, color: "#ffffff" }}>Edit</Text>
+                </Pressable>
+                <Pressable
+                  onPress={removePhoto}
+                  style={({ pressed }) => ({
+                    backgroundColor: "rgba(239,68,68,0.25)",
+                    borderRadius: 10, padding: 5,
+                    opacity: pressed ? 0.7 : 1,
+                  })}
+                >
+                  <Trash2 size={13} color="#ff8888" />
+                </Pressable>
               </View>
-            ) : (
-              /* ── No photo — subtle dashed placeholder ── */
+            </View>
+          ) : (
+            <Pressable
+              onPress={showPhotoOptions}
+              style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1, marginBottom: 14 })}
+            >
               <View style={{
                 borderWidth: 1.5,
                 borderStyle: "dashed",
@@ -503,8 +515,41 @@ export default function WorkoutDetailScreen() {
                   Tap to upload from library or camera
                 </Text>
               </View>
-            )}
-          </Pressable>
+            </Pressable>
+          )}
+
+          {/* ── Fullscreen photo viewer ── */}
+          <Modal visible={photoFullscreen} transparent animationType="fade" onRequestClose={() => setPhotoFullscreen(false)}>
+            <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.95)", justifyContent: "center", alignItems: "center" }}>
+              <Pressable
+                onPress={() => setPhotoFullscreen(false)}
+                style={{ position: "absolute", top: 50, right: 20, zIndex: 10, width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" }}
+              >
+                <X size={22} color="#ffffff" />
+              </Pressable>
+              {photoUri && (
+                <Image
+                  source={{ uri: photoUri }}
+                  style={{ width: "100%", height: "100%" }}
+                  resizeMode="contain"
+                />
+              )}
+              <View style={{ position: "absolute", bottom: 40, flexDirection: "row", gap: 12 }}>
+                <Pressable
+                  onPress={() => { setPhotoFullscreen(false); pickPhoto(); }}
+                  style={({ pressed }) => ({
+                    flexDirection: "row", alignItems: "center", gap: 6,
+                    backgroundColor: "rgba(255,255,255,0.15)", borderRadius: 14,
+                    paddingHorizontal: 16, paddingVertical: 10,
+                    opacity: pressed ? 0.7 : 1,
+                  })}
+                >
+                  <Pencil size={14} color="#ffffff" />
+                  <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: "#ffffff" }}>Replace / Reposition</Text>
+                </Pressable>
+              </View>
+            </View>
+          </Modal>
 
           {/* ── Tap-to-edit hint ── */}
           <Text style={{
