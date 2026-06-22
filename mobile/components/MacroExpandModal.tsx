@@ -56,8 +56,10 @@ export function MacroExpandModal({
   const [chartW, setChartW] = useState(0);
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const [filter, setFilter] = useState<MacroFilter>("all");
+  const [showPercent, setShowPercent] = useState(false);
 
-  useEffect(() => { setSelectedIdx(null); }, [period, filter]);
+  useEffect(() => { setSelectedIdx(null); }, [period, filter, showPercent]);
+  useEffect(() => { if (filter === "all") setShowPercent(false); }, [filter]);
 
   useEffect(() => {
     if (visible) {
@@ -96,37 +98,62 @@ export function MacroExpandModal({
 
   const barGap = period === 30 ? 2 : 3;
 
+  const pctBars = useMemo(() => {
+    if (!showPercent || filter === "all") return { protein: proteinBars, carbs: carbsBars, fat: fatBars };
+    const p: typeof proteinBars = [], c: typeof carbsBars = [], f: typeof fatBars = [];
+    for (let i = 0; i < proteinBars.length; i++) {
+      const pCal = proteinBars[i].value * 4;
+      const cCal = (carbsBars[i]?.value ?? 0) * 4;
+      const fCal = (fatBars[i]?.value ?? 0) * 9;
+      const total = pCal + cCal + fCal;
+      const share = (x: number) => total > 0 ? (x / total) * 100 : 0;
+      p.push({ ...proteinBars[i], value: share(pCal) });
+      c.push({ ...carbsBars[i], value: share(cCal) });
+      f.push({ ...fatBars[i], value: share(fCal) });
+    }
+    return { protein: p, carbs: c, fat: f };
+  }, [showPercent, filter, proteinBars, carbsBars, fatBars]);
+
+  const activeBarsForFilter = filter === "protein" ? pctBars.protein : filter === "carbs" ? pctBars.carbs : pctBars.fat;
+
+  const avgPct = useMemo(() => {
+    if (!showPercent || filter === "all") return { protein: 0, carbs: 0, fat: 0 };
+    const nz = (bars: typeof proteinBars) => bars.filter(b => b.value > 0);
+    const a = (bars: typeof proteinBars) => { const v = nz(bars); return v.length ? Math.round(v.reduce((s, b) => s + b.value, 0) / v.length) : 0; };
+    return { protein: a(pctBars.protein), carbs: a(pctBars.carbs), fat: a(pctBars.fat) };
+  }, [showPercent, filter, pctBars]);
+
   const macroCards = [
     { key: "protein" as MacroFilter, label: "PROTEIN", val: todayProtein, target: targetProtein, color: LIME, avg: avgProtein, share: todayShares.protein },
     { key: "carbs" as MacroFilter, label: "CARBS", val: todayCarbs, target: targetCarbs, color: BLUE, avg: avgCarbs, share: todayShares.carbs },
     { key: "fat" as MacroFilter, label: "FAT", val: todayFat, target: targetFat, color: PURPLE, avg: avgFat, share: todayShares.fat },
   ];
 
-  // Chart data depends on filter
+  // Chart data depends on filter + percent mode
   const { chartMax, goalLineY, goalLabel } = useMemo(() => {
-    if (filter === "protein") {
-      const m = Math.max(...proteinBars.map(b => b.value), targetProtein, 1);
-      return { chartMax: m, goalLineY: targetProtein > 0 ? (1 - targetProtein / m) * BAR_MAX_H + (CHART_H - BAR_MAX_H) : null, goalLabel: `${targetProtein}g` };
-    }
-    if (filter === "carbs") {
-      const m = Math.max(...carbsBars.map(b => b.value), targetCarbs, 1);
-      return { chartMax: m, goalLineY: targetCarbs > 0 ? (1 - targetCarbs / m) * BAR_MAX_H + (CHART_H - BAR_MAX_H) : null, goalLabel: `${targetCarbs}g` };
-    }
-    if (filter === "fat") {
-      const m = Math.max(...fatBars.map(b => b.value), targetFat, 1);
-      return { chartMax: m, goalLineY: targetFat > 0 ? (1 - targetFat / m) * BAR_MAX_H + (CHART_H - BAR_MAX_H) : null, goalLabel: `${targetFat}g` };
+    if (filter !== "all") {
+      if (showPercent) {
+        const bars = activeBarsForFilter;
+        const m = Math.max(...bars.map(b => b.value), 100);
+        return { chartMax: m, goalLineY: null, goalLabel: "" };
+      }
+      const target = filter === "protein" ? targetProtein : filter === "carbs" ? targetCarbs : targetFat;
+      const bars = filter === "protein" ? proteinBars : filter === "carbs" ? carbsBars : fatBars;
+      const m = Math.max(...bars.map(b => b.value), target, 1);
+      return { chartMax: m, goalLineY: target > 0 ? (1 - target / m) * BAR_MAX_H + (CHART_H - BAR_MAX_H) : null, goalLabel: `${target}g` };
     }
     const stackedMax = Math.max(
       ...proteinBars.map((b, i) => b.value + (carbsBars[i]?.value ?? 0) + (fatBars[i]?.value ?? 0)),
       1,
     );
     return { chartMax: stackedMax, goalLineY: null, goalLabel: "" };
-  }, [filter, proteinBars, carbsBars, fatBars, targetProtein, targetCarbs, targetFat]);
+  }, [filter, showPercent, activeBarsForFilter, proteinBars, carbsBars, fatBars, targetProtein, targetCarbs, targetFat]);
 
+  const pctSuffix = showPercent && filter !== "all" ? "%" : "";
   const yTicks = [
-    { label: yFmt(chartMax), top: 4 },
-    { label: yFmt(chartMax / 2), top: CHART_H / 2 - 5 },
-    { label: "0", top: CHART_H - 14 },
+    { label: yFmt(chartMax) + pctSuffix, top: 4 },
+    { label: yFmt(chartMax / 2) + pctSuffix, top: CHART_H / 2 - 5 },
+    { label: "0" + pctSuffix, top: CHART_H - 14 },
   ];
 
   function renderBars() {
@@ -135,7 +162,7 @@ export function MacroExpandModal({
     const barW = Math.max(1, (chartW - barGap * (n - 1)) / n);
 
     if (filter !== "all") {
-      const bars = filter === "protein" ? proteinBars : filter === "carbs" ? carbsBars : fatBars;
+      const bars = showPercent ? activeBarsForFilter : (filter === "protein" ? proteinBars : filter === "carbs" ? carbsBars : fatBars);
       const color = MACRO_COLOR[filter];
       return (
         <View style={{ flexDirection: "row", alignItems: "flex-end", gap: barGap, height: CHART_H, position: "absolute", left: 0, right: 0, top: 0 }}>
@@ -197,7 +224,7 @@ export function MacroExpandModal({
           { label: "Carbs", value: cb?.value ?? 0, color: BLUE },
           { label: "Fat", value: fb?.value ?? 0, color: PURPLE },
         ]
-      : [{ label: filter.charAt(0).toUpperCase() + filter.slice(1), value: (filter === "protein" ? pb : filter === "carbs" ? cb : fb)?.value ?? 0, color: MACRO_COLOR[filter] }];
+      : [{ label: filter.charAt(0).toUpperCase() + filter.slice(1), value: showPercent ? (activeBarsForFilter[selectedIdx]?.value ?? 0) : ((filter === "protein" ? pb : filter === "carbs" ? cb : fb)?.value ?? 0), color: MACRO_COLOR[filter] }];
 
     const tipW = filter === "all" ? 112 : 90;
     const tipX = Math.max(0, Math.min(cx - tipW / 2, chartW - tipW));
@@ -211,7 +238,7 @@ export function MacroExpandModal({
                 <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: r.color }} />
                 <Text style={{ fontFamily: "Manrope-Bold", fontSize: 10, color: "rgba(255,255,255,0.6)" }}>{r.label}</Text>
               </View>
-              <Text style={{ fontFamily: "Manrope-Bold", fontSize: 10, color: r.color }}>{Math.round(r.value)}g</Text>
+              <Text style={{ fontFamily: "Manrope-Bold", fontSize: 10, color: r.color }}>{Math.round(r.value)}{showPercent && filter !== "all" ? "%" : "g"}</Text>
             </View>
           ))}
         </View>
@@ -256,8 +283,8 @@ export function MacroExpandModal({
                         }}
                       >
                         <Text style={{ fontFamily: "Manrope-Bold", fontSize: 9, color: active ? m.color : "rgba(255,255,255,0.4)", letterSpacing: 0.7, marginBottom: 6 }}>{m.label}</Text>
-                        <Text style={{ fontFamily: "Doto", fontSize: 28, color: m.color, lineHeight: 32 }}>{m.val}</Text>
-                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 9, color: "rgba(255,255,255,0.3)", marginTop: 2 }}>/ {m.target}g</Text>
+                        <Text style={{ fontFamily: "Doto", fontSize: 28, color: m.color, lineHeight: 32 }}>{showPercent && filter === m.key ? m.share : m.val}</Text>
+                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 9, color: "rgba(255,255,255,0.3)", marginTop: 2 }}>{showPercent && filter === m.key ? "% of macros" : `/ ${m.target}g`}</Text>
                         <View style={{ width: "100%", height: 3, backgroundColor: "rgba(255,255,255,0.1)", borderRadius: 2, marginTop: 8, overflow: "hidden" }}>
                           <View style={{ width: `${Math.min(pctTarget, 100)}%`, height: "100%", backgroundColor: m.color, borderRadius: 2 }} />
                         </View>
@@ -268,13 +295,17 @@ export function MacroExpandModal({
 
                 {/* Avg stats */}
                 <View style={{ flexDirection: "row", gap: 10, marginBottom: 24 }}>
-                  {macroCards.filter(m => filter === "all" || filter === m.key).map(m => (
-                    <View key={m.key} style={{ flex: 1, backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 14, padding: 10, alignItems: "center" }}>
-                      <Text style={{ fontFamily: "Doto", fontSize: 22, color: m.color, lineHeight: 26 }}>{m.avg || "—"}</Text>
-                      <Text style={{ fontFamily: "Manrope-Bold", fontSize: 8, color: "rgba(255,255,255,0.35)", letterSpacing: 0.5, marginTop: 2 }}>g/day avg</Text>
-                      <Text style={{ fontFamily: "Manrope-Bold", fontSize: 7, color: "rgba(255,255,255,0.25)", letterSpacing: 0.5, marginTop: 1 }}>AVG {m.label}</Text>
-                    </View>
-                  ))}
+                  {macroCards.filter(m => filter === "all" || filter === m.key).map(m => {
+                    const isPct = showPercent && filter === m.key;
+                    const displayAvg = isPct ? (avgPct as any)[m.key] : m.avg;
+                    return (
+                      <View key={m.key} style={{ flex: 1, backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 14, padding: 10, alignItems: "center" }}>
+                        <Text style={{ fontFamily: "Doto", fontSize: 22, color: m.color, lineHeight: 26 }}>{displayAvg || "—"}</Text>
+                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 8, color: "rgba(255,255,255,0.35)", letterSpacing: 0.5, marginTop: 2 }}>{isPct ? "% avg" : "g/day avg"}</Text>
+                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 7, color: "rgba(255,255,255,0.25)", letterSpacing: 0.5, marginTop: 1 }}>AVG {m.label}</Text>
+                      </View>
+                    );
+                  })}
                 </View>
 
                 {/* Period selector */}
@@ -291,11 +322,29 @@ export function MacroExpandModal({
                   ))}
                 </View>
 
+                {/* Grams / Percent toggle — single macro only */}
+                {filter !== "all" && (
+                  <View style={{ flexDirection: "row", backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 12, padding: 3, marginBottom: 16, alignSelf: "flex-start" }}>
+                    {([{ key: false, label: "Grams" }, { key: true, label: "Percent" }] as const).map(opt => (
+                      <Pressable key={opt.label} onPress={() => setShowPercent(opt.key)} style={{
+                        paddingVertical: 7, paddingHorizontal: 16, borderRadius: 10, alignItems: "center",
+                        backgroundColor: showPercent === opt.key ? "rgba(255,255,255,0.15)" : "transparent",
+                      }}>
+                        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: showPercent === opt.key ? "#ffffff" : "rgba(255,255,255,0.4)" }}>
+                          {opt.label}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+
                 {/* Chart label */}
                 <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: "rgba(255,255,255,0.35)", letterSpacing: 0.6, marginBottom: 10 }}>
                   {filter === "all"
                     ? (period === 90 ? "MACROS (WEEKLY AVG)" : "DAILY MACROS (g)")
-                    : `${filter.toUpperCase()} (g)`}
+                    : showPercent
+                      ? `${filter.toUpperCase()} (% OF MACRO CALORIES)`
+                      : `${filter.toUpperCase()} (g)`}
                 </Text>
 
                 {/* Y-axis + Chart */}
