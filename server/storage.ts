@@ -382,7 +382,7 @@ export const storage = {
 
   // ── Nutrition Targets ──────────────────────────────────────────────────────
   async getNutritionTarget(userId: number): Promise<NutritionTarget | undefined> {
-    const [t] = await db.select().from(nutritionTargets).where(eq(nutritionTargets.userId, userId)).orderBy(desc(nutritionTargets.effectiveDate)).limit(1);
+    const [t] = await db.select().from(nutritionTargets).where(eq(nutritionTargets.userId, userId)).orderBy(desc(nutritionTargets.effectiveDate), desc(nutritionTargets.id)).limit(1);
     return t;
   },
   async upsertNutritionTarget(userId: number, data: Omit<InsertNutritionTarget, "userId">): Promise<NutritionTarget> {
@@ -396,7 +396,7 @@ export const storage = {
   async getNutritionTargetHistory(userId: number, limit = 10): Promise<NutritionTarget[]> {
     return db.select().from(nutritionTargets)
       .where(eq(nutritionTargets.userId, userId))
-      .orderBy(desc(nutritionTargets.effectiveDate))
+      .orderBy(desc(nutritionTargets.effectiveDate), desc(nutritionTargets.id))
       .limit(limit);
   },
   async getNutritionAdherence(userId: number, days = 14): Promise<{
@@ -1087,7 +1087,7 @@ export const storage = {
   async getScore(userId: number): Promise<{ points: number; streak: number; workouts: number; proteinDays: number; prs: number }> {
     const target = await db.select().from(nutritionTargets)
       .where(eq(nutritionTargets.userId, userId))
-      .orderBy(desc(nutritionTargets.effectiveDate)).limit(1);
+      .orderBy(desc(nutritionTargets.effectiveDate), desc(nutritionTargets.id)).limit(1);
     const proteinTarget = target[0]?.proteinG ?? 150;
 
     const [activeDates, wkCount, proteinDayRows, strengthSets] = await Promise.all([
@@ -1155,7 +1155,7 @@ export const storage = {
     // Days where protein ≥ 90% of target
     const target = await db.select().from(nutritionTargets)
       .where(eq(nutritionTargets.userId, userId))
-      .orderBy(desc(nutritionTargets.effectiveDate)).limit(1);
+      .orderBy(desc(nutritionTargets.effectiveDate), desc(nutritionTargets.id)).limit(1);
     const proteinTarget = target[0]?.proteinG ?? 150;
 
     const proteinDays = await db.select({ date: foodLog.date })

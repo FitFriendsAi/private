@@ -246014,7 +246014,7 @@ var storage = {
   },
   // ── Nutrition Targets ──────────────────────────────────────────────────────
   async getNutritionTarget(userId) {
-    const [t2] = await db.select().from(nutritionTargets).where(eq(nutritionTargets.userId, userId)).orderBy(desc(nutritionTargets.effectiveDate)).limit(1);
+    const [t2] = await db.select().from(nutritionTargets).where(eq(nutritionTargets.userId, userId)).orderBy(desc(nutritionTargets.effectiveDate), desc(nutritionTargets.id)).limit(1);
     return t2;
   },
   async upsertNutritionTarget(userId, data) {
@@ -246026,7 +246026,7 @@ var storage = {
     return t2;
   },
   async getNutritionTargetHistory(userId, limit = 10) {
-    return db.select().from(nutritionTargets).where(eq(nutritionTargets.userId, userId)).orderBy(desc(nutritionTargets.effectiveDate)).limit(limit);
+    return db.select().from(nutritionTargets).where(eq(nutritionTargets.userId, userId)).orderBy(desc(nutritionTargets.effectiveDate), desc(nutritionTargets.id)).limit(limit);
   },
   async getNutritionAdherence(userId, days = 14) {
     const today = /* @__PURE__ */ new Date();
@@ -246554,7 +246554,7 @@ var storage = {
   },
   /** Rich score breakdown for leaderboards + friend cards. */
   async getScore(userId) {
-    const target = await db.select().from(nutritionTargets).where(eq(nutritionTargets.userId, userId)).orderBy(desc(nutritionTargets.effectiveDate)).limit(1);
+    const target = await db.select().from(nutritionTargets).where(eq(nutritionTargets.userId, userId)).orderBy(desc(nutritionTargets.effectiveDate), desc(nutritionTargets.id)).limit(1);
     const proteinTarget = target[0]?.proteinG ?? 150;
     const [activeDates, wkCount, proteinDayRows, strengthSets] = await Promise.all([
       this.getActivityDates(userId),
@@ -246602,7 +246602,7 @@ var storage = {
   async computePoints(userId) {
     const workoutCount = await db.select({ count: sql`count(*)` }).from(workouts).where(eq(workouts.userId, userId));
     const wPts = Number(workoutCount[0]?.count ?? 0) * 100;
-    const target = await db.select().from(nutritionTargets).where(eq(nutritionTargets.userId, userId)).orderBy(desc(nutritionTargets.effectiveDate)).limit(1);
+    const target = await db.select().from(nutritionTargets).where(eq(nutritionTargets.userId, userId)).orderBy(desc(nutritionTargets.effectiveDate), desc(nutritionTargets.id)).limit(1);
     const proteinTarget = target[0]?.proteinG ?? 150;
     const proteinDays = await db.select({ date: foodLog.date }).from(foodLog).where(eq(foodLog.userId, userId)).groupBy(foodLog.date).having(sql`coalesce(sum(${foodLog.proteinActual}), 0) >= ${proteinTarget * 0.9}`);
     const mPts = proteinDays.length * 50;
