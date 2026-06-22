@@ -445,6 +445,31 @@ export default function SettingsScreen() {
                   : "Add your height, birth date, and a weight entry to estimate your daily energy expenditure."}
               </Text>
             )}
+
+            {/* BMR breakdown */}
+            {tdee?.bmr != null && (
+              <View style={{
+                backgroundColor: `${muted}11`, borderRadius: 12, padding: 12, marginTop: 12,
+                borderWidth: 1, borderColor: `${muted}22`,
+              }}>
+                <Text style={{ fontFamily: "Manrope-Bold", fontSize: 10, color: muted, letterSpacing: 0.5, marginBottom: 8 }}>
+                  FORMULA BREAKDOWN
+                </Text>
+                {[
+                  { label: "Basal Metabolic Rate (BMR)", value: `${Math.round(tdee.bmr).toLocaleString()} kcal`, sub: "Mifflin-St Jeor" },
+                  { label: "Activity Level", value: (tdee.activityLevel ?? "moderate").replace("_", " "), sub: `×${({ sedentary: "1.2", light: "1.375", moderate: "1.55", active: "1.725", very_active: "1.9" } as any)[tdee.activityLevel ?? "moderate"] ?? "1.55"}` },
+                  { label: "Formula TDEE", value: `${Math.round(tdee.formulaTdee ?? 0).toLocaleString()} kcal`, sub: "BMR × activity" },
+                ].map((row, i) => (
+                  <View key={i} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: i < 2 ? 6 : 0 }}>
+                    <View>
+                      <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: muted }}>{row.label}</Text>
+                      <Text style={{ fontFamily: "Manrope", fontSize: 10, color: `${muted}88` }}>{row.sub}</Text>
+                    </View>
+                    <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: text }}>{row.value}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
           </View>
 
           {/* ── Log Weight ── */}

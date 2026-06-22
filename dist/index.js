@@ -257026,14 +257026,18 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
       storage.getMeasurements(userId, 60)
     ]);
     let formulaTdee = null;
+    let bmr = null;
+    const activityLevel = profile?.activityLevel ?? "moderate";
+    const sex = profile?.sex ?? "male";
     if (profile?.birthDate && profile?.heightCm && latest) {
-      const bmr = calculateBMR(
+      const age = getAgeFromBirthDate(profile.birthDate);
+      bmr = Math.round(calculateBMR(
         latest.weightGrams / 1e3,
         profile.heightCm,
-        getAgeFromBirthDate(profile.birthDate),
-        profile.sex ?? "male"
-      );
-      formulaTdee = calculateTDEE(bmr, profile.activityLevel ?? "moderate");
+        age,
+        sex
+      ));
+      formulaTdee = calculateTDEE(bmr, activityLevel);
     }
     const adaptive = estimateAdaptiveTDEE({
       intake,
@@ -257043,8 +257047,10 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
       method: adaptive ? "adaptive" : "formula",
       tdee: adaptive?.tdee ?? formulaTdee,
       formulaTdee,
+      bmr,
+      activityLevel,
+      sex,
       adaptive,
-      // null when insufficient data; the client uses this to explain progress
       updatedAt: profile?.tdeeUpdatedAt ?? null
     });
   });
