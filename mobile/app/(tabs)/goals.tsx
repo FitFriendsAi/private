@@ -938,18 +938,43 @@ export default function GoalsScreen() {
                   </View>
                 );
               })()}
-              <Text style={{ fontSize: 12, fontFamily: "Manrope", color: muted, lineHeight: 18, marginBottom: 10 }}>
-                {effectivePlan.nutrition.reasoning}
-              </Text>
-              {effectivePlan.nutrition.tips.map((tip, i) => (
-                <View key={i} style={{ flexDirection: "row", gap: 8, marginBottom: 4 }}>
-                  <Text style={{ fontSize: 12, color: LIME }}>•</Text>
-                  <Text style={{ fontSize: 12, fontFamily: "Manrope", color: text, flex: 1, lineHeight: 18 }}>{tip}</Text>
-                </View>
-              ))}
-              <View style={{ marginTop: 14, flexDirection: "row", alignItems: "center", gap: 6 }}>
-                <Text style={{ fontSize: 12, fontFamily: "Manrope-Bold", color: LIME }}>✓ Showing current daily targets</Text>
-              </View>
+              {(() => {
+                const planMatchesCurrent = targets &&
+                  Math.round(effectivePlan.nutrition.calories) === Math.round(targets.calories) &&
+                  Math.round(effectivePlan.nutrition.proteinG) === Math.round(targets.proteinG ?? 0);
+                if (planMatchesCurrent) {
+                  return (
+                    <>
+                      <Text style={{ fontSize: 12, fontFamily: "Manrope", color: muted, lineHeight: 18, marginBottom: 10 }}>
+                        {effectivePlan.nutrition.reasoning}
+                      </Text>
+                      {effectivePlan.nutrition.tips.map((tip: string, i: number) => (
+                        <View key={i} style={{ flexDirection: "row", gap: 8, marginBottom: 4 }}>
+                          <Text style={{ fontSize: 12, color: LIME }}>•</Text>
+                          <Text style={{ fontSize: 12, fontFamily: "Manrope", color: text, flex: 1, lineHeight: 18 }}>{tip}</Text>
+                        </View>
+                      ))}
+                    </>
+                  );
+                }
+                const reason = checkIn?.nutritionAdjustment?.reasoning;
+                return (
+                  <>
+                    {reason ? (
+                      <Text style={{ fontSize: 12, fontFamily: "Manrope", color: muted, lineHeight: 18, marginBottom: 6 }}>
+                        {reason}
+                      </Text>
+                    ) : (
+                      <Text style={{ fontSize: 12, fontFamily: "Manrope", color: muted, lineHeight: 18, marginBottom: 6 }}>
+                        Targets adjusted from your latest check-in.
+                      </Text>
+                    )}
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 }}>
+                      <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: LIME }}>✓ Updated from latest check-in</Text>
+                    </View>
+                  </>
+                );
+              })()}
             </Section>
 
             {/* Hydration section */}
