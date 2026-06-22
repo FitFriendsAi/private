@@ -910,18 +910,21 @@ export default function GoalsScreen() {
               </View>
             )}
 
-            {/* Nutrition section */}
+            {/* Nutrition section — always shows current daily targets */}
             <Section icon={<Utensils size={16} color={LIME} />} title="Nutrition Targets" color={LIME} palette={palette}>
-              {/* Macro row */}
               {(() => {
-                const sh = macroCalShares(effectivePlan.nutrition.proteinG, effectivePlan.nutrition.carbsG, effectivePlan.nutrition.fatG);
+                const cal  = targets ? Math.round(targets.calories) : effectivePlan.nutrition.calories;
+                const pro  = targets ? Math.round(targets.proteinG ?? 0) : effectivePlan.nutrition.proteinG;
+                const carb = targets ? Math.round(targets.carbsG ?? 0) : effectivePlan.nutrition.carbsG;
+                const fat  = targets ? Math.round(targets.fatG ?? 0) : effectivePlan.nutrition.fatG;
+                const sh = macroCalShares(pro, carb, fat);
                 return (
                   <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 12 }}>
                     {[
-                      { label: "Calories", value: effectivePlan.nutrition.calories, unit: "kcal", color: text,   pct: null as number | null },
-                      { label: "Protein",  value: effectivePlan.nutrition.proteinG, unit: "g",    color: LIME,   pct: sh.protein },
-                      { label: "Carbs",    value: effectivePlan.nutrition.carbsG,   unit: "g",    color: BLUE,   pct: sh.carbs },
-                      { label: "Fat",      value: effectivePlan.nutrition.fatG,     unit: "g",    color: PURPLE, pct: sh.fat },
+                      { label: "Calories", value: cal,  unit: "kcal", color: text,   pct: null as number | null },
+                      { label: "Protein",  value: pro,  unit: "g",    color: LIME,   pct: sh.protein },
+                      { label: "Carbs",    value: carb, unit: "g",    color: BLUE,   pct: sh.carbs },
+                      { label: "Fat",      value: fat,  unit: "g",    color: PURPLE, pct: sh.fat },
                     ].map(m => (
                       <View key={m.label} style={{ alignItems: "center" }}>
                         <Text style={{ ...(DOT as any), fontSize: 24, color: m.color, lineHeight: 28 }}>{m.value}</Text>
@@ -944,43 +947,8 @@ export default function GoalsScreen() {
                   <Text style={{ fontSize: 12, fontFamily: "Manrope", color: text, flex: 1, lineHeight: 18 }}>{tip}</Text>
                 </View>
               ))}
-              <View style={{ marginTop: 14 }}>
-                {(() => {
-                  const planMatchesTargets = targets &&
-                    Math.round(effectivePlan.nutrition.calories) === Math.round(targets.calories) &&
-                    Math.round(effectivePlan.nutrition.proteinG) === Math.round(targets.proteinG ?? 0) &&
-                    Math.round(effectivePlan.nutrition.carbsG) === Math.round(targets.carbsG ?? 0) &&
-                    Math.round(effectivePlan.nutrition.fatG) === Math.round(targets.fatG ?? 0);
-                  if (planMatchesTargets || planNutritionApplied) {
-                    return (
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                        <Text style={{ fontSize: 12, fontFamily: "Manrope-Bold", color: LIME }}>✓ Daily targets are up to date</Text>
-                      </View>
-                    );
-                  }
-                  return (
-                    <Pressable
-                      onPress={() => adjustNutrition.mutate({
-                        calories: effectivePlan.nutrition.calories,
-                        proteinG: effectivePlan.nutrition.proteinG,
-                        carbsG: effectivePlan.nutrition.carbsG,
-                        fatG: effectivePlan.nutrition.fatG,
-                        __source: "ai_plan",
-                        __reason: "AI coaching plan nutrition targets",
-                      } as any)}
-                      disabled={adjustNutrition.isPending}
-                      style={({ pressed }) => ({
-                        backgroundColor: LIME + "22", borderRadius: 12, paddingVertical: 10,
-                        alignItems: "center", borderWidth: 1, borderColor: LIME + "55",
-                        opacity: (pressed || adjustNutrition.isPending) ? 0.6 : 1,
-                      })}
-                    >
-                      <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: LIME }}>
-                        {adjustNutrition.isPending ? "Applying…" : "Apply to Daily Targets"}
-                      </Text>
-                    </Pressable>
-                  );
-                })()}
+              <View style={{ marginTop: 14, flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Text style={{ fontSize: 12, fontFamily: "Manrope-Bold", color: LIME }}>✓ Showing current daily targets</Text>
               </View>
             </Section>
 
