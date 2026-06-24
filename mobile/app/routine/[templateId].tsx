@@ -134,6 +134,7 @@ export default function RoutineDetailScreen() {
 
   const deleteEx = useMutation({
     mutationFn: (id: number) => apiRequest("DELETE", `/api/template-exercises/${id}`),
+    onSuccess: invalidate,
   });
 
   const addEx = useMutation({
@@ -175,16 +176,18 @@ export default function RoutineDetailScreen() {
   };
 
   const handleDelete = (ex: TemplateEx) => {
-    Alert.alert("Remove Exercise", `Remove "${ex.exerciseName}" from this routine?`, [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Remove", style: "destructive",
-        onPress: () => {
-          setLocalEx(prev => prev.filter(e => e.id !== ex.id));
-          deleteEx.mutate(ex.id);
-        },
-      },
-    ]);
+    const doRemove = () => {
+      setLocalEx(prev => prev.filter(e => e.id !== ex.id));
+      deleteEx.mutate(ex.id);
+    };
+    if (Platform.OS === "web") {
+      if (confirm(`Remove "${ex.exerciseName}" from this routine?`)) doRemove();
+    } else {
+      Alert.alert("Remove Exercise", `Remove "${ex.exerciseName}" from this routine?`, [
+        { text: "Cancel", style: "cancel" },
+        { text: "Remove", style: "destructive", onPress: doRemove },
+      ]);
+    }
   };
 
   const handleReplace = (ex: TemplateEx) => {
