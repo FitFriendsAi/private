@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useCallback } from "react";
 import {
   View, Text, ScrollView, Pressable, Modal, TextInput, Alert,
   ActivityIndicator,
@@ -102,39 +102,32 @@ export default function WorkoutsScreen() {
   const [importResult, setImportResult] = useState<{ imported: number; skipped: number } | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  const csvInputRef = useRef<HTMLInputElement | null>(null);
 
-  const handleImportCSV = async () => {
-    if (Platform.OS === "web") {
-      const input = document.createElement("input");
-      input.type = "file";
-      input.accept = ".csv";
-      input.onchange = (e: any) => {
-        const file = e.target?.files?.[0];
-        if (!file) return;
-        setImporting(true);
-        setImportError(null);
-        setImportResult(null);
-        const reader = new FileReader();
-        reader.onload = async (ev) => {
-          const csv = ev.target?.result as string;
-          if (!csv) { setImporting(false); return; }
-          try {
-            const result = await apiRequest<{ imported: number; skipped: number; total: number }>(
-              "POST", "/api/workouts/import-csv", { csv }, 120_000
-            );
-            setImportResult({ imported: result.imported, skipped: result.skipped });
-            qc.invalidateQueries({ queryKey: ["/api/workouts"] });
-          } catch (err: any) {
-            setImportError(err?.message ?? "Import failed");
-          } finally {
-            setImporting(false);
-          }
-        };
-        reader.readAsText(file);
-      };
-      input.click();
+  const handleCSVFile = useCallback(async (file: File) => {
+    setImporting(true);
+    setImportError(null);
+    setImportResult(null);
+    try {
+      const csv = await file.text();
+      const result = await apiRequest<{ imported: number; skipped: number; total: number }>(
+        "POST", "/api/workouts/import-csv", { csv }, 120_000
+      );
+      setImportResult({ imported: result.imported, skipped: result.skipped });
+      qc.invalidateQueries({ queryKey: ["/api/workouts"] });
+    } catch (err: any) {
+      setImportError(err?.message ?? "Import failed");
+    } finally {
+      setImporting(false);
     }
-  };
+  }, [qc]);
+
+  const handleImportCSV = useCallback(() => {
+    if (Platform.OS === "web" && csvInputRef.current) {
+      csvInputRef.current.value = "";
+      csvInputRef.current.click();
+    }
+  }, []);
 
   // Share routine
   const [shareTemplateId, setShareTemplateId] = useState<number | null>(null);
@@ -780,6 +773,35 @@ export default function WorkoutsScreen() {
           )}
         </View>
       </Modal>
+
+      {/* Importing overlay */}
+      {importing && (
+        <View style={{
+          position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: "rgba(0,0,0,0.7)", zIndex: 100,
+          alignItems: "center", justifyContent: "center",
+        }}>
+          <View style={{ backgroundColor: "#1a1a1a", borderRadius: 20, padding: 32, alignItems: "center", gap: 16 }}>
+            <ActivityIndicator size="large" color={LIME} />
+            <Text style={{ fontFamily: "Manrope-Bold", fontSize: 16, color: "#ffffff" }}>Importing workouts…</Text>
+            <Text style={{ fontFamily: "Manrope", fontSize: 13, color: "#888" }}>This may take a minute for large files</Text>
+          </View>
+        </View>
+      )}
+
+      {/* Hidden CSV file input (web only) */}
+      {Platform.OS === "web" && (
+        <input
+          ref={csvInputRef as any}
+          type="file"
+          accept=".csv"
+          style={{ display: "none" } as any}
+          onChange={(e: any) => {
+            const file = e.target?.files?.[0];
+            if (file) handleCSVFile(file);
+          }}
+        />
+      )}
 
       {/* ── AI Generate Modal ── */}
       <Modal visible={showAiModal} transparent animationType="slide" onRequestClose={() => setShowAiModal(false)}>
