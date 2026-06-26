@@ -967,27 +967,19 @@ export default function ProgressScreen() {
               <View style={{ width: 90, height: 90, alignItems: "center", justifyContent: "center", marginBottom: 10 }}>
                 <MacroDonut fat={fatCal} carbs={carbCal} protein={protCal} size={90} strokeWidth={8} />
               </View>
-              {(() => {
-                const gPrt = proteinGoal * 4, gCrb = carbsGoal * 4, gFat = fatGoal * 9;
-                const gTot = gPrt + gCrb + gFat;
-                const [tFat, tCrb, tPrt] = gTot > 0 ? sharesTo100([gFat, gCrb, gPrt]) : [0, 0, 0];
-                return [
-                  { label: "Fat",     pct: avgFatPct, target: tFat, color: PURPLE },
-                  { label: "Carbs",   pct: avgCrbPct, target: tCrb, color: BLUE   },
-                  { label: "Protein", pct: avgPrtPct, target: tPrt, color: LIME   },
-                ].map(m => (
-                  <View key={m.label} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", width: "100%", marginBottom: 4 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-                      <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: m.color }} />
-                      <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>{m.label}</Text>
-                    </View>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                      <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: text }}>{m.pct}%</Text>
-                      <Text style={{ fontSize: 9, fontFamily: "Manrope", color: muted }}>/ {m.target}%</Text>
-                    </View>
+              {[
+                { label: "Fat",     pct: avgFatPct, color: PURPLE },
+                { label: "Carbs",   pct: avgCrbPct, color: BLUE   },
+                { label: "Protein", pct: avgPrtPct, color: LIME   },
+              ].map(m => (
+                <View key={m.label} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", width: "100%", marginBottom: 4 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                    <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: m.color }} />
+                    <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>{m.label}</Text>
                   </View>
-                ));
-              })()}
+                  <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: text }}>{m.pct}%</Text>
+                </View>
+              ))}
             </View>
 
             {/* Right: stacked bar or 3-line macro chart */}
@@ -1000,31 +992,41 @@ export default function ProgressScreen() {
             </View>
           </View>
 
-          {/* AVG vs Goal row */}
-          <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: border, gap: 8 }}>
-            {[
-              { label: "Protein", avg: Math.round(avgPrtG), goal: Math.round(proteinGoal), color: LIME },
-              { label: "Carbs",   avg: Math.round(avgCrbG), goal: Math.round(carbsGoal),   color: BLUE },
-              { label: "Fat",     avg: Math.round(avgFatG), goal: Math.round(fatGoal),     color: PURPLE },
-            ].map(m => {
-              const diff = m.avg - m.goal;
-              return (
-                <View key={m.label} style={{ flexDirection: "row", alignItems: "center" }}>
-                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: m.color, marginRight: 8 }} />
-                  <Text style={{ fontSize: 12, fontFamily: "Manrope-SemiBold", color: text, width: 56 }}>{m.label}</Text>
-                  <Text style={{ fontSize: 12, fontFamily: "Manrope-Bold", color: m.color, width: 44 }}>{m.avg}g</Text>
-                  <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted, width: 48 }}>/ {m.goal}g</Text>
-                  {m.avg > 0 && (
-                    <View style={{ backgroundColor: (diff >= 0 ? LIME : "#ef4444") + "22", borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 }}>
-                      <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: diff >= 0 ? LIME : "#ef4444" }}>
-                        {diff >= 0 ? "+" : ""}{diff}g
-                      </Text>
+          {/* AVG vs Goal — grams + percent inline */}
+          {(() => {
+            const gPrt = proteinGoal * 4, gCrb = carbsGoal * 4, gFat = fatGoal * 9;
+            const gTot = gPrt + gCrb + gFat;
+            const [tFatPct, tCrbPct, tPrtPct] = gTot > 0 ? sharesTo100([gFat, gCrb, gPrt]) : [0, 0, 0];
+            return (
+              <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: border, gap: 6 }}>
+                {[
+                  { label: "Protein", avgG: Math.round(avgPrtG), goalG: Math.round(proteinGoal), avgPct: avgPrtPct, goalPct: tPrtPct, color: LIME },
+                  { label: "Carbs",   avgG: Math.round(avgCrbG), goalG: Math.round(carbsGoal),   avgPct: avgCrbPct, goalPct: tCrbPct, color: BLUE },
+                  { label: "Fat",     avgG: Math.round(avgFatG), goalG: Math.round(fatGoal),     avgPct: avgFatPct, goalPct: tFatPct, color: PURPLE },
+                ].map(m => {
+                  const gDiff = m.avgG - m.goalG;
+                  const pDiff = m.avgPct - m.goalPct;
+                  return (
+                    <View key={m.label} style={{ flexDirection: "row", alignItems: "center" }}>
+                      <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: m.color, marginRight: 6 }} />
+                      <Text style={{ fontSize: 11, fontFamily: "Manrope-SemiBold", color: text, width: 50 }}>{m.label}</Text>
+                      <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: m.color, width: 36 }}>{m.avgG}g</Text>
+                      <Text style={{ fontSize: 10, fontFamily: "Manrope", color: muted, width: 36 }}>/{m.goalG}g</Text>
+                      <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: m.color, width: 30 }}>{m.avgPct}%</Text>
+                      <Text style={{ fontSize: 10, fontFamily: "Manrope", color: muted, width: 28 }}>/{m.goalPct}%</Text>
+                      {m.avgG > 0 && (
+                        <View style={{ backgroundColor: (pDiff >= 0 ? LIME : "#ef4444") + "22", borderRadius: 10, paddingHorizontal: 6, paddingVertical: 1 }}>
+                          <Text style={{ fontSize: 9, fontFamily: "Manrope-Bold", color: pDiff >= 0 ? LIME : "#ef4444" }}>
+                            {pDiff >= 0 ? "+" : ""}{pDiff}%
+                          </Text>
+                        </View>
+                      )}
                     </View>
-                  )}
-                </View>
-              );
-            })}
-          </View>
+                  );
+                })}
+              </View>
+            );
+          })()}
         </View>
 
         {/* ── BODY WEIGHT ── */}
