@@ -208,7 +208,7 @@ function StackedBars({
 
 // ── Period bar chart — optional y-axis + goal line ───────────────
 function PeriodBars({
-  data, maxVal, barColor, w, h = 72, showAxis = false, goalLine,
+  data, maxVal, barColor, w, h = 72, showAxis = false, goalLine, minVal = 0,
 }: {
   data: { label: string; value: number }[];
   maxVal: number;
@@ -217,6 +217,7 @@ function PeriodBars({
   h?: number;
   showAxis?: boolean;
   goalLine?: number;
+  minVal?: number;
 }) {
   if (w <= 0 || data.length === 0) return null;
   const yAxisW = showAxis ? 34 : 0;
@@ -226,16 +227,23 @@ function PeriodBars({
   const barW   = Math.max(1, (chartW - gap * (n - 1)) / n);
   const hasAny = data.some(d => d.value > 0);
   const maxV   = Math.max(maxVal, hasAny ? Math.max(...data.map(d => d.value)) : 0, 1);
+  const minV   = minVal;
+  const range  = maxV - minV || 1;
   const labelH = 14;
   const chartH = h - labelH;
 
   // Y-axis ticks
   const ticks: number[] = showAxis ? (() => {
+    if (minV > 0) {
+      const tickCount = 4;
+      const out: number[] = [];
+      for (let i = 0; i <= tickCount; i++) out.push(Math.round(minV + (range / tickCount) * i));
+      return out;
+    }
     const step = Math.ceil(maxV / 4 / 50) * 50 || 50;
     return [0, step, step * 2, step * 3, step * 4].filter(t => t <= maxV + step);
   })() : [];
 
-  // Show labels only for a manageable subset
   const showLabel = (i: number) => {
     if (n <= 7)  return true;
     if (n <= 15) return i === 0 || i === n - 1 || i % 3 === 0;
@@ -243,13 +251,16 @@ function PeriodBars({
     return i === 0 || i === n - 1 || i % Math.ceil(n / 6) === 0;
   };
 
+  const yOf = (v: number) => chartH - ((v - minV) / range) * chartH;
+
   const bars = hasAny ? data.map((d, i) => {
     if (d.value <= 0) return null;
-    const bh = Math.max(2, (d.value / maxV) * chartH);
+    const top = yOf(d.value);
+    const bh = Math.max(2, chartH - top);
     const x  = yAxisW + i * (barW + gap);
     return (
       <Rect key={`b${i}`}
-        x={x} y={chartH - bh} width={barW} height={bh} rx={2}
+        x={x} y={top} width={barW} height={bh} rx={2}
         fill={barColor}
       />
     );
@@ -270,14 +281,12 @@ function PeriodBars({
     );
   });
 
-  // Goal line y-position
-  const goalY = goalLine != null ? chartH - (goalLine / maxV) * chartH : null;
+  const goalY = goalLine != null ? yOf(goalLine) : null;
 
   return (
     <Svg width={w} height={h}>
-      {/* Y-axis gridlines + labels */}
       {ticks.map((t, i) => {
-        const y = chartH - (t / maxV) * chartH;
+        const y = yOf(t);
         return (
           <Svg key={`t${i}`}>
             <Line x1={yAxisW} y1={y} x2={w} y2={y} stroke="#1e1e1e" strokeWidth={1} />
@@ -286,11 +295,9 @@ function PeriodBars({
           </Svg>
         );
       })}
-      {/* Baseline */}
       <Line x1={yAxisW} y1={chartH} x2={w} y2={chartH} stroke="#333333" strokeWidth={1} />
       {bars}
       {labels}
-      {/* Goal line */}
       {goalY != null && goalY >= 0 && (
         <Svg>
           <Line x1={yAxisW} y1={goalY} x2={w} y2={goalY}
@@ -1043,7 +1050,7 @@ export default function ProgressScreen() {
                   const wMin = Math.floor(Math.min(...vals) - 2);
                   const wMax = Math.ceil(Math.max(...vals) + 2);
                   return weightChartType === "bar" ? (
-                    <PeriodBars data={weightLineData} maxVal={wMax} barColor="#ffffff" w={weightChartW} h={110} showAxis />
+                    <PeriodBars data={weightLineData} maxVal={wMax} minVal={wMin} barColor="#ffffff" w={weightChartW} h={110} showAxis />
                   ) : (
                     <PeriodLine data={weightLineData} maxVal={wMax} minVal={wMin} color="#ffffff" w={weightChartW} h={110} />
                   );
