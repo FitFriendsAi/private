@@ -693,6 +693,7 @@ export default function ProgressScreen() {
   const [calChartW, setCalChartW]           = useState(0);
   const [macroChartW, setMacroChartW]       = useState(0);
   const [calChartType,   setCalChartType]   = useState<"bar" | "line">("bar");
+  const [weightChartType, setWeightChartType] = useState<"bar" | "line">("bar");
   const [macroChartType, setMacroChartType] = useState<"bar" | "line">("bar");
   const [weightChartW, setWeightChartW]     = useState(0);
   const [strengthChartW, setStrengthChartW] = useState(0);
@@ -1001,6 +1002,16 @@ export default function ProgressScreen() {
               <Scale size={16} color="#ffffff" />
               <Text style={{ fontSize: 16, fontFamily: "Manrope-Bold", color: text }}>Body Weight</Text>
             </View>
+            <View style={{ flexDirection: "row", backgroundColor: "#1a1a1a", borderRadius: 10, padding: 2 }}>
+              {(["bar", "line"] as const).map(t => (
+                <Pressable key={t} onPress={() => setWeightChartType(t)}
+                  style={({ pressed }) => ({ padding: 5, borderRadius: 8, backgroundColor: weightChartType === t ? "#333333" : "transparent", opacity: pressed ? 0.7 : 1 })}>
+                  {t === "bar"
+                    ? <BarChart2 size={14} color={weightChartType === t ? text : "#555555"} />
+                    : <LineChartIcon size={14} color={weightChartType === t ? text : "#555555"} />}
+                </Pressable>
+              ))}
+            </View>
           </View>
 
           {weightData.length >= 1 ? (
@@ -1025,13 +1036,15 @@ export default function ProgressScreen() {
                 </View>
               </View>
 
-              {/* Right: line chart with y-axis and x-axis */}
+              {/* Right: bar or line chart with y-axis and x-axis */}
               <View style={{ flex: 1 }} onLayout={e => setWeightChartW(Math.floor(e.nativeEvent.layout.width))}>
                 {weightLineData.length >= 2 && weightLineData.some(d => d.value > 0) ? (() => {
                   const vals = weightLineData.filter(d => d.value > 0).map(d => d.value);
                   const wMin = Math.floor(Math.min(...vals) - 2);
                   const wMax = Math.ceil(Math.max(...vals) + 2);
-                  return (
+                  return weightChartType === "bar" ? (
+                    <PeriodBars data={weightLineData} maxVal={wMax} barColor="#ffffff" w={weightChartW} h={110} showAxis />
+                  ) : (
                     <PeriodLine data={weightLineData} maxVal={wMax} minVal={wMin} color="#ffffff" w={weightChartW} h={110} />
                   );
                 })() : (
