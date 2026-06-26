@@ -305,7 +305,7 @@ function PeriodBars({
 
 // ── Calorie line chart (with y-axis + optional goal line) ─────────
 function PeriodLine({
-  data, maxVal, color, w, h = 110, goalLine,
+  data, maxVal, color, w, h = 110, goalLine, minVal = 0,
 }: {
   data: { label: string; value: number }[];
   maxVal: number;
@@ -313,6 +313,7 @@ function PeriodLine({
   w: number;
   h?: number;
   goalLine?: number;
+  minVal?: number;
 }) {
   if (w <= 0 || data.length === 0) return null;
   const yAxisW = 34;
@@ -321,11 +322,25 @@ function PeriodLine({
   const chartH = h - labelH;
   const hasAny = data.some(d => d.value > 0);
   const maxV   = Math.max(maxVal, hasAny ? Math.max(...data.map(d => d.value)) : 0, 1);
+  const minV   = minVal;
+  const range  = maxV - minV || 1;
   const pad    = 4;
 
   // Y-axis ticks
-  const step  = Math.ceil(maxV / 4 / 50) * 50 || 50;
-  const ticks = [0, step, step * 2, step * 3, step * 4].filter(t => t <= maxV + step);
+  const tickCount = 4;
+  const rawStep = range / tickCount;
+  const step = minV > 0
+    ? (rawStep < 1 ? 0.5 : rawStep < 5 ? Math.ceil(rawStep) : Math.ceil(rawStep / 5) * 5)
+    : (Math.ceil(maxV / 4 / 50) * 50 || 50);
+  const ticks: number[] = [];
+  if (minV > 0) {
+    for (let i = 0; i <= tickCount; i++) {
+      const t = Math.round(minV + (range / tickCount) * i);
+      ticks.push(t);
+    }
+  } else {
+    for (let t = 0; t <= maxV + step; t += step) ticks.push(t);
+  }
 
   const n = data.length;
   const showLabel = (i: number) => {
@@ -337,7 +352,7 @@ function PeriodLine({
 
   const xOf = (i: number) =>
     yAxisW + pad + (n === 1 ? chartW / 2 : (i / (n - 1)) * (chartW - pad * 2));
-  const yOf = (v: number) => pad + ((maxV - v) / maxV) * (chartH - pad * 2);
+  const yOf = (v: number) => pad + ((maxV - v) / range) * (chartH - pad * 2);
 
   const pts = data
     .filter(d => d.value > 0)
@@ -1010,11 +1025,16 @@ export default function ProgressScreen() {
                 </View>
               </View>
 
-              {/* Right: line chart */}
+              {/* Right: line chart with y-axis and x-axis */}
               <View style={{ flex: 1 }} onLayout={e => setWeightChartW(Math.floor(e.nativeEvent.layout.width))}>
-                {weightData.length >= 2 ? (
-                  <WeightLine data={weightData} dates={weightPoints.map(p => p.date)} color="#ffffff" w={weightChartW} h={110} />
-                ) : (
+                {weightLineData.length >= 2 && weightLineData.some(d => d.value > 0) ? (() => {
+                  const vals = weightLineData.filter(d => d.value > 0).map(d => d.value);
+                  const wMin = Math.floor(Math.min(...vals) - 2);
+                  const wMax = Math.ceil(Math.max(...vals) + 2);
+                  return (
+                    <PeriodLine data={weightLineData} maxVal={wMax} minVal={wMin} color="#ffffff" w={weightChartW} h={110} />
+                  );
+                })() : (
                   <View style={{ height: 110, alignItems: "center", justifyContent: "center" }}>
                     <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>Log 2+ entries to see trend</Text>
                   </View>
