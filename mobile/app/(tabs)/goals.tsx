@@ -965,6 +965,35 @@ export default function GoalsScreen() {
                   <Text style={{ fontSize: 12, fontFamily: "Manrope", color: text, flex: 1, lineHeight: 18 }}>{tip}</Text>
                 </View>
               ))}
+              {(() => {
+                const planMl = Math.round(effectivePlan.hydration.dailyOz * 29.5735);
+                const currentMl = targets?.waterMl ?? 2500;
+                const alreadySet = Math.abs(currentMl - planMl) < 50;
+                if (alreadySet) {
+                  return (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 10 }}>
+                      <Text style={{ fontSize: 12, fontFamily: "Manrope-Bold", color: BLUE }}>✓ Water goal matches this plan</Text>
+                    </View>
+                  );
+                }
+                return (
+                  <Pressable
+                    onPress={() => adjustNutrition.mutate({ waterMl: planMl, __source: "ai_plan", __reason: "Hydration goal from AI coach plan" } as any)}
+                    disabled={adjustNutrition.isPending}
+                    style={({ pressed }) => ({
+                      flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+                      backgroundColor: `${BLUE}1A`, borderRadius: 12, paddingVertical: 10, marginTop: 10,
+                      borderWidth: 1, borderColor: `${BLUE}55`,
+                      opacity: (pressed || adjustNutrition.isPending) ? 0.6 : 1,
+                    })}
+                  >
+                    <Droplets size={14} color={BLUE} />
+                    <Text style={{ fontSize: 13, fontFamily: "Manrope-Bold", color: BLUE }}>
+                      {adjustNutrition.isPending ? "Applying…" : "Apply as Daily Water Goal"}
+                    </Text>
+                  </Pressable>
+                );
+              })()}
             </Section>
 
             {/* Training schedule section */}
