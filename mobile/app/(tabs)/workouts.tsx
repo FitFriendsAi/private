@@ -98,6 +98,44 @@ export default function WorkoutsScreen() {
   // Workout history delete
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
+  // CSV import
+  const [importResult, setImportResult] = useState<{ imported: number; skipped: number } | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+
+  const handleImportCSV = async () => {
+    if (Platform.OS === "web") {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = ".csv";
+      input.onchange = (e: any) => {
+        const file = e.target?.files?.[0];
+        if (!file) return;
+        setImporting(true);
+        setImportError(null);
+        setImportResult(null);
+        const reader = new FileReader();
+        reader.onload = async (ev) => {
+          const csv = ev.target?.result as string;
+          if (!csv) { setImporting(false); return; }
+          try {
+            const result = await apiRequest<{ imported: number; skipped: number; total: number }>(
+              "POST", "/api/workouts/import-csv", { csv }, 120_000
+            );
+            setImportResult({ imported: result.imported, skipped: result.skipped });
+            qc.invalidateQueries({ queryKey: ["/api/workouts"] });
+          } catch (err: any) {
+            setImportError(err?.message ?? "Import failed");
+          } finally {
+            setImporting(false);
+          }
+        };
+        reader.readAsText(file);
+      };
+      input.click();
+    }
+  };
+
   // Share routine
   const [shareTemplateId, setShareTemplateId] = useState<number | null>(null);
   const [shareSuccess, setShareSuccess] = useState<string | null>(null);
@@ -463,11 +501,35 @@ export default function WorkoutsScreen() {
         <View style={{ paddingHorizontal: 16, marginTop: 10 }}>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
             <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: muted, letterSpacing: 0.8 }}>HISTORY</Text>
-            <Pressable style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 5, opacity: pressed ? 0.7 : 1 })}>
-              <Upload size={12} color={muted} />
-              <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: muted }}>Import CSV</Text>
+            <Pressable
+              onPress={handleImportCSV}
+              disabled={importing}
+              style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 5, opacity: pressed || importing ? 0.5 : 1 })}
+            >
+              {importing
+                ? <ActivityIndicator size="small" color={muted} style={{ transform: [{ scale: 0.7 }] }} />
+                : <Upload size={12} color={muted} />}
+              <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: muted }}>
+                {importing ? "Importing…" : "Import CSV"}
+              </Text>
             </Pressable>
           </View>
+
+          {importResult && (
+            <View style={{ backgroundColor: LIME + "22", borderRadius: 12, padding: 12, marginBottom: 10, flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderColor: LIME + "44" }}>
+              <Check size={14} color={LIME} />
+              <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: LIME, flex: 1 }}>
+                Imported {importResult.imported} workout{importResult.imported !== 1 ? "s" : ""}{importResult.skipped > 0 ? `, ${importResult.skipped} already existed` : ""}
+              </Text>
+              <Pressable onPress={() => setImportResult(null)}><X size={14} color={LIME} /></Pressable>
+            </View>
+          )}
+          {importError && (
+            <View style={{ backgroundColor: "#ef444422", borderRadius: 12, padding: 12, marginBottom: 10, flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderColor: "#ef444444" }}>
+              <Text style={{ fontFamily: "Manrope-Bold", fontSize: 12, color: "#ef4444", flex: 1 }}>{importError}</Text>
+              <Pressable onPress={() => setImportError(null)}><X size={14} color="#ef4444" /></Pressable>
+            </View>
+          )}
 
           {workouts.length === 0 ? (
             <View style={{ alignItems: "center", paddingVertical: 32 }}>
