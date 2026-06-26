@@ -257468,6 +257468,33 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
         for (const [exName, sets] of exGroups) {
           let exercise = exerciseByName.get(exName.toLowerCase());
           if (!exercise) {
+            const norm2 = exName.toLowerCase().trim();
+            const stripped = norm2.replace(/\s*\([^)]*\)\s*/g, " ").trim();
+            for (const [key, ex] of exerciseByName) {
+              const keyStripped = key.replace(/\s*\([^)]*\)\s*/g, " ").trim();
+              if (keyStripped === stripped || key === stripped || keyStripped === norm2) {
+                exercise = ex;
+                break;
+              }
+            }
+            if (!exercise) {
+              const words = new Set(stripped.split(/\s+/).filter((w2) => w2.length > 2));
+              let bestMatch = void 0;
+              let bestScore = 0;
+              for (const [key, ex] of exerciseByName) {
+                const kw = new Set(key.replace(/\s*\([^)]*\)\s*/g, " ").trim().split(/\s+/).filter((w2) => w2.length > 2));
+                let common = 0;
+                for (const w2 of words) if (kw.has(w2)) common++;
+                const score = Math.max(words.size, kw.size) > 0 ? common / Math.max(words.size, kw.size) : 0;
+                if (score > bestScore && score >= 0.6) {
+                  bestScore = score;
+                  bestMatch = ex;
+                }
+              }
+              if (bestMatch) exercise = bestMatch;
+            }
+          }
+          if (!exercise) {
             exercise = await storage.createExercise({
               name: exName,
               primaryMuscle: "Other",
