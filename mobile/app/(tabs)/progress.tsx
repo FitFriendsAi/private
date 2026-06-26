@@ -1049,67 +1049,60 @@ export default function ProgressScreen() {
             </View>
           </View>
 
+          {/* Top row: donut left, chart right */}
+          <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
+            <View style={{ width: 90, height: 90, alignItems: "center", justifyContent: "center" }}>
+              <MacroDonut fat={fatCal} carbs={carbCal} protein={protCal} size={90} strokeWidth={8} />
+            </View>
+            <View style={{ flex: 1 }} onLayout={e => setMacroChartW(Math.floor(e.nativeEvent.layout.width))}>
+              {macroChartType === "bar" ? (
+                <StackedBars data={macroBarData} w={macroChartW} h={90} />
+              ) : (
+                <MacroLine data={macroBarData} w={macroChartW} h={90} />
+              )}
+            </View>
+          </View>
+
+          {/* AVG vs Goal — one row per macro, all inline */}
           {(() => {
             const gPrt = proteinGoal * 4, gCrb = carbsGoal * 4, gFat = fatGoal * 9;
             const gTot = gPrt + gCrb + gFat;
             const [tFatPct, tCrbPct, tPrtPct] = gTot > 0 ? sharesTo100([gFat, gCrb, gPrt]) : [0, 0, 0];
-            const macros = [
-              { label: "Protein", avgG: Math.round(avgPrtG), goalG: Math.round(proteinGoal), avgPct: avgPrtPct, goalPct: tPrtPct, color: LIME },
-              { label: "Carbs",   avgG: Math.round(avgCrbG), goalG: Math.round(carbsGoal),   avgPct: avgCrbPct, goalPct: tCrbPct, color: BLUE },
-              { label: "Fat",     avgG: Math.round(avgFatG), goalG: Math.round(fatGoal),     avgPct: avgFatPct, goalPct: tFatPct, color: PURPLE },
-            ];
             return (
-              <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
-                {/* Left: donut */}
-                <View style={{ width: 90, height: 90, alignItems: "center", justifyContent: "center" }}>
-                  <MacroDonut fat={fatCal} carbs={carbCal} protein={protCal} size={90} strokeWidth={8} />
-                </View>
-
-                {/* Right: macro breakdown — protein on top, fat on bottom */}
-                <View style={{ flex: 1, gap: 8, justifyContent: "center", minHeight: 90 }}>
-                  {macros.map(m => {
-                    const gDiff = m.avgG - m.goalG;
-                    const pDiff = m.avgPct - m.goalPct;
-                    return (
-                      <View key={m.label}>
-                        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 2 }}>
-                          <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: m.color, marginRight: 6 }} />
-                          <Text style={{ fontSize: 11, fontFamily: "Manrope-SemiBold", color: text, flex: 1 }}>{m.label}</Text>
-                          <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: m.color }}>{m.avgPct}%</Text>
-                          <Text style={{ fontSize: 10, fontFamily: "Manrope", color: muted }}> /{m.goalPct}%</Text>
-                          {m.avgG > 0 && (
-                            <View style={{ backgroundColor: (pDiff >= 0 ? LIME : "#ef4444") + "22", borderRadius: 8, paddingHorizontal: 5, paddingVertical: 1, marginLeft: 4 }}>
-                              <Text style={{ fontSize: 8, fontFamily: "Manrope-Bold", color: pDiff >= 0 ? LIME : "#ef4444" }}>
-                                {pDiff >= 0 ? "+" : ""}{pDiff}%
-                              </Text>
-                            </View>
-                          )}
+              <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: border, gap: 6 }}>
+                {[
+                  { label: "Protein", avgG: Math.round(avgPrtG), goalG: Math.round(proteinGoal), avgPct: avgPrtPct, goalPct: tPrtPct, color: LIME },
+                  { label: "Carbs",   avgG: Math.round(avgCrbG), goalG: Math.round(carbsGoal),   avgPct: avgCrbPct, goalPct: tCrbPct, color: BLUE },
+                  { label: "Fat",     avgG: Math.round(avgFatG), goalG: Math.round(fatGoal),     avgPct: avgFatPct, goalPct: tFatPct, color: PURPLE },
+                ].map(m => {
+                  const gDiff = m.avgG - m.goalG;
+                  const pDiff = m.avgPct - m.goalPct;
+                  return (
+                    <View key={m.label} style={{ flexDirection: "row", alignItems: "center" }}>
+                      <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: m.color, marginRight: 6 }} />
+                      <Text style={{ fontSize: 11, fontFamily: "Manrope-SemiBold", color: text, width: 50 }}>{m.label}</Text>
+                      <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: m.color, width: 36 }}>{m.avgG}g</Text>
+                      <Text style={{ fontSize: 10, fontFamily: "Manrope", color: muted, width: 36 }}>/{m.goalG}g</Text>
+                      {m.avgG > 0 && (
+                        <Text style={{ fontSize: 9, fontFamily: "Manrope-Bold", color: gDiff >= 0 ? LIME : "#ef4444", width: 32 }}>
+                          {gDiff >= 0 ? "+" : ""}{gDiff}g
+                        </Text>
+                      )}
+                      <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: m.color, width: 26 }}>{m.avgPct}%</Text>
+                      <Text style={{ fontSize: 9, fontFamily: "Manrope", color: muted, width: 24 }}>/{m.goalPct}%</Text>
+                      {m.avgG > 0 && (
+                        <View style={{ backgroundColor: (pDiff >= 0 ? LIME : "#ef4444") + "22", borderRadius: 8, paddingHorizontal: 4, paddingVertical: 1 }}>
+                          <Text style={{ fontSize: 8, fontFamily: "Manrope-Bold", color: pDiff >= 0 ? LIME : "#ef4444" }}>
+                            {pDiff >= 0 ? "+" : ""}{pDiff}%
+                          </Text>
                         </View>
-                        <View style={{ flexDirection: "row", alignItems: "center", marginLeft: 13 }}>
-                          <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: m.color }}>{m.avgG}g</Text>
-                          <Text style={{ fontSize: 10, fontFamily: "Manrope", color: muted }}> / {m.goalG}g</Text>
-                          {m.avgG > 0 && (
-                            <Text style={{ fontSize: 9, fontFamily: "Manrope-Bold", color: gDiff >= 0 ? LIME : "#ef4444", marginLeft: 6 }}>
-                              {gDiff >= 0 ? "+" : ""}{gDiff}g
-                            </Text>
-                          )}
-                        </View>
-                      </View>
-                    );
-                  })}
-                </View>
+                      )}
+                    </View>
+                  );
+                })}
               </View>
             );
           })()}
-
-          {/* Chart */}
-          <View style={{ marginTop: 12 }} onLayout={e => setMacroChartW(Math.floor(e.nativeEvent.layout.width))}>
-            {macroChartType === "bar" ? (
-              <StackedBars data={macroBarData} w={macroChartW} h={80} />
-            ) : (
-              <MacroLine data={macroBarData} w={macroChartW} h={80} />
-            )}
-          </View>
         </View>
 
         {/* Body weight card is now above macros, right after calories */}
