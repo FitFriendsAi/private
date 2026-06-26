@@ -827,6 +827,41 @@ export default function ProgressScreen() {
     : periodDays(period) / 7;
   const perWeek = weightData.length >= 2 ? weightChange / weeksElapsed : 0;
 
+  // Weight data in bar-chart format (for PeriodLine, interpolated)
+  const weightLineData = useMemo(() => {
+    if (weightPoints.length === 0) return [] as { label: string; value: number }[];
+    const byDate: Record<string, number> = {};
+    for (const p of weightPoints) byDate[p.date] = p.value;
+    const days = periodDays(period);
+    const today2 = new Date();
+    const DAY_ABBR = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+    const result: { label: string; value: number }[] = [];
+    const dates: string[] = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(today2);
+      d.setDate(today2.getDate() - i);
+      const ds = d.toISOString().slice(0, 10);
+      dates.push(ds);
+      const label = days <= 7 ? DAY_ABBR[d.getDay()] : String(d.getDate());
+      result.push({ label, value: byDate[ds] ?? 0 });
+    }
+    // Interpolate gaps
+    const known = dates.map((d, i) => ({ i, v: byDate[d] ?? 0 })).filter(x => x.v > 0);
+    if (known.length >= 2) {
+      for (let i = 0; i < result.length; i++) {
+        if (result[i].value > 0) continue;
+        let prev = known.filter(k => k.i < i).pop();
+        let next = known.find(k => k.i > i);
+        if (prev && next) {
+          const t = (i - prev.i) / (next.i - prev.i);
+          result[i].value = prev.v + t * (next.v - prev.v);
+        } else if (prev) result[i].value = prev.v;
+        else if (next) result[i].value = next.v;
+      }
+    }
+    return result;
+  }, [weightPoints, period]);
+
   // Strength history filtered to selected period
   const strengthCutoff = useMemo(() => {
     if (period === "All") return "";
@@ -944,6 +979,59 @@ export default function ProgressScreen() {
           </View>
         </View>
 
+        {/* ── Body Weight card — mirrors calories layout ── */}
+        <View style={{ backgroundColor: card, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: border, marginBottom: 10 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Scale size={16} color="#ffffff" />
+              <Text style={{ fontSize: 16, fontFamily: "Manrope-Bold", color: text }}>Body Weight</Text>
+            </View>
+          </View>
+
+          {weightData.length >= 1 ? (
+            <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
+              {/* Left: current weight + stats */}
+              <View style={{ width: 80, alignItems: "center" }}>
+                <Text style={{ ...(DOT as any), fontSize: 22, color: text, lineHeight: 26 }}>
+                  {latestLbs ?? "—"}
+                </Text>
+                <Text style={{ fontSize: 9, fontFamily: "Manrope-Bold", color: "#ffffff", letterSpacing: 0.5, marginBottom: 8 }}>lbs</Text>
+                <View style={{ alignItems: "center", gap: 2 }}>
+                  <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: weightChange < 0 ? LIME : weightChange > 0 ? "#ff6b6b" : muted }}>
+                    {weightChange > 0 ? "+" : weightChange < 0 ? "" : ""}{weightChange.toFixed(1)} lbs
+                  </Text>
+                  <Text style={{ fontSize: 9, fontFamily: "Manrope", color: muted }}>change</Text>
+                </View>
+                <View style={{ alignItems: "center", gap: 2, marginTop: 4 }}>
+                  <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: perWeek < 0 ? LIME : perWeek > 0 ? "#ff6b6b" : muted }}>
+                    {perWeek > 0 ? "+" : perWeek < 0 ? "" : ""}{perWeek.toFixed(1)}/wk
+                  </Text>
+                  <Text style={{ fontSize: 9, fontFamily: "Manrope", color: muted }}>lbs/week</Text>
+                </View>
+              </View>
+
+              {/* Right: line chart */}
+              <View style={{ flex: 1 }} onLayout={e => setWeightChartW(Math.floor(e.nativeEvent.layout.width))}>
+                {weightData.length >= 2 ? (
+                  <WeightLine data={weightData} dates={weightPoints.map(p => p.date)} color="#ffffff" w={weightChartW} h={110} />
+                ) : (
+                  <View style={{ height: 110, alignItems: "center", justifyContent: "center" }}>
+                    <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>Log 2+ entries to see trend</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          ) : (
+            <View style={{ alignItems: "center", paddingVertical: 24, gap: 8 }}>
+              <Scale size={28} color={muted} strokeWidth={1.5} />
+              <Text style={{ fontSize: 13, fontFamily: "Manrope-SemiBold", color: muted, textAlign: "center" }}>
+                Log weight entries to see your trend
+              </Text>
+              <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>Settings → Log Weight</Text>
+            </View>
+          )}
+        </View>
+
         {/* Macronutrients card */}
         <View style={{ backgroundColor: card, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: border, marginBottom: 10 }}>
           {/* Header row with toggle */}
@@ -1024,65 +1112,7 @@ export default function ProgressScreen() {
           </View>
         </View>
 
-        {/* ── BODY WEIGHT ── */}
-        <SectionLabel icon={Scale} label="BODY WEIGHT" />
-        <View style={{ backgroundColor: card, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: border, marginBottom: 22 }}>
-          {weightData.length >= 1 ? (
-            <>
-              {/* 3 equal stat boxes */}
-              <View style={{ flexDirection: "row", gap: 8, marginBottom: 14 }}>
-                {[
-                  { label: "Current",  value: latestLbs ?? 0, unit: "lbs",    color: text },
-                  { label: "Change",   value: weightChange,   unit: "lbs",    color: weightChange < 0 ? LIME : weightChange > 0 ? "#ff6b6b" : text,
-                    prefix: weightChange > 0 ? "+" : weightChange < 0 ? "–" : "–" },
-                  { label: "Per Week", value: Math.abs(perWeek), unit: "lbs/wk", color: perWeek < 0 ? LIME : perWeek > 0 ? "#ff6b6b" : text,
-                    prefix: perWeek > 0 ? "+" : perWeek < 0 ? "–" : "" },
-                ].map(s => (
-                  <View key={s.label} style={{ flex: 1, backgroundColor: bg, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: border }}>
-                    <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: muted, letterSpacing: 0.5, marginBottom: 4 }}>{s.label}</Text>
-                    <Text style={{ ...(DOT as any), fontSize: 24, color: s.color, lineHeight: 28 }}>
-                      {s.prefix ?? ""}{typeof s.value === "number" ? (Number.isInteger(s.value) ? s.value : Math.abs(s.value).toFixed(1)) : s.value}
-                    </Text>
-                    <Text style={{ fontSize: 10, fontFamily: "Manrope", color: muted, marginTop: 2 }}>{s.unit}</Text>
-                  </View>
-                ))}
-              </View>
-
-              {/* Weight trend chart or prompt */}
-              {weightData.length >= 2 ? (
-                <>
-                  <View onLayout={e => setWeightChartW(Math.floor(e.nativeEvent.layout.width))}>
-                    <WeightLine data={weightData} dates={weightPoints.map(p => p.date)} color={LIME} w={weightChartW} h={100} />
-                  </View>
-                  <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 6 }}>
-                    <Text style={{ fontSize: 10, fontFamily: "Manrope", color: muted }}>
-                      {filteredMeasurements[filteredMeasurements.length - 1]?.date ?? ""}
-                    </Text>
-                    <Text style={{ fontSize: 10, fontFamily: "Manrope", color: muted }}>
-                      {filteredMeasurements[0]?.date ?? ""}
-                    </Text>
-                  </View>
-                </>
-              ) : (
-                <View style={{ alignItems: "center", paddingVertical: 28, gap: 8 }}>
-                  <Scale size={28} color={muted} strokeWidth={1.5} />
-                  <Text style={{ fontSize: 13, fontFamily: "Manrope-SemiBold", color: muted, textAlign: "center" }}>
-                    Log 2+ weight entries to see your trend
-                  </Text>
-                  <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>Settings → Log Weight</Text>
-                </View>
-              )}
-            </>
-          ) : (
-            <View style={{ alignItems: "center", paddingVertical: 40, gap: 10 }}>
-              <Scale size={32} color={muted} strokeWidth={1.5} />
-              <Text style={{ fontSize: 14, fontFamily: "Manrope-SemiBold", color: muted, textAlign: "center" }}>
-                Log 2+ weight entries to see your trend
-              </Text>
-              <Text style={{ fontSize: 12, fontFamily: "Manrope", color: muted }}>Settings → Log Weight</Text>
-            </View>
-          )}
-        </View>
+        {/* Body weight card is now above macros, right after calories */}
 
         {/* ── STRENGTH ── */}
         <SectionLabel
