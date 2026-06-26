@@ -1885,6 +1885,10 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
       const allExercises = await storage.getExercises(userId);
       const exerciseByName = new Map(allExercises.map(e => [e.name.toLowerCase(), e]));
 
+      // Fetch existing workouts ONCE for duplicate detection
+      const existingWorkouts = await storage.getWorkouts(userId, 2000);
+      const existingKeys = new Set(existingWorkouts.map(w => `${w.name}|||${w.date}`));
+
       let imported = 0;
       let skipped = 0;
 
@@ -1893,10 +1897,9 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
         const { iso: endIso } = parseHevyDate(session.endTime);
         const durationMinutes = Math.round((new Date(endIso).getTime() - new Date(startIso).getTime()) / 60000);
 
-        // Check for duplicate (same name + date)
-        const existing = await storage.getWorkouts(userId, 500);
-        const isDupe = existing.some(w => w.name === session.title && w.date === date);
-        if (isDupe) { skipped++; continue; }
+        // Check for duplicate (same name + date) — uses cached set
+        if (existingKeys.has(`${session.title}|||${date}`)) { skipped++; continue; }
+        existingKeys.add(`${session.title}|||${date}`);
 
         const workout = await storage.createWorkout({
           userId,

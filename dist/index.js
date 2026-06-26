@@ -257435,18 +257435,19 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
       }
       const allExercises = await storage.getExercises(userId);
       const exerciseByName = new Map(allExercises.map((e2) => [e2.name.toLowerCase(), e2]));
+      const existingWorkouts = await storage.getWorkouts(userId, 2e3);
+      const existingKeys = new Set(existingWorkouts.map((w2) => `${w2.name}|||${w2.date}`));
       let imported = 0;
       let skipped = 0;
       for (const [, session2] of sessions) {
         const { date: date2, iso: startIso } = parseHevyDate2(session2.startTime);
         const { iso: endIso } = parseHevyDate2(session2.endTime);
         const durationMinutes = Math.round((new Date(endIso).getTime() - new Date(startIso).getTime()) / 6e4);
-        const existing = await storage.getWorkouts(userId, 500);
-        const isDupe = existing.some((w2) => w2.name === session2.title && w2.date === date2);
-        if (isDupe) {
+        if (existingKeys.has(`${session2.title}|||${date2}`)) {
           skipped++;
           continue;
         }
+        existingKeys.add(`${session2.title}|||${date2}`);
         const workout = await storage.createWorkout({
           userId,
           name: session2.title,
