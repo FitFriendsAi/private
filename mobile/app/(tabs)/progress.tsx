@@ -771,8 +771,8 @@ export default function ProgressScreen() {
   const remaining = Math.max(0, calGoal - todayTotals.cal);
 
   // Period-average calories — averaged only over days that actually logged
-  // calories, so empty/unlogged days don't drag the average down.
-  const loggedCalDays = summary.filter((d: any) => (d.calories ?? 0) > 0);
+  // calories AND excluding today (incomplete day would skew the average).
+  const loggedCalDays = summary.filter((d: any) => (d.calories ?? 0) > 0 && d.period !== today);
   const avgCal    = loggedCalDays.length > 0
     ? Math.round(loggedCalDays.reduce((s: number, d: any) => s + (d.calories ?? 0), 0) / loggedCalDays.length)
     : 0;
@@ -780,17 +780,19 @@ export default function ProgressScreen() {
 
   // Period-average macro distribution: each macro's share of total macro
   // calories (protein/carbs 4 kcal/g, fat 9 kcal/g). Percentages sum to 100.
+  // Excludes today (incomplete day) from averages.
   const { avgPrtPct, avgCrbPct, avgFatPct, avgFatG, avgCrbG, avgPrtG, fatCal, carbCal, protCal } = useMemo(() => {
-    if (summary.length === 0) return { avgPrtPct: 0, avgCrbPct: 0, avgFatPct: 0, avgFatG: 0, avgCrbG: 0, avgPrtG: 0, fatCal: 0, carbCal: 0, protCal: 0 };
-    const n = summary.length;
-    const avg = (key: string) => summary.reduce((s: number, d: any) => s + (d[key] ?? 0), 0) / n;
+    const completed = summary.filter((d: any) => d.period !== today && ((d.fat ?? 0) + (d.carbs ?? 0) + (d.protein ?? 0)) > 0);
+    if (completed.length === 0) return { avgPrtPct: 0, avgCrbPct: 0, avgFatPct: 0, avgFatG: 0, avgCrbG: 0, avgPrtG: 0, fatCal: 0, carbCal: 0, protCal: 0 };
+    const n = completed.length;
+    const avg = (key: string) => completed.reduce((s: number, d: any) => s + (d[key] ?? 0), 0) / n;
     const avgFatG = avg("fat");
     const avgCrbG = avg("carbs");
     const avgPrtG = avg("protein");
     const fatCal = avgFatG * 9, carbCal = avgCrbG * 4, protCal = avgPrtG * 4;
     const [fatPct, crbPct, prtPct] = sharesTo100([fatCal, carbCal, protCal]);
     return { avgFatG, avgCrbG, avgPrtG, fatCal, carbCal, protCal, avgFatPct: fatPct, avgCrbPct: crbPct, avgPrtPct: prtPct };
-  }, [summary]);
+  }, [summary, today]);
 
   // Calorie bar data for chart
   // Fall back to an empty scaffold so the x-axis always renders even with no data
@@ -990,19 +992,30 @@ export default function ProgressScreen() {
             </View>
           </View>
 
-          {/* AVG row */}
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: border }}>
-            <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: muted }}>AVG</Text>
+          {/* AVG vs Goal row */}
+          <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: border, gap: 8 }}>
             {[
-              { pct: avgFatPct,  color: PURPLE },
-              { pct: avgCrbPct,  color: BLUE   },
-              { pct: avgPrtPct,  color: LIME   },
-            ].map((m, i) => (
-              <View key={i} style={{ backgroundColor: `${m.color}22`, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3 }}>
-                <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: m.color }}>{m.pct}%</Text>
-              </View>
-            ))}
-            <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>of macros</Text>
+              { label: "Protein", avg: Math.round(avgPrtG), goal: Math.round(proteinGoal), color: LIME },
+              { label: "Carbs",   avg: Math.round(avgCrbG), goal: Math.round(carbsGoal),   color: BLUE },
+              { label: "Fat",     avg: Math.round(avgFatG), goal: Math.round(fatGoal),     color: PURPLE },
+            ].map(m => {
+              const diff = m.avg - m.goal;
+              return (
+                <View key={m.label} style={{ flexDirection: "row", alignItems: "center" }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: m.color, marginRight: 8 }} />
+                  <Text style={{ fontSize: 12, fontFamily: "Manrope-SemiBold", color: text, width: 56 }}>{m.label}</Text>
+                  <Text style={{ fontSize: 12, fontFamily: "Manrope-Bold", color: m.color, width: 44 }}>{m.avg}g</Text>
+                  <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted, width: 48 }}>/ {m.goal}g</Text>
+                  {m.avg > 0 && (
+                    <View style={{ backgroundColor: (diff >= 0 ? LIME : "#ef4444") + "22", borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 }}>
+                      <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: diff >= 0 ? LIME : "#ef4444" }}>
+                        {diff >= 0 ? "+" : ""}{diff}g
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              );
+            })}
           </View>
         </View>
 
