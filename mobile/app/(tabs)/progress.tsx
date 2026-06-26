@@ -967,19 +967,27 @@ export default function ProgressScreen() {
               <View style={{ width: 90, height: 90, alignItems: "center", justifyContent: "center", marginBottom: 10 }}>
                 <MacroDonut fat={fatCal} carbs={carbCal} protein={protCal} size={90} strokeWidth={8} />
               </View>
-              {[
-                { label: "Fat",     pct: avgFatPct, color: PURPLE },
-                { label: "Carbs",   pct: avgCrbPct, color: BLUE   },
-                { label: "Protein", pct: avgPrtPct, color: LIME   },
-              ].map(m => (
-                <View key={m.label} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", width: "100%", marginBottom: 4 }}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-                    <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: m.color }} />
-                    <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>{m.label}</Text>
+              {(() => {
+                const gPrt = proteinGoal * 4, gCrb = carbsGoal * 4, gFat = fatGoal * 9;
+                const gTot = gPrt + gCrb + gFat;
+                const [tFat, tCrb, tPrt] = gTot > 0 ? sharesTo100([gFat, gCrb, gPrt]) : [0, 0, 0];
+                return [
+                  { label: "Fat",     pct: avgFatPct, target: tFat, color: PURPLE },
+                  { label: "Carbs",   pct: avgCrbPct, target: tCrb, color: BLUE   },
+                  { label: "Protein", pct: avgPrtPct, target: tPrt, color: LIME   },
+                ].map(m => (
+                  <View key={m.label} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", width: "100%", marginBottom: 4 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                      <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: m.color }} />
+                      <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted }}>{m.label}</Text>
+                    </View>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                      <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: text }}>{m.pct}%</Text>
+                      <Text style={{ fontSize: 9, fontFamily: "Manrope", color: muted }}>/ {m.target}%</Text>
+                    </View>
                   </View>
-                  <Text style={{ fontSize: 11, fontFamily: "Manrope-Bold", color: text }}>{m.pct}%</Text>
-                </View>
-              ))}
+                ));
+              })()}
             </View>
 
             {/* Right: stacked bar or 3-line macro chart */}
