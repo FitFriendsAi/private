@@ -21,7 +21,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { apiRequest } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
 import { gramsToLbs, lbsToGrams } from "@/lib/utils";
-import { ArrowLeft, Clock, Dumbbell, Scale, BarChart2, Check, Camera, ImagePlus, Trash2, Pencil, X, Maximize2 } from "lucide-react-native";
+import { ArrowLeft, Clock, Dumbbell, Scale, BarChart2, Check, Camera, ImagePlus, Trash2, Pencil, X, Maximize2, TrendingUp } from "lucide-react-native";
 import { ImageCropModal } from "@/components/ImageCropModal";
 
 const LIME = "#c8e84c";
@@ -602,27 +602,36 @@ export default function WorkoutDetailScreen() {
                   backgroundColor: card, borderRadius: 18,
                   borderWidth: 1, borderColor: border, padding: 14, marginBottom: 10,
                 }}>
-                  {/* Exercise name + stats */}
-                  <View style={{ marginBottom: 10 }}>
-                    <Text style={{ fontFamily: "Manrope-Bold", fontSize: 15, color: text }}>
-                      {ae.name}
-                    </Text>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 3, flexWrap: "wrap" }}>
-                      {ae.muscle ? (
-                        <Text style={{ fontFamily: "Manrope", fontSize: 11, color: muted, textTransform: "capitalize" }}>
-                          {ae.muscle}
-                        </Text>
-                      ) : null}
-                      <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 11, color: LIME }}>
-                        {Math.round(exVolLbs).toLocaleString()} lbs total
+                  {/* Exercise name + stats — tap to view exercise detail */}
+                  <Pressable
+                    onPress={() => router.push(`/exercise/${ae.id}` as any)}
+                    style={({ pressed }) => ({
+                      flexDirection: "row", alignItems: "flex-start",
+                      marginBottom: 10, opacity: pressed ? 0.7 : 1,
+                    })}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontFamily: "Manrope-Bold", fontSize: 15, color: text }}>
+                        {ae.name}
                       </Text>
-                      {maxLbs > 0 && (
-                        <Text style={{ fontFamily: "Manrope", fontSize: 11, color: muted }}>
-                          max {maxLbs} lbs
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 3, flexWrap: "wrap" }}>
+                        {ae.muscle ? (
+                          <Text style={{ fontFamily: "Manrope", fontSize: 11, color: muted, textTransform: "capitalize" }}>
+                            {ae.muscle}
+                          </Text>
+                        ) : null}
+                        <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 11, color: LIME }}>
+                          {Math.round(exVolLbs).toLocaleString()} lbs total
                         </Text>
-                      )}
+                        {maxLbs > 0 && (
+                          <Text style={{ fontFamily: "Manrope", fontSize: 11, color: muted }}>
+                            max {maxLbs} lbs
+                          </Text>
+                        )}
+                      </View>
                     </View>
-                  </View>
+                    <TrendingUp size={15} color={muted} style={{ marginTop: 2 }} />
+                  </Pressable>
 
                   {/* Column headers */}
                   <View style={{

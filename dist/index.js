@@ -255954,6 +255954,145 @@ Candidates: ${JSON.stringify(candidateSummaries)}`
   }
 }
 
+// shared/strength-standards.ts
+var LEVEL_NAMES = ["Untrained", "Beginner", "Novice", "Intermediate", "Advanced", "Elite"];
+var STANDARDS = {
+  // ── Barbell compound ─────────────────────────────────────────────────────────
+  "bench press": { male: [0.5, 0.75, 1.25, 1.5, 2], female: [0.25, 0.5, 0.75, 1, 1.5] },
+  "incline bench press": { male: [0.4, 0.65, 1, 1.3, 1.75], female: [0.2, 0.4, 0.65, 0.85, 1.2] },
+  "close grip bench press": { male: [0.4, 0.65, 1, 1.3, 1.7], female: [0.2, 0.35, 0.6, 0.8, 1.1] },
+  "squat": { male: [0.75, 1.25, 1.5, 2, 2.5], female: [0.5, 0.75, 1, 1.5, 2] },
+  "back squat": { male: [0.75, 1.25, 1.5, 2, 2.5], female: [0.5, 0.75, 1, 1.5, 2] },
+  "front squat": { male: [0.5, 0.85, 1.25, 1.7, 2.1], female: [0.3, 0.5, 0.85, 1.25, 1.6] },
+  "deadlift": { male: [1, 1.5, 2, 2.5, 3], female: [0.5, 1, 1.5, 2, 2.5] },
+  "sumo deadlift": { male: [1, 1.5, 2, 2.5, 3], female: [0.5, 1, 1.5, 2, 2.5] },
+  "romanian deadlift": { male: [0.75, 1, 1.5, 2, 2.5], female: [0.4, 0.65, 1, 1.5, 2] },
+  "rdl": { male: [0.75, 1, 1.5, 2, 2.5], female: [0.4, 0.65, 1, 1.5, 2] },
+  "overhead press": { male: [0.35, 0.55, 0.8, 1, 1.25], female: [0.2, 0.35, 0.5, 0.65, 0.85] },
+  "ohp": { male: [0.35, 0.55, 0.8, 1, 1.25], female: [0.2, 0.35, 0.5, 0.65, 0.85] },
+  "military press": { male: [0.35, 0.55, 0.8, 1, 1.25], female: [0.2, 0.35, 0.5, 0.65, 0.85] },
+  "barbell row": { male: [0.5, 0.75, 1, 1.25, 1.75], female: [0.25, 0.4, 0.65, 0.85, 1.25] },
+  "bent over row": { male: [0.5, 0.75, 1, 1.25, 1.75], female: [0.25, 0.4, 0.65, 0.85, 1.25] },
+  "pendlay row": { male: [0.5, 0.75, 1, 1.25, 1.75], female: [0.25, 0.4, 0.65, 0.85, 1.25] },
+  "hip thrust": { male: [0.75, 1.25, 1.75, 2.5, 3], female: [0.5, 0.9, 1.4, 2, 2.75] },
+  "preacher curl": { male: [0.3, 0.45, 0.65, 0.85, 1.1], female: [0.15, 0.25, 0.4, 0.55, 0.75] },
+  "ez bar curl": { male: [0.3, 0.45, 0.65, 0.85, 1.1], female: [0.15, 0.25, 0.4, 0.55, 0.75] },
+  "barbell curl": { male: [0.3, 0.45, 0.65, 0.85, 1.1], female: [0.15, 0.25, 0.4, 0.55, 0.75] },
+  "skull crusher": { male: [0.3, 0.45, 0.65, 0.85, 1.1], female: [0.15, 0.25, 0.4, 0.55, 0.75] },
+  "lying tricep extension": { male: [0.3, 0.45, 0.65, 0.85, 1.1], female: [0.15, 0.25, 0.4, 0.55, 0.75] },
+  "good morning": { male: [0.5, 0.75, 1, 1.4, 1.75], female: [0.3, 0.5, 0.75, 1.1, 1.5] },
+  "power clean": { male: [0.5, 0.75, 1, 1.4, 1.75], female: [0.3, 0.5, 0.75, 1, 1.25] },
+  // ── Dumbbell (per-dumbbell weight) ───────────────────────────────────────────
+  "dumbbell bench press": { male: [0.2, 0.3, 0.45, 0.65, 0.9], female: [0.1, 0.18, 0.3, 0.45, 0.65], note: "per dumbbell" },
+  "dumbbell incline press": { male: [0.15, 0.25, 0.4, 0.55, 0.75], female: [0.08, 0.15, 0.25, 0.4, 0.55], note: "per dumbbell" },
+  "incline dumbbell press": { male: [0.15, 0.25, 0.4, 0.55, 0.75], female: [0.08, 0.15, 0.25, 0.4, 0.55], note: "per dumbbell" },
+  "dumbbell row": { male: [0.2, 0.35, 0.5, 0.7, 0.9], female: [0.1, 0.18, 0.3, 0.45, 0.6], note: "per dumbbell" },
+  "one arm dumbbell row": { male: [0.2, 0.35, 0.5, 0.7, 0.9], female: [0.1, 0.18, 0.3, 0.45, 0.6], note: "per dumbbell" },
+  "dumbbell shoulder press": { male: [0.15, 0.22, 0.35, 0.5, 0.7], female: [0.08, 0.15, 0.22, 0.35, 0.5], note: "per dumbbell" },
+  "arnold press": { male: [0.12, 0.2, 0.3, 0.45, 0.65], female: [0.07, 0.12, 0.2, 0.3, 0.45], note: "per dumbbell" },
+  "hammer curl": { male: [0.1, 0.17, 0.25, 0.35, 0.5], female: [0.05, 0.1, 0.17, 0.25, 0.35], note: "per dumbbell" },
+  "dumbbell curl": { male: [0.1, 0.17, 0.25, 0.35, 0.5], female: [0.05, 0.1, 0.17, 0.25, 0.35], note: "per dumbbell" },
+  "bicep curl": { male: [0.1, 0.17, 0.25, 0.35, 0.5], female: [0.05, 0.1, 0.17, 0.25, 0.35], note: "per dumbbell" },
+  "lateral raise": { male: [0.05, 0.08, 0.12, 0.18, 0.25], female: [0.03, 0.05, 0.08, 0.12, 0.18], note: "per dumbbell" },
+  "dumbbell lateral raise": { male: [0.05, 0.08, 0.12, 0.18, 0.25], female: [0.03, 0.05, 0.08, 0.12, 0.18], note: "per dumbbell" },
+  "front raise": { male: [0.05, 0.08, 0.12, 0.18, 0.25], female: [0.03, 0.05, 0.08, 0.12, 0.18], note: "per dumbbell" },
+  "dumbbell fly": { male: [0.1, 0.15, 0.25, 0.35, 0.5], female: [0.05, 0.1, 0.18, 0.25, 0.35], note: "per dumbbell" },
+  "chest fly": { male: [0.1, 0.15, 0.25, 0.35, 0.5], female: [0.05, 0.1, 0.18, 0.25, 0.35], note: "per dumbbell" },
+  "dumbbell tricep extension": { male: [0.1, 0.17, 0.25, 0.35, 0.5], female: [0.05, 0.1, 0.17, 0.25, 0.35], note: "per dumbbell" },
+  "overhead tricep extension": { male: [0.1, 0.17, 0.25, 0.35, 0.5], female: [0.05, 0.1, 0.17, 0.25, 0.35] },
+  "rear delt fly": { male: [0.05, 0.08, 0.12, 0.18, 0.25], female: [0.03, 0.05, 0.08, 0.12, 0.18], note: "per dumbbell" },
+  "dumbbell lunges": { male: [0.15, 0.25, 0.4, 0.55, 0.75], female: [0.1, 0.18, 0.3, 0.45, 0.65], note: "per dumbbell" },
+  "goblet squat": { male: [0.2, 0.35, 0.5, 0.7, 0.9], female: [0.15, 0.25, 0.4, 0.55, 0.75] },
+  // ── Cable ─────────────────────────────────────────────────────────────────────
+  "lat pulldown": { male: [0.5, 0.75, 1, 1.25, 1.5], female: [0.25, 0.4, 0.65, 0.85, 1.15] },
+  "seated cable row": { male: [0.5, 0.75, 1, 1.25, 1.65], female: [0.25, 0.4, 0.65, 0.85, 1.15] },
+  "cable row": { male: [0.5, 0.75, 1, 1.25, 1.65], female: [0.25, 0.4, 0.65, 0.85, 1.15] },
+  "tricep pushdown": { male: [0.2, 0.3, 0.45, 0.6, 0.8], female: [0.1, 0.18, 0.28, 0.4, 0.55] },
+  "cable tricep pushdown": { male: [0.2, 0.3, 0.45, 0.6, 0.8], female: [0.1, 0.18, 0.28, 0.4, 0.55] },
+  "cable crossover": { male: [0.2, 0.3, 0.45, 0.6, 0.75], female: [0.1, 0.15, 0.25, 0.35, 0.5] },
+  "cable fly": { male: [0.2, 0.3, 0.45, 0.6, 0.75], female: [0.1, 0.15, 0.25, 0.35, 0.5] },
+  "face pull": { male: [0.2, 0.3, 0.45, 0.6, 0.8], female: [0.1, 0.18, 0.28, 0.4, 0.55] },
+  "cable curl": { male: [0.2, 0.3, 0.45, 0.6, 0.8], female: [0.1, 0.18, 0.28, 0.4, 0.55] },
+  "cable bicep curl": { male: [0.2, 0.3, 0.45, 0.6, 0.8], female: [0.1, 0.18, 0.28, 0.4, 0.55] },
+  "cable pull through": { male: [0.5, 0.75, 1, 1.4, 1.75], female: [0.3, 0.5, 0.75, 1.1, 1.5] },
+  // ── Machine ───────────────────────────────────────────────────────────────────
+  "leg press": { male: [1.5, 2, 3, 4, 5.5], female: [1, 1.5, 2.25, 3, 4] },
+  "leg curl": { male: [0.3, 0.45, 0.65, 0.85, 1.1], female: [0.2, 0.32, 0.5, 0.65, 0.85] },
+  "hamstring curl": { male: [0.3, 0.45, 0.65, 0.85, 1.1], female: [0.2, 0.32, 0.5, 0.65, 0.85] },
+  "lying leg curl": { male: [0.3, 0.45, 0.65, 0.85, 1.1], female: [0.2, 0.32, 0.5, 0.65, 0.85] },
+  "seated leg curl": { male: [0.3, 0.45, 0.65, 0.85, 1.1], female: [0.2, 0.32, 0.5, 0.65, 0.85] },
+  "leg extension": { male: [0.4, 0.6, 0.85, 1.1, 1.5], female: [0.25, 0.4, 0.6, 0.8, 1.1] },
+  "chest press": { male: [0.4, 0.6, 0.9, 1.25, 1.65], female: [0.2, 0.35, 0.55, 0.75, 1] },
+  "machine chest press": { male: [0.4, 0.6, 0.9, 1.25, 1.65], female: [0.2, 0.35, 0.55, 0.75, 1] },
+  "pec deck": { male: [0.3, 0.45, 0.65, 0.85, 1.1], female: [0.15, 0.25, 0.4, 0.55, 0.75] },
+  "butterfly": { male: [0.3, 0.45, 0.65, 0.85, 1.1], female: [0.15, 0.25, 0.4, 0.55, 0.75] },
+  "reverse pec deck": { male: [0.15, 0.25, 0.4, 0.55, 0.75], female: [0.1, 0.15, 0.25, 0.35, 0.5] },
+  "reverse fly": { male: [0.15, 0.25, 0.4, 0.55, 0.75], female: [0.1, 0.15, 0.25, 0.35, 0.5] },
+  "shoulder press": { male: [0.35, 0.55, 0.8, 1, 1.25], female: [0.2, 0.35, 0.5, 0.65, 0.85] },
+  "machine shoulder press": { male: [0.35, 0.55, 0.8, 1, 1.25], female: [0.2, 0.35, 0.5, 0.65, 0.85] },
+  "machine row": { male: [0.5, 0.75, 1, 1.25, 1.65], female: [0.25, 0.4, 0.65, 0.85, 1.15] },
+  "calf raise": { male: [0.75, 1.25, 1.75, 2.5, 3.25], female: [0.5, 0.9, 1.4, 2, 2.75] },
+  "seated calf raise": { male: [0.5, 0.85, 1.25, 1.75, 2.5], female: [0.35, 0.6, 0.95, 1.35, 1.9] },
+  "hack squat": { male: [0.75, 1.25, 1.75, 2.25, 3], female: [0.5, 0.85, 1.25, 1.75, 2.5] },
+  "smith machine squat": { male: [0.75, 1.25, 1.5, 2, 2.5], female: [0.5, 0.75, 1, 1.5, 2] },
+  "tricep dip": { male: [0.2, 0.35, 0.55, 0.75, 1], female: [0.1, 0.2, 0.35, 0.5, 0.7] }
+};
+var EQUIPMENT_SUFFIXES = [
+  "barbell",
+  "dumbbell",
+  "cable",
+  "machine",
+  "smith machine",
+  "smith",
+  "ez bar",
+  "ez-bar",
+  "band",
+  "kettlebell",
+  "resistance band",
+  "bodyweight",
+  "high to low",
+  "low to high",
+  "high",
+  "low",
+  "neutral grip",
+  "wide grip",
+  "close grip",
+  "underhand",
+  "overhand",
+  "supinated",
+  "pronated"
+];
+function normalizeExerciseName(name) {
+  let n2 = name.toLowerCase().trim();
+  n2 = n2.replace(/\s*\([^)]*\)/g, "").trim();
+  for (const suffix of EQUIPMENT_SUFFIXES) {
+    n2 = n2.replace(new RegExp(`\\b${suffix}\\b`, "g"), "").replace(/\s+/g, " ").trim();
+  }
+  return n2;
+}
+function getStrengthStandard(exerciseName) {
+  const normalized = normalizeExerciseName(exerciseName);
+  if (STANDARDS[normalized]) return STANDARDS[normalized];
+  const lower = exerciseName.toLowerCase().trim();
+  if (STANDARDS[lower]) return STANDARDS[lower];
+  for (const key of Object.keys(STANDARDS)) {
+    if (normalized.includes(key) || key.includes(normalized)) {
+      return STANDARDS[key];
+    }
+  }
+  return null;
+}
+function getLevelIndex(e1rmGrams, bodyweightGrams, multipliers) {
+  const bw = bodyweightGrams;
+  for (let i2 = multipliers.length - 1; i2 >= 0; i2--) {
+    if (e1rmGrams >= multipliers[i2] * bw) return i2 + 1;
+  }
+  return 0;
+}
+function computeThresholds(multipliers, bodyweightGrams) {
+  return multipliers.map((m3) => Math.round(m3 * bodyweightGrams));
+}
+
 // server/routes.ts
 function requireAuth(req, res) {
   if (req.isAuthenticated()) return true;
@@ -257302,6 +257441,44 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
       req.user.id
     );
     res.json(history);
+  });
+  app2.get("/api/exercises/:id/strength-standard", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = req.user.id;
+    const exercise = await storage.getExerciseById(Number(req.params.id));
+    if (!exercise) return res.sendStatus(404);
+    const standard = getStrengthStandard(exercise.name);
+    if (!standard) return res.json({ hasStandard: false });
+    const [measurement, profile] = await Promise.all([
+      storage.getLatestMeasurement(userId),
+      storage.getProfile(userId)
+    ]);
+    if (!measurement?.weightGrams) return res.json({ hasStandard: false });
+    const sex = profile?.sex ?? "male";
+    const multipliers = sex === "female" ? standard.female : standard.male;
+    const thresholds = computeThresholds(multipliers, measurement.weightGrams);
+    const history = await storage.getExerciseHistory(Number(req.params.id), userId);
+    const bestE1rmGrams = history.length > 0 ? Math.max(...history.map((h2) => h2.e1rmGrams ?? 0)) : 0;
+    const levelIndex = getLevelIndex(bestE1rmGrams, measurement.weightGrams, multipliers);
+    const nextIdx = levelIndex < LEVEL_NAMES.length - 1 ? levelIndex + 1 : null;
+    const nextLevelGrams = nextIdx !== null && nextIdx >= 1 ? thresholds[nextIdx - 1] : null;
+    res.json({
+      hasStandard: true,
+      note: standard.note ?? null,
+      thresholds: {
+        beginner: thresholds[0],
+        novice: thresholds[1],
+        intermediate: thresholds[2],
+        advanced: thresholds[3],
+        elite: thresholds[4]
+      },
+      bestE1rmGrams,
+      levelIndex,
+      levelName: LEVEL_NAMES[levelIndex],
+      nextLevelName: nextIdx !== null ? LEVEL_NAMES[nextIdx] : null,
+      nextLevelGrams,
+      bodyweightGrams: measurement.weightGrams
+    });
   });
   app2.get("/api/workouts", async (req, res) => {
     if (!requireAuth(req, res)) return;
