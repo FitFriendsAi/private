@@ -20,6 +20,7 @@ import {
   insertWorkoutSchema, insertWorkoutSetSchema, insertHeartRateLogSchema,
   insertSavedMealSchema, insertMealIngredientSchema,
 } from "../shared/schema.js";
+import { getStrengthStandard, computeThresholds, getLevelIndex, LEVEL_NAMES } from "../shared/strength-standards.js";
 import { z } from "zod";
 
 /**
@@ -1728,6 +1729,55 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
       (req.user as any).id
     );
     res.json(history);
+  });
+
+  app.get("/api/exercises/:id/strength-standard", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = (req.user as any).id;
+    const exercise = await storage.getExerciseById(Number(req.params.id));
+    if (!exercise) return res.sendStatus(404);
+
+    const standard = getStrengthStandard(exercise.name);
+    if (!standard) return res.json({ hasStandard: false });
+
+    const [measurement, profile] = await Promise.all([
+      storage.getLatestMeasurement(userId),
+      storage.getProfile(userId),
+    ]);
+
+    if (!measurement?.weightGrams) return res.json({ hasStandard: false });
+
+    const sex = profile?.sex ?? "male";
+    const multipliers = sex === "female" ? standard.female : standard.male;
+    const thresholds = computeThresholds(multipliers, measurement.weightGrams);
+
+    const history = await storage.getExerciseHistory(Number(req.params.id), userId);
+    const bestE1rmGrams = history.length > 0
+      ? Math.max(...history.map((h: any) => h.e1rmGrams ?? 0))
+      : 0;
+
+    const levelIndex = getLevelIndex(bestE1rmGrams, measurement.weightGrams, multipliers);
+
+    const nextIdx = levelIndex < LEVEL_NAMES.length - 1 ? levelIndex + 1 : null;
+    const nextLevelGrams = nextIdx !== null && nextIdx >= 1 ? thresholds[nextIdx - 1] : null;
+
+    res.json({
+      hasStandard: true,
+      note: standard.note ?? null,
+      thresholds: {
+        beginner:     thresholds[0],
+        novice:       thresholds[1],
+        intermediate: thresholds[2],
+        advanced:     thresholds[3],
+        elite:        thresholds[4],
+      },
+      bestE1rmGrams,
+      levelIndex,
+      levelName: LEVEL_NAMES[levelIndex],
+      nextLevelName: nextIdx !== null ? LEVEL_NAMES[nextIdx] : null,
+      nextLevelGrams,
+      bodyweightGrams: measurement.weightGrams,
+    });
   });
 
   // ── Workouts ────────────────────────────────────────────────────────────────

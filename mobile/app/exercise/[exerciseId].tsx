@@ -7,7 +7,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Polyline } from "react-native-svg";
-import { ChevronLeft, Dumbbell } from "lucide-react-native";
+import { ChevronLeft, Dumbbell, TrendingUp } from "lucide-react-native";
 import { apiRequest } from "@/lib/api";
 import { gramsToLbs } from "@/lib/utils";
 
@@ -394,6 +394,214 @@ function SessionList({ history }: { history: any[] }) {
   );
 }
 
+// ── Strength level constants ───────────────────────────────────────────────────
+const LEVEL_COLORS = ["#555", "#888", "#E89C4C", "#E8C84C", "#4CE87C", LIME] as const;
+const LEVEL_LABELS = ["Untrained", "Beginner", "Novice", "Intermediate", "Advanced", "Elite"] as const;
+const BAR_ZONE_COLORS = ["#2a2a2a", "#3a3020", "#3a3320", "#1a3a28", "#2a4a20", LIME + "30"] as const;
+
+// ── Strength level card ────────────────────────────────────────────────────────
+function StrengthLevelCard({
+  standard, cardWidth,
+}: {
+  standard: any;
+  cardWidth: number;
+}) {
+  if (!standard?.hasStandard || !standard.bestE1rmGrams) return null;
+
+  const { thresholds, bestE1rmGrams, levelIndex, levelName, nextLevelName, nextLevelGrams, note } = standard;
+  const lbs  = (g: number) => Math.round(g * 0.00220462);
+  const color = LEVEL_COLORS[levelIndex] as string;
+
+  // Bar dimensions
+  const BAR_W = cardWidth - 32;
+  const BAR_H = 12;
+  // Scale: 0 → elite * 1.4 so there's always room beyond elite
+  const scaleMax = thresholds.elite * 1.4;
+  const toX = (g: number) => Math.max(0, Math.min(BAR_W, (g / scaleMax) * BAR_W));
+  const markerX = toX(bestE1rmGrams);
+
+  // Zone boundaries (left edge of each colored segment)
+  const zones = [
+    { to: thresholds.beginner,     bg: BAR_ZONE_COLORS[0] },
+    { to: thresholds.novice,       bg: BAR_ZONE_COLORS[1] },
+    { to: thresholds.intermediate, bg: BAR_ZONE_COLORS[2] },
+    { to: thresholds.advanced,     bg: BAR_ZONE_COLORS[3] },
+    { to: thresholds.elite,        bg: BAR_ZONE_COLORS[4] },
+    { to: scaleMax,                bg: BAR_ZONE_COLORS[5] },
+  ];
+
+  const thresholdEntries = [
+    { label: "Beginner",     g: thresholds.beginner },
+    { label: "Novice",       g: thresholds.novice },
+    { label: "Intermediate", g: thresholds.intermediate },
+    { label: "Advanced",     g: thresholds.advanced },
+    { label: "Elite",        g: thresholds.elite },
+  ];
+
+  const toGo = nextLevelGrams ? nextLevelGrams - bestE1rmGrams : 0;
+
+  return (
+    <View style={{
+      backgroundColor: CARD, borderRadius: 16, padding: 16,
+      marginBottom: 20, borderWidth: 1,
+      borderColor: color + "40",
+    }}>
+      {/* Header */}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
+        <TrendingUp size={14} color={color} />
+        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: "#fff" }}>
+          How You Compare
+        </Text>
+        <Text style={{ fontFamily: "Manrope", fontSize: 11, color: MUTED, marginLeft: "auto" as any }}>
+          vs. general population
+        </Text>
+      </View>
+
+      {/* Level badge */}
+      <View style={{ alignItems: "center", marginBottom: 16 }}>
+        <View style={{
+          paddingHorizontal: 16, paddingVertical: 6,
+          borderRadius: 20, backgroundColor: color + "22",
+          borderWidth: 1, borderColor: color + "60",
+          marginBottom: 4,
+        }}>
+          <Text style={{ fontFamily: "Manrope-Bold", fontSize: 18, color }}>
+            {levelName}
+          </Text>
+        </View>
+        <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: "#fff" }}>
+          {lbs(bestE1rmGrams)} lbs est. 1RM
+        </Text>
+        {nextLevelName && toGo > 0 && (
+          <Text style={{ fontFamily: "Manrope", fontSize: 11, color: MUTED, marginTop: 2 }}>
+            {lbs(toGo)} lbs to {nextLevelName}
+          </Text>
+        )}
+        {note && (
+          <Text style={{ fontFamily: "Manrope", fontSize: 10, color: MUTED + "99", marginTop: 2 }}>
+            {note}
+          </Text>
+        )}
+      </View>
+
+      {/* Progress bar */}
+      <View style={{ width: BAR_W, height: BAR_H + 48, position: "relative" }}>
+        {/* Colored zone segments */}
+        <View style={{
+          position: "absolute", top: 16, left: 0,
+          width: BAR_W, height: BAR_H,
+          borderRadius: BAR_H / 2, overflow: "hidden",
+          flexDirection: "row",
+        }}>
+          {zones.map((z, i) => {
+            const prevTo = i === 0 ? 0 : zones[i - 1].to;
+            const segW = toX(z.to) - toX(prevTo);
+            return segW > 0 ? (
+              <View key={i} style={{ width: segW, backgroundColor: z.bg }} />
+            ) : null;
+          })}
+        </View>
+
+        {/* Threshold tick marks */}
+        {thresholdEntries.map((t) => {
+          const x = toX(t.g);
+          return (
+            <View
+              key={t.label}
+              style={{
+                position: "absolute",
+                left: x - 0.5,
+                top: 12,
+                width: 1,
+                height: BAR_H + 4,
+                backgroundColor: "rgba(255,255,255,0.25)",
+              }}
+            />
+          );
+        })}
+
+        {/* User marker triangle + pin */}
+        <View style={{
+          position: "absolute",
+          left: markerX - 5,
+          top: 4,
+          alignItems: "center",
+          width: 10,
+        }}>
+          {/* Downward-pointing triangle */}
+          <View style={{
+            width: 0, height: 0,
+            borderLeftWidth: 5, borderRightWidth: 5, borderTopWidth: 9,
+            borderLeftColor: "transparent", borderRightColor: "transparent",
+            borderTopColor: "#fff",
+          }} />
+          <View style={{ width: 2, height: BAR_H + 4, backgroundColor: "#fff" }} />
+        </View>
+
+        {/* Tick labels */}
+        <View style={{ position: "absolute", top: BAR_H + 24, left: 0, width: BAR_W }}>
+          {thresholdEntries.map((t, i) => {
+            const x = toX(t.g);
+            const SHORT = ["Bgn", "Nov", "Int", "Adv", "Eli"];
+            return (
+              <View
+                key={t.label}
+                style={{ position: "absolute", left: x - 12, width: 26, alignItems: "center" }}
+              >
+                <Text style={{ fontFamily: "Manrope", fontSize: 9, color: MUTED }}>
+                  {SHORT[i]}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+      </View>
+
+      {/* Reference table */}
+      <View style={{ marginTop: 4, gap: 3 }}>
+        {thresholdEntries.map((t, i) => {
+          const isCurrentLevel = levelIndex === i + 1;
+          const isNextLevel = nextLevelName === t.label;
+          return (
+            <View key={t.label} style={{
+              flexDirection: "row", justifyContent: "space-between",
+              alignItems: "center",
+              paddingVertical: 2,
+              paddingHorizontal: isCurrentLevel ? 6 : 0,
+              borderRadius: 6,
+              backgroundColor: isCurrentLevel ? color + "15" : "transparent",
+            }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <View style={{
+                  width: 6, height: 6, borderRadius: 3,
+                  backgroundColor: isCurrentLevel ? color : MUTED + "40",
+                }} />
+                <Text style={{
+                  fontFamily: isCurrentLevel ? "Manrope-Bold" : "Manrope",
+                  fontSize: 11,
+                  color: isCurrentLevel ? color : MUTED,
+                }}>
+                  {t.label}
+                </Text>
+                {isNextLevel && (
+                  <Text style={{ fontFamily: "Manrope", fontSize: 9, color: MUTED + "80" }}>← next</Text>
+                )}
+              </View>
+              <Text style={{
+                fontFamily: isCurrentLevel ? "Manrope-Bold" : "Manrope",
+                fontSize: 11,
+                color: isCurrentLevel ? "#fff" : MUTED,
+              }}>
+                {lbs(t.g)} lbs
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 // ── Main page ──────────────────────────────────────────────────────────────────
 export default function ExerciseDetailPage() {
   const { exerciseId } = useLocalSearchParams<{ exerciseId: string }>();
@@ -416,6 +624,12 @@ export default function ExerciseDetailPage() {
   const { data: history = [], isLoading: loadHist } = useQuery({
     queryKey: [`/api/exercises/${exerciseId}/history`],
     queryFn:  () => apiRequest<any[]>("GET", `/api/exercises/${exerciseId}/history`),
+    enabled:  !!exerciseId,
+  });
+
+  const { data: strengthStandard } = useQuery({
+    queryKey: [`/api/exercises/${exerciseId}/strength-standard`],
+    queryFn:  () => apiRequest<any>("GET", `/api/exercises/${exerciseId}/strength-standard`),
     enabled:  !!exerciseId,
   });
 
@@ -489,6 +703,11 @@ export default function ExerciseDetailPage() {
 
         {/* Personal records */}
         <PRBanner history={history} />
+
+        {/* Strength level vs. population */}
+        {strengthStandard?.hasStandard && history.length > 0 && (
+          <StrengthLevelCard standard={strengthStandard} cardWidth={width - 32} />
+        )}
 
         {/* Metric selector */}
         <ScrollView
