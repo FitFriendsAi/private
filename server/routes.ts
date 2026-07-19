@@ -1763,7 +1763,7 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
 
     res.json({
       hasStandard: true,
-      note: standard.note ?? null,
+      perArm: standard.perArm ?? false,
       thresholds: {
         beginner:     thresholds[0],
         novice:       thresholds[1],

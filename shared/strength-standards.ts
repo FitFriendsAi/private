@@ -11,9 +11,15 @@
 export type StrengthLevels = [number, number, number, number, number];
 
 export interface ExerciseStandard {
-  male:   StrengthLevels;  // BW multipliers
-  female: StrengthLevels;
-  note?:  string;          // e.g. "per dumbbell"
+  male:    StrengthLevels;  // BW multipliers
+  female:  StrengthLevels;
+  /**
+   * When true, the thresholds represent weight per arm (one dumbbell / one side).
+   * Users who log combined weight (both arms summed) should have their logged
+   * value halved before comparing, or equivalently see the thresholds doubled.
+   * Show a "per arm / combined" toggle on the UI for these exercises.
+   */
+  perArm?: boolean;
 }
 
 export const LEVEL_NAMES   = ["Untrained", "Beginner", "Novice", "Intermediate", "Advanced", "Elite"] as const;
@@ -47,26 +53,26 @@ const STANDARDS: Record<string, ExerciseStandard> = {
   "good morning":             { male: [0.5,  0.75, 1.0,  1.4,  1.75], female: [0.3,  0.5,  0.75, 1.1,  1.5 ] },
   "power clean":              { male: [0.5,  0.75, 1.0,  1.4,  1.75], female: [0.3,  0.5,  0.75, 1.0,  1.25] },
 
-  // ── Dumbbell (per-dumbbell weight) ───────────────────────────────────────────
-  "dumbbell bench press":     { male: [0.2,  0.3,  0.45, 0.65, 0.9 ], female: [0.1,  0.18, 0.3,  0.45, 0.65], note: "per dumbbell" },
-  "dumbbell incline press":   { male: [0.15, 0.25, 0.4,  0.55, 0.75], female: [0.08, 0.15, 0.25, 0.4,  0.55], note: "per dumbbell" },
-  "incline dumbbell press":   { male: [0.15, 0.25, 0.4,  0.55, 0.75], female: [0.08, 0.15, 0.25, 0.4,  0.55], note: "per dumbbell" },
-  "dumbbell row":             { male: [0.2,  0.35, 0.5,  0.7,  0.9 ], female: [0.1,  0.18, 0.3,  0.45, 0.6 ], note: "per dumbbell" },
-  "one arm dumbbell row":     { male: [0.2,  0.35, 0.5,  0.7,  0.9 ], female: [0.1,  0.18, 0.3,  0.45, 0.6 ], note: "per dumbbell" },
-  "dumbbell shoulder press":  { male: [0.15, 0.22, 0.35, 0.5,  0.7 ], female: [0.08, 0.15, 0.22, 0.35, 0.5 ], note: "per dumbbell" },
-  "arnold press":             { male: [0.12, 0.2,  0.3,  0.45, 0.65], female: [0.07, 0.12, 0.2,  0.3,  0.45], note: "per dumbbell" },
-  "hammer curl":              { male: [0.1,  0.17, 0.25, 0.35, 0.5 ], female: [0.05, 0.1,  0.17, 0.25, 0.35], note: "per dumbbell" },
-  "dumbbell curl":            { male: [0.1,  0.17, 0.25, 0.35, 0.5 ], female: [0.05, 0.1,  0.17, 0.25, 0.35], note: "per dumbbell" },
-  "bicep curl":               { male: [0.1,  0.17, 0.25, 0.35, 0.5 ], female: [0.05, 0.1,  0.17, 0.25, 0.35], note: "per dumbbell" },
-  "lateral raise":            { male: [0.05, 0.08, 0.12, 0.18, 0.25], female: [0.03, 0.05, 0.08, 0.12, 0.18], note: "per dumbbell" },
-  "dumbbell lateral raise":   { male: [0.05, 0.08, 0.12, 0.18, 0.25], female: [0.03, 0.05, 0.08, 0.12, 0.18], note: "per dumbbell" },
-  "front raise":              { male: [0.05, 0.08, 0.12, 0.18, 0.25], female: [0.03, 0.05, 0.08, 0.12, 0.18], note: "per dumbbell" },
-  "dumbbell fly":             { male: [0.1,  0.15, 0.25, 0.35, 0.5 ], female: [0.05, 0.1,  0.18, 0.25, 0.35], note: "per dumbbell" },
-  "chest fly":                { male: [0.1,  0.15, 0.25, 0.35, 0.5 ], female: [0.05, 0.1,  0.18, 0.25, 0.35], note: "per dumbbell" },
-  "dumbbell tricep extension":{ male: [0.1,  0.17, 0.25, 0.35, 0.5 ], female: [0.05, 0.1,  0.17, 0.25, 0.35], note: "per dumbbell" },
-  "overhead tricep extension":{ male: [0.1,  0.17, 0.25, 0.35, 0.5 ], female: [0.05, 0.1,  0.17, 0.25, 0.35] },
-  "rear delt fly":            { male: [0.05, 0.08, 0.12, 0.18, 0.25], female: [0.03, 0.05, 0.08, 0.12, 0.18], note: "per dumbbell" },
-  "dumbbell lunges":          { male: [0.15, 0.25, 0.4,  0.55, 0.75], female: [0.1,  0.18, 0.3,  0.45, 0.65], note: "per dumbbell" },
+  // ── Dumbbell (per-arm weight — perArm: true) ─────────────────────────────────
+  "dumbbell bench press":     { male: [0.2,  0.3,  0.45, 0.65, 0.9 ], female: [0.1,  0.18, 0.3,  0.45, 0.65], perArm: true },
+  "dumbbell incline press":   { male: [0.15, 0.25, 0.4,  0.55, 0.75], female: [0.08, 0.15, 0.25, 0.4,  0.55], perArm: true },
+  "incline dumbbell press":   { male: [0.15, 0.25, 0.4,  0.55, 0.75], female: [0.08, 0.15, 0.25, 0.4,  0.55], perArm: true },
+  "dumbbell row":             { male: [0.2,  0.35, 0.5,  0.7,  0.9 ], female: [0.1,  0.18, 0.3,  0.45, 0.6 ], perArm: true },
+  "one arm dumbbell row":     { male: [0.2,  0.35, 0.5,  0.7,  0.9 ], female: [0.1,  0.18, 0.3,  0.45, 0.6 ], perArm: true },
+  "dumbbell shoulder press":  { male: [0.15, 0.22, 0.35, 0.5,  0.7 ], female: [0.08, 0.15, 0.22, 0.35, 0.5 ], perArm: true },
+  "arnold press":             { male: [0.12, 0.2,  0.3,  0.45, 0.65], female: [0.07, 0.12, 0.2,  0.3,  0.45], perArm: true },
+  "hammer curl":              { male: [0.1,  0.17, 0.25, 0.35, 0.5 ], female: [0.05, 0.1,  0.17, 0.25, 0.35], perArm: true },
+  "dumbbell curl":            { male: [0.1,  0.17, 0.25, 0.35, 0.5 ], female: [0.05, 0.1,  0.17, 0.25, 0.35], perArm: true },
+  "bicep curl":               { male: [0.1,  0.17, 0.25, 0.35, 0.5 ], female: [0.05, 0.1,  0.17, 0.25, 0.35], perArm: true },
+  "lateral raise":            { male: [0.05, 0.08, 0.12, 0.18, 0.25], female: [0.03, 0.05, 0.08, 0.12, 0.18], perArm: true },
+  "dumbbell lateral raise":   { male: [0.05, 0.08, 0.12, 0.18, 0.25], female: [0.03, 0.05, 0.08, 0.12, 0.18], perArm: true },
+  "front raise":              { male: [0.05, 0.08, 0.12, 0.18, 0.25], female: [0.03, 0.05, 0.08, 0.12, 0.18], perArm: true },
+  "dumbbell fly":             { male: [0.1,  0.15, 0.25, 0.35, 0.5 ], female: [0.05, 0.1,  0.18, 0.25, 0.35], perArm: true },
+  "chest fly":                { male: [0.1,  0.15, 0.25, 0.35, 0.5 ], female: [0.05, 0.1,  0.18, 0.25, 0.35], perArm: true },
+  "dumbbell tricep extension":{ male: [0.1,  0.17, 0.25, 0.35, 0.5 ], female: [0.05, 0.1,  0.17, 0.25, 0.35], perArm: true },
+  "overhead tricep extension":{ male: [0.1,  0.17, 0.25, 0.35, 0.5 ], female: [0.05, 0.1,  0.17, 0.25, 0.35], perArm: true },
+  "rear delt fly":            { male: [0.05, 0.08, 0.12, 0.18, 0.25], female: [0.03, 0.05, 0.08, 0.12, 0.18], perArm: true },
+  "dumbbell lunges":          { male: [0.15, 0.25, 0.4,  0.55, 0.75], female: [0.1,  0.18, 0.3,  0.45, 0.65], perArm: true },
   "goblet squat":             { male: [0.2,  0.35, 0.5,  0.7,  0.9 ], female: [0.15, 0.25, 0.4,  0.55, 0.75] },
 
   // ── Cable ─────────────────────────────────────────────────────────────────────

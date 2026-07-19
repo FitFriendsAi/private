@@ -1,8 +1,9 @@
-import React, { useState, useMemo, useRef, useEffect } from "react";
+import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import {
   View, Text, ScrollView, Pressable, ActivityIndicator,
   Dimensions, Image, Animated, Easing,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -401,16 +402,57 @@ const BAR_ZONE_COLORS = ["#2a2a2a", "#3a3020", "#3a3320", "#1a3a28", "#2a4a20", 
 
 // ── Strength level card ────────────────────────────────────────────────────────
 function StrengthLevelCard({
-  standard, cardWidth,
+  standard, cardWidth, exerciseId,
 }: {
   standard: any;
   cardWidth: number;
+  exerciseId: string;
 }) {
+  // "per_arm" = user logs one dumbbell's weight; "combined" = user logs both arms summed
+  const [logMode, setLogMode] = useState<"per_arm" | "combined">("per_arm");
+
+  useEffect(() => {
+    if (!standard?.perArm) return;
+    AsyncStorage.getItem(`strength_log_mode_${exerciseId}`).then(v => {
+      if (v === "combined" || v === "per_arm") setLogMode(v);
+    });
+  }, [exerciseId, standard?.perArm]);
+
+  const toggleLogMode = useCallback(async (mode: "per_arm" | "combined") => {
+    setLogMode(mode);
+    await AsyncStorage.setItem(`strength_log_mode_${exerciseId}`, mode);
+  }, [exerciseId]);
+
   if (!standard?.hasStandard || !standard.bestE1rmGrams) return null;
 
-  const { thresholds, bestE1rmGrams, levelIndex, levelName, nextLevelName, nextLevelGrams, note } = standard;
-  const lbs  = (g: number) => Math.round(g * 0.00220462);
-  const color = LEVEL_COLORS[levelIndex] as string;
+  const { thresholds: rawThresholds, bestE1rmGrams: rawE1rm, perArm } = standard;
+  const lbs = (g: number) => Math.round(g * 0.00220462);
+
+  // When the exercise is per-arm but the user logs combined weight, halve their
+  // logged weight so it compares correctly against the per-arm thresholds.
+  // Equivalently (and cleaner for display), double the thresholds when showing
+  // in "combined" mode so everything is expressed in the same unit the user sees.
+  const displayFactor = perArm && logMode === "combined" ? 2 : 1;
+  const comparisonE1rm = perArm && logMode === "combined" ? rawE1rm / 2 : rawE1rm;
+
+  const thresholds = {
+    beginner:     rawThresholds.beginner     * displayFactor,
+    novice:       rawThresholds.novice       * displayFactor,
+    intermediate: rawThresholds.intermediate * displayFactor,
+    advanced:     rawThresholds.advanced     * displayFactor,
+    elite:        rawThresholds.elite        * displayFactor,
+  };
+
+  // Recompute level based on (possibly halved) comparison weight
+  const thresholdArr = [thresholds.beginner, thresholds.novice, thresholds.intermediate, thresholds.advanced, thresholds.elite];
+  let levelIndex = 0;
+  for (let i = thresholdArr.length - 1; i >= 0; i--) {
+    if (rawE1rm >= thresholdArr[i]) { levelIndex = i + 1; break; }
+  }
+  const levelName  = LEVEL_LABELS[levelIndex];
+  const color      = LEVEL_COLORS[levelIndex] as string;
+  const nextLevelName  = levelIndex < LEVEL_LABELS.length - 1 ? LEVEL_LABELS[levelIndex + 1] : null;
+  const nextLevelGrams = levelIndex < thresholdArr.length ? thresholdArr[levelIndex] : null;
 
   // Bar dimensions
   const BAR_W = cardWidth - 32;
@@ -418,7 +460,8 @@ function StrengthLevelCard({
   // Scale: 0 → elite * 1.4 so there's always room beyond elite
   const scaleMax = thresholds.elite * 1.4;
   const toX = (g: number) => Math.max(0, Math.min(BAR_W, (g / scaleMax) * BAR_W));
-  const markerX = toX(bestE1rmGrams);
+  // Marker always uses raw logged weight (already in the correct display unit)
+  const markerX = toX(rawE1rm);
 
   // Zone boundaries (left edge of each colored segment)
   const zones = [
@@ -438,7 +481,8 @@ function StrengthLevelCard({
     { label: "Elite",        g: thresholds.elite },
   ];
 
-  const toGo = nextLevelGrams ? nextLevelGrams - bestE1rmGrams : 0;
+  // "to go" is always expressed in display units (rawE1rm is already in display units)
+  const toGo = nextLevelGrams ? nextLevelGrams - rawE1rm : 0;
 
   return (
     <View style={{
@@ -447,7 +491,7 @@ function StrengthLevelCard({
       borderColor: color + "40",
     }}>
       {/* Header */}
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: perArm ? 10 : 12 }}>
         <TrendingUp size={14} color={color} />
         <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: "#fff" }}>
           How You Compare
@@ -456,6 +500,44 @@ function StrengthLevelCard({
           vs. general population
         </Text>
       </View>
+
+      {/* Per-arm / combined toggle — only for dumbbell exercises */}
+      {perArm && (
+        <View style={{ marginBottom: 14 }}>
+          <Text style={{ fontFamily: "Manrope", fontSize: 11, color: MUTED, marginBottom: 6 }}>
+            How do you log this exercise?
+          </Text>
+          <View style={{
+            flexDirection: "row",
+            backgroundColor: "#222",
+            borderRadius: 10,
+            padding: 3,
+          }}>
+            {(["per_arm", "combined"] as const).map(mode => {
+              const active = logMode === mode;
+              return (
+                <Pressable
+                  key={mode}
+                  onPress={() => toggleLogMode(mode)}
+                  style={{
+                    flex: 1, paddingVertical: 7, borderRadius: 8,
+                    alignItems: "center",
+                    backgroundColor: active ? "#333" : "transparent",
+                  }}
+                >
+                  <Text style={{
+                    fontFamily: active ? "Manrope-Bold" : "Manrope",
+                    fontSize: 12,
+                    color: active ? "#fff" : MUTED,
+                  }}>
+                    {mode === "per_arm" ? "Per arm (one dumbbell)" : "Combined (both arms)"}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      )}
 
       {/* Level badge */}
       <View style={{ alignItems: "center", marginBottom: 16 }}>
@@ -470,16 +552,11 @@ function StrengthLevelCard({
           </Text>
         </View>
         <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 13, color: "#fff" }}>
-          {lbs(bestE1rmGrams)} lbs est. 1RM
+          {lbs(rawE1rm)} lbs est. 1RM{perArm && logMode === "combined" ? " (combined)" : perArm ? " (per arm)" : ""}
         </Text>
         {nextLevelName && toGo > 0 && (
           <Text style={{ fontFamily: "Manrope", fontSize: 11, color: MUTED, marginTop: 2 }}>
             {lbs(toGo)} lbs to {nextLevelName}
-          </Text>
-        )}
-        {note && (
-          <Text style={{ fontFamily: "Manrope", fontSize: 10, color: MUTED + "99", marginTop: 2 }}>
-            {note}
           </Text>
         )}
       </View>
@@ -706,7 +783,7 @@ export default function ExerciseDetailPage() {
 
         {/* Strength level vs. population */}
         {strengthStandard?.hasStandard && history.length > 0 && (
-          <StrengthLevelCard standard={strengthStandard} cardWidth={width - 32} />
+          <StrengthLevelCard standard={strengthStandard} cardWidth={width - 32} exerciseId={exerciseId!} />
         )}
 
         {/* Metric selector */}
