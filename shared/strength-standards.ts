@@ -119,37 +119,82 @@ const EQUIPMENT_SUFFIXES = [
   "close grip", "underhand", "overhand", "supinated", "pronated",
 ];
 
-function normalizeExerciseName(name: string): string {
-  let n = name.toLowerCase().trim();
-  // Remove parenthetical suffixes: "Hammer Curl (Dumbbell)" → "hammer curl"
-  n = n.replace(/\s*\([^)]*\)/g, "").trim();
-  // Remove leading/trailing equipment words
+function stripParens(name: string): string {
+  return name.toLowerCase().trim().replace(/\s*\([^)]*\)/g, "").replace(/\s+/g, " ").trim();
+}
+
+function stripEquipment(name: string): string {
+  let n = name;
   for (const suffix of EQUIPMENT_SUFFIXES) {
-    n = n.replace(new RegExp(`\\b${suffix}\\b`, "g"), "").replace(/\s+/g, " ").trim();
+    n = n.replace(new RegExp(`\\b${suffix}\\b`, "g"), " ");
   }
-  return n;
+  return n.replace(/\s+/g, " ").trim();
+}
+
+/** Return the set of words in a string, for word-overlap scoring. */
+function wordSet(s: string): Set<string> {
+  return new Set(s.split(/\s+/).filter(Boolean));
 }
 
 /**
  * Look up strength standards for an exercise by name.
- * Returns null if no standard is available for that exercise.
+ *
+ * Lookup order (stops at first hit):
+ *   1. Exact match on parens-stripped name (equipment words kept) — e.g. "incline dumbbell press"
+ *   2. Exact match on original lowercase — catches keys that already have equipment words
+ *   3. Best word-overlap match on parens-stripped name (equipment kept) — most words in common wins
+ *   4. Exact match after also stripping equipment words — fallback for equipment-agnostic keys
+ *   5. Best word-overlap match after stripping equipment words
+ *
+ * Keeping equipment words in phases 1–3 ensures "Incline Dumbbell Bench Press" preferentially
+ * matches dumbbell-specific keys rather than the barbell "Incline Bench Press" standard.
  */
 export function getStrengthStandard(exerciseName: string): ExerciseStandard | null {
-  const normalized = normalizeExerciseName(exerciseName);
+  const withEquip   = stripParens(exerciseName);          // parens stripped, equipment kept
+  const withoutEquip = stripEquipment(withEquip);         // equipment words also stripped
 
-  // Direct match first
-  if (STANDARDS[normalized]) return STANDARDS[normalized];
+  // 1. Exact match — equipment words present
+  if (STANDARDS[withEquip]) return STANDARDS[withEquip];
 
-  // Fallback: try without stripping (original lowercased)
+  // 2. Exact match — original lowercase (handles keys already in db-name form)
   const lower = exerciseName.toLowerCase().trim();
   if (STANDARDS[lower]) return STANDARDS[lower];
 
-  // Partial match: find any key that the normalized name contains
+  // 3. Best word-overlap match — equipment words present (favours dumbbell/cable keys)
+  const withEquipWords = wordSet(withEquip);
+  let bestKey: string | null = null;
+  let bestScore = 0;
   for (const key of Object.keys(STANDARDS)) {
-    if (normalized.includes(key) || key.includes(normalized)) {
-      return STANDARDS[key];
+    const keyWords = wordSet(key);
+    let overlap = 0;
+    for (const w of keyWords) { if (withEquipWords.has(w)) overlap++; }
+    // Score = overlap / key word count — prefer keys whose words are all present in the name
+    const score = overlap / keyWords.size;
+    if (score > bestScore && overlap >= Math.min(keyWords.size, 2)) {
+      bestScore = score;
+      bestKey   = key;
     }
   }
+  // Only accept if ≥60% of key words matched (avoids spurious single-word hits)
+  if (bestKey && bestScore >= 0.6) return STANDARDS[bestKey];
+
+  // 4. Exact match after stripping equipment words
+  if (STANDARDS[withoutEquip]) return STANDARDS[withoutEquip];
+
+  // 5. Word-overlap match on equipment-stripped name
+  const withoutEquipWords = wordSet(withoutEquip);
+  bestKey = null; bestScore = 0;
+  for (const key of Object.keys(STANDARDS)) {
+    const keyWords = wordSet(stripEquipment(key));
+    let overlap = 0;
+    for (const w of keyWords) { if (withoutEquipWords.has(w)) overlap++; }
+    const score = keyWords.size > 0 ? overlap / keyWords.size : 0;
+    if (score > bestScore && overlap >= Math.min(keyWords.size, 2)) {
+      bestScore = score;
+      bestKey   = key;
+    }
+  }
+  if (bestKey && bestScore >= 0.6) return STANDARDS[bestKey];
 
   return null;
 }

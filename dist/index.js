@@ -256062,24 +256062,58 @@ var EQUIPMENT_SUFFIXES = [
   "supinated",
   "pronated"
 ];
-function normalizeExerciseName(name) {
-  let n2 = name.toLowerCase().trim();
-  n2 = n2.replace(/\s*\([^)]*\)/g, "").trim();
+function stripParens(name) {
+  return name.toLowerCase().trim().replace(/\s*\([^)]*\)/g, "").replace(/\s+/g, " ").trim();
+}
+function stripEquipment(name) {
+  let n2 = name;
   for (const suffix of EQUIPMENT_SUFFIXES) {
-    n2 = n2.replace(new RegExp(`\\b${suffix}\\b`, "g"), "").replace(/\s+/g, " ").trim();
+    n2 = n2.replace(new RegExp(`\\b${suffix}\\b`, "g"), " ");
   }
-  return n2;
+  return n2.replace(/\s+/g, " ").trim();
+}
+function wordSet(s2) {
+  return new Set(s2.split(/\s+/).filter(Boolean));
 }
 function getStrengthStandard(exerciseName) {
-  const normalized = normalizeExerciseName(exerciseName);
-  if (STANDARDS[normalized]) return STANDARDS[normalized];
+  const withEquip = stripParens(exerciseName);
+  const withoutEquip = stripEquipment(withEquip);
+  if (STANDARDS[withEquip]) return STANDARDS[withEquip];
   const lower = exerciseName.toLowerCase().trim();
   if (STANDARDS[lower]) return STANDARDS[lower];
+  const withEquipWords = wordSet(withEquip);
+  let bestKey = null;
+  let bestScore = 0;
   for (const key of Object.keys(STANDARDS)) {
-    if (normalized.includes(key) || key.includes(normalized)) {
-      return STANDARDS[key];
+    const keyWords = wordSet(key);
+    let overlap2 = 0;
+    for (const w2 of keyWords) {
+      if (withEquipWords.has(w2)) overlap2++;
+    }
+    const score = overlap2 / keyWords.size;
+    if (score > bestScore && overlap2 >= Math.min(keyWords.size, 2)) {
+      bestScore = score;
+      bestKey = key;
     }
   }
+  if (bestKey && bestScore >= 0.6) return STANDARDS[bestKey];
+  if (STANDARDS[withoutEquip]) return STANDARDS[withoutEquip];
+  const withoutEquipWords = wordSet(withoutEquip);
+  bestKey = null;
+  bestScore = 0;
+  for (const key of Object.keys(STANDARDS)) {
+    const keyWords = wordSet(stripEquipment(key));
+    let overlap2 = 0;
+    for (const w2 of keyWords) {
+      if (withoutEquipWords.has(w2)) overlap2++;
+    }
+    const score = keyWords.size > 0 ? overlap2 / keyWords.size : 0;
+    if (score > bestScore && overlap2 >= Math.min(keyWords.size, 2)) {
+      bestScore = score;
+      bestKey = key;
+    }
+  }
+  if (bestKey && bestScore >= 0.6) return STANDARDS[bestKey];
   return null;
 }
 function getLevelIndex(e1rmGrams, bodyweightGrams, multipliers) {
@@ -256709,12 +256743,12 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
     function normName(s2) {
       return (s2 || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
     }
-    function wordSet(s2) {
+    function wordSet2(s2) {
       return new Set(normName(s2).split(" ").filter((w2) => w2.length > 2));
     }
     function nameSimilarity(a2, b2) {
-      const wa = wordSet(a2);
-      const wb = wordSet(b2);
+      const wa = wordSet2(a2);
+      const wb = wordSet2(b2);
       if (!wa.size || !wb.size) return 0;
       let common = 0;
       for (const w2 of wa) if (wb.has(w2)) common++;
@@ -256798,13 +256832,13 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
     const brandSlug = matchedBrand?.[1] ?? q2;
     const matchedBrandNorm = matchedBrand ? normName(matchedBrand[1]) : null;
     const foodOnlyQuery = matchedBrand ? q2.replace(matchedBrand[0], "").replace(/\s+/g, " ").trim() || q2 : q2;
-    const queryWords = wordSet(q2);
+    const queryWords = wordSet2(q2);
     function relevanceScore(item) {
       const brandNorm = normName(item.brand || item.brandOwner || "");
       const nameNorm = normName(item.name || "");
       const qNorm = normName(q2);
-      const qWords = wordSet(qNorm);
-      const itemWords = /* @__PURE__ */ new Set([...wordSet(brandNorm), ...wordSet(nameNorm)]);
+      const qWords = wordSet2(qNorm);
+      const itemWords = /* @__PURE__ */ new Set([...wordSet2(brandNorm), ...wordSet2(nameNorm)]);
       const sim = nameSimilarity(brandNorm + " " + nameNorm, qNorm);
       const ownBoost = item.id && userFoodIds.has(item.id) ? -0.5 : 0;
       if (matchedBrandNorm && brandNorm) {
@@ -256820,7 +256854,7 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
       if (ratio >= 0.5) return 2 + (1 - sim) * 0.9 + ownBoost;
       return 3 + (1 - ratio) - nutritionScore(item) * 0.01 + ownBoost;
     }
-    const filterWords = isRestaurant && foodOnlyQuery ? wordSet(foodOnlyQuery) : queryWords;
+    const filterWords = isRestaurant && foodOnlyQuery ? wordSet2(foodOnlyQuery) : queryWords;
     function isRelevant(item) {
       if (filterWords.size < 2) return true;
       if (matchedBrandNorm) {
@@ -256828,7 +256862,7 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
         const mn = matchedBrandNorm.replace(/\s/g, "");
         if (b2 && (b2.includes(mn) || mn.includes(b2))) return true;
       }
-      const nameWords = wordSet(item.name || "");
+      const nameWords = wordSet2(item.name || "");
       let matches = 0;
       for (const w2 of filterWords) if (nameWords.has(w2)) matches++;
       return matches / filterWords.size >= 0.5;
