@@ -626,6 +626,32 @@ export const storage = {
     await db.delete(templateExercises).where(eq(templateExercises.id, id));
   },
 
+  /** All sets since a date with each exercise's muscle info — for the muscle heatmap. */
+  async getSetsWithMuscles(userId: number, sinceDate: string): Promise<
+    { date: string; reps: number; weightGrams: number; primaryMuscle: string; secondaryMuscles: string[] }[]
+  > {
+    const rows = await db
+      .select({
+        date:             workouts.date,
+        reps:             workoutSets.reps,
+        weightGrams:      workoutSets.weightGrams,
+        primaryMuscle:    exercises.primaryMuscle,
+        secondaryMuscles: exercises.secondaryMuscles,
+      })
+      .from(workoutSets)
+      .innerJoin(workouts, eq(workoutSets.workoutId, workouts.id))
+      .innerJoin(exercises, eq(workoutSets.exerciseId, exercises.id))
+      .where(and(eq(workouts.userId, userId), gte(workouts.date, sinceDate)));
+
+    return rows.map(r => ({
+      date:             (r.date as unknown) instanceof Date ? (r.date as unknown as Date).toISOString().slice(0, 10) : String(r.date).slice(0, 10),
+      reps:             r.reps ?? 0,
+      weightGrams:      r.weightGrams ?? 0,
+      primaryMuscle:    r.primaryMuscle ?? "",
+      secondaryMuscles: (r.secondaryMuscles as string[] | null) ?? [],
+    }));
+  },
+
   // ── Workouts ───────────────────────────────────────────────────────────────
   async getWorkouts(userId: number, limit = 20): Promise<Workout[]> {
     return db.select().from(workouts).where(eq(workouts.userId, userId)).orderBy(desc(workouts.date)).limit(limit);

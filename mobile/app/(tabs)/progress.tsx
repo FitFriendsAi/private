@@ -7,7 +7,8 @@ import { apiRequest } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
 import { gramsToLbs, todayStr } from "@/lib/utils";
 import Svg, { Circle, Path, Polyline, Rect, Line } from "react-native-svg";
-import { Scale, Dumbbell, ChevronDown, X, BarChart2, LineChart as LineChartIcon, Camera, Plus, Columns2 } from "lucide-react-native";
+import { Scale, Dumbbell, ChevronDown, X, BarChart2, LineChart as LineChartIcon, Camera, Plus, Columns2, Flame } from "lucide-react-native";
+import { MuscleHeatmap } from "@/components/MuscleHeatmap";
 
 const LIME   = "#c8e84c";
 const BLUE   = "#9bd1ff";
@@ -704,6 +705,7 @@ export default function ProgressScreen() {
   const [macroChartType, setMacroChartType] = useState<"bar" | "line">("bar");
   const [weightChartW, setWeightChartW]     = useState(0);
   const [strengthChartW, setStrengthChartW] = useState(0);
+  const [heatmapW, setHeatmapW]             = useState(0);
   const [photoViewerIdx, setPhotoViewerIdx] = useState<number | null>(null);
   const [compareMode, setCompareMode]       = useState(false);
   const [compareSelection, setCompareSelection] = useState<number[]>([]);
@@ -1146,6 +1148,17 @@ export default function ProgressScreen() {
         </View>
 
         {/* Body weight card is now above macros, right after calories */}
+
+        {/* ── MUSCLE HEATMAP ── */}
+        <View style={{ height: 22 }} />
+        <SectionLabel icon={Flame} label="MUSCLE HEATMAP" />
+        <View
+          style={{ backgroundColor: card, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: border }}
+          onLayout={e => setHeatmapW(e.nativeEvent.layout.width)}
+        >
+          {heatmapW > 0 && <MuscleHeatmap width={heatmapW - 32} />}
+        </View>
+        <View style={{ height: 22 }} />
 
         {/* ── STRENGTH ── */}
         <SectionLabel

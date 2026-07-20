@@ -246218,6 +246218,23 @@ var storage = {
   async removeTemplateExercise(id) {
     await db.delete(templateExercises).where(eq(templateExercises.id, id));
   },
+  /** All sets since a date with each exercise's muscle info — for the muscle heatmap. */
+  async getSetsWithMuscles(userId, sinceDate) {
+    const rows = await db.select({
+      date: workouts.date,
+      reps: workoutSets.reps,
+      weightGrams: workoutSets.weightGrams,
+      primaryMuscle: exercises.primaryMuscle,
+      secondaryMuscles: exercises.secondaryMuscles
+    }).from(workoutSets).innerJoin(workouts, eq(workoutSets.workoutId, workouts.id)).innerJoin(exercises, eq(workoutSets.exerciseId, exercises.id)).where(and(eq(workouts.userId, userId), gte(workouts.date, sinceDate)));
+    return rows.map((r2) => ({
+      date: r2.date instanceof Date ? r2.date.toISOString().slice(0, 10) : String(r2.date).slice(0, 10),
+      reps: r2.reps ?? 0,
+      weightGrams: r2.weightGrams ?? 0,
+      primaryMuscle: r2.primaryMuscle ?? "",
+      secondaryMuscles: r2.secondaryMuscles ?? []
+    }));
+  },
   // ── Workouts ───────────────────────────────────────────────────────────────
   async getWorkouts(userId, limit = 20) {
     return db.select().from(workouts).where(eq(workouts.userId, userId)).orderBy(desc(workouts.date)).limit(limit);
@@ -257513,6 +257530,69 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
       nextLevelGrams,
       bodyweightGrams: measurement.weightGrams
     });
+  });
+  app2.get("/api/muscle-volume", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = req.user.id;
+    const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 90);
+    const toDateStr = (d2) => d2.toISOString().slice(0, 10);
+    const since = /* @__PURE__ */ new Date();
+    since.setDate(since.getDate() - days);
+    const yearAgo = /* @__PURE__ */ new Date();
+    yearAgo.setDate(yearAgo.getDate() - 365);
+    const rows = await storage.getSetsWithMuscles(userId, toDateStr(yearAgo));
+    const sinceStr = toDateStr(since);
+    const contributions = (muscle) => {
+      const m3 = muscle.toLowerCase();
+      if (m3.includes("chest") || m3.includes("pec")) return [["chest", 1]];
+      if (m3.includes("trap")) return [["traps", 1]];
+      if (m3.includes("lat") || m3 === "back") return [["back", 1]];
+      if (m3.includes("delt") || m3.includes("shoulder") || m3.includes("rotator")) return [["shoulders", 1]];
+      if (m3.includes("bicep") || m3.includes("brachialis")) return [["biceps", 1]];
+      if (m3.includes("tricep")) return [["triceps", 1]];
+      if (m3.includes("forearm")) return [["forearms", 1]];
+      if (m3.includes("core") || m3.includes("abs") || m3.includes("oblique") || m3.includes("hip flexor")) return [["core", 1]];
+      if (m3.includes("glute") || m3.includes("abductor")) return [["glutes", 1]];
+      if (m3.includes("quad") || m3.includes("adductor")) return [["quads", 1]];
+      if (m3.includes("hamstring")) return [["hamstrings", 1]];
+      if (m3.includes("calf") || m3.includes("calves")) return [["calves", 1]];
+      if (m3.includes("leg")) return [["quads", 0.5], ["hamstrings", 0.5]];
+      if (m3.includes("arm")) return [["biceps", 0.5], ["triceps", 0.5]];
+      return [];
+    };
+    const REGIONS = [
+      "chest",
+      "back",
+      "traps",
+      "shoulders",
+      "biceps",
+      "triceps",
+      "forearms",
+      "core",
+      "glutes",
+      "quads",
+      "hamstrings",
+      "calves"
+    ];
+    const agg = Object.fromEntries(REGIONS.map((r2) => [r2, { sets: 0, volumeGrams: 0, lastTrained: null }]));
+    for (const row of rows) {
+      const setVolume = (row.weightGrams ?? 0) * (row.reps ?? 0);
+      const contribs = [];
+      for (const [region, f3] of contributions(row.primaryMuscle)) contribs.push([region, f3]);
+      for (const sec of row.secondaryMuscles) {
+        for (const [region, f3] of contributions(sec)) contribs.push([region, f3 * 0.5]);
+      }
+      for (const [region, factor] of contribs) {
+        const a2 = agg[region];
+        if (!a2.lastTrained || row.date > a2.lastTrained) a2.lastTrained = row.date;
+        if (row.date >= sinceStr) {
+          a2.sets += factor;
+          a2.volumeGrams += setVolume * factor;
+        }
+      }
+    }
+    for (const r2 of REGIONS) agg[r2].sets = Math.round(agg[r2].sets * 10) / 10;
+    res.json({ days, muscles: agg });
   });
   app2.get("/api/workouts", async (req, res) => {
     if (!requireAuth(req, res)) return;

@@ -1780,6 +1780,82 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
     });
   });
 
+  /**
+   * GET /api/muscle-volume?days=7|30
+   * Aggregates training volume per muscle region for the heatmap.
+   * Effective sets: primary muscle = 1.0 per set, secondary = 0.5.
+   * lastTrained is computed over the past 365 days regardless of the window.
+   */
+  app.get("/api/muscle-volume", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = (req.user as any).id;
+    const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 90);
+
+    const toDateStr = (d: Date) => d.toISOString().slice(0, 10);
+    const since    = new Date(); since.setDate(since.getDate() - days);
+    const yearAgo  = new Date(); yearAgo.setDate(yearAgo.getDate() - 365);
+
+    // One query over the full year; the window aggregation filters in JS
+    const rows = await storage.getSetsWithMuscles(userId, toDateStr(yearAgo));
+    const sinceStr = toDateStr(since);
+
+    // Canonical heatmap regions
+    type Region =
+      | "chest" | "back" | "traps" | "shoulders" | "biceps" | "triceps"
+      | "forearms" | "core" | "glutes" | "quads" | "hamstrings" | "calves";
+
+    // Muscle-name → [region, weightFactor] contributions
+    const contributions = (muscle: string): [Region, number][] => {
+      const m = muscle.toLowerCase();
+      if (m.includes("chest") || m.includes("pec"))            return [["chest", 1]];
+      if (m.includes("trap"))                                  return [["traps", 1]];
+      if (m.includes("lat") || m === "back")                   return [["back", 1]];
+      if (m.includes("delt") || m.includes("shoulder") || m.includes("rotator")) return [["shoulders", 1]];
+      if (m.includes("bicep") || m.includes("brachialis"))     return [["biceps", 1]];
+      if (m.includes("tricep"))                                return [["triceps", 1]];
+      if (m.includes("forearm"))                               return [["forearms", 1]];
+      if (m.includes("core") || m.includes("abs") || m.includes("oblique") || m.includes("hip flexor")) return [["core", 1]];
+      if (m.includes("glute") || m.includes("abductor"))       return [["glutes", 1]];
+      if (m.includes("quad") || m.includes("adductor"))        return [["quads", 1]];
+      if (m.includes("hamstring"))                             return [["hamstrings", 1]];
+      if (m.includes("calf") || m.includes("calves"))          return [["calves", 1]];
+      if (m.includes("leg"))                                   return [["quads", 0.5], ["hamstrings", 0.5]];
+      if (m.includes("arm"))                                   return [["biceps", 0.5], ["triceps", 0.5]];
+      return []; // cardio / unknown — not mapped
+    };
+
+    const REGIONS: Region[] = [
+      "chest", "back", "traps", "shoulders", "biceps", "triceps",
+      "forearms", "core", "glutes", "quads", "hamstrings", "calves",
+    ];
+    const agg: Record<Region, { sets: number; volumeGrams: number; lastTrained: string | null }> =
+      Object.fromEntries(REGIONS.map(r => [r, { sets: 0, volumeGrams: 0, lastTrained: null }])) as any;
+
+    for (const row of rows) {
+      const setVolume = (row.weightGrams ?? 0) * (row.reps ?? 0);
+      const contribs: [Region, number][] = [];
+      for (const [region, f] of contributions(row.primaryMuscle)) contribs.push([region, f]);
+      for (const sec of row.secondaryMuscles) {
+        for (const [region, f] of contributions(sec)) contribs.push([region, f * 0.5]);
+      }
+      for (const [region, factor] of contribs) {
+        const a = agg[region];
+        // lastTrained over the full year window
+        if (!a.lastTrained || row.date > a.lastTrained) a.lastTrained = row.date;
+        // sets/volume only within the requested window
+        if (row.date >= sinceStr) {
+          a.sets        += factor;
+          a.volumeGrams += setVolume * factor;
+        }
+      }
+    }
+
+    // Round effective sets to 1 decimal
+    for (const r of REGIONS) agg[r].sets = Math.round(agg[r].sets * 10) / 10;
+
+    res.json({ days, muscles: agg });
+  });
+
   // ── Workouts ────────────────────────────────────────────────────────────────
   app.get("/api/workouts", async (req, res) => {
     if (!requireAuth(req, res)) return;
