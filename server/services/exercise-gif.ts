@@ -29,9 +29,15 @@ export interface ExerciseMedia {
 
 // ── Shared matching helpers ───────────────────────────────────────────────────
 
-/** Normalise a name for fuzzy matching */
+/**
+ * Normalise a name for fuzzy matching. Hyphens are deleted rather than turned
+ * into spaces — datasets are inconsistent about compound words like "Cross-over"
+ * vs. our own "Crossover", and joining them ("crossover" either way) makes those
+ * variants compare equal instead of splitting the hyphenated form into two
+ * unrelated words ("cross", "over") that then fail to match at all.
+ */
 function norm(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  return s.toLowerCase().replace(/-/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 }
 
 /**

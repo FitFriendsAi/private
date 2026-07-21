@@ -250701,7 +250701,7 @@ function estimateAdaptiveTDEE(params) {
 
 // server/services/exercise-gif.ts
 function norm(s2) {
-  return s2.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  return s2.toLowerCase().replace(/-/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 }
 function overlap(query, candidate) {
   const queryWords = query.split(" ").filter((w2) => w2.length > 2);
