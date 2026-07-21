@@ -1597,7 +1597,7 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
     if (exercise.gifUrl) return res.json({ gifUrl: toClientUrl(exercise.gifUrl) });
 
     // Lazy-fetch (WorkoutX first, ExerciseDB fallback), then cache the source URL
-    const gifUrl = await fetchExerciseGif(exercise.name);
+    const gifUrl = await fetchExerciseGif(exercise.name, exercise.equipment);
     if (gifUrl) {
       await storage.updateExerciseGifUrl(id, gifUrl);
       return res.json({ gifUrl: toClientUrl(gifUrl) });

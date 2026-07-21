@@ -60,21 +60,89 @@ function overlap(a: string, b: string): number {
 interface WorkoutXExercise {
   id: string;
   name: string;
+  equipment?: string;
   gifUrl?: string;
 }
 
+// Equipment words to strip from a query before searching WorkoutX — searching the
+// bare movement name ("Bench Press" instead of "Barbell Bench Press (Smith Machine)")
+// returns a far larger, more reliable candidate pool; equipment is matched afterward
+// via the `equipment` field WorkoutX returns for each result.
+const EQUIPMENT_WORDS = [
+  "barbell", "dumbbell", "cable", "machine", "smith machine", "smith",
+  "ez bar", "ez-bar", "bodyweight", "band", "kettlebell",
+];
+
+function stripEquipmentWords(s: string): string {
+  let out = s;
+  for (const w of EQUIPMENT_WORDS) {
+    out = out.replace(new RegExp(`\\b${w}\\b`, "gi"), " ");
+  }
+  return out.replace(/\s+/g, " ").trim();
+}
+
+/** Build a search query from our exercise name: drop parenthetical suffix + equipment words. */
+function buildSearchQuery(exerciseName: string): string {
+  const noParens = exerciseName.replace(/\s*\([^)]*\)/g, " ").trim();
+  return stripEquipmentWords(noParens) || noParens;
+}
+
+// Canonical equipment buckets. Our schema's `equipment` enum maps 1:1 into these;
+// WorkoutX's free-text `equipment` field is matched by substring per bucket.
+type EquipBucket = "barbell" | "dumbbell" | "cable" | "machine" | "smith" | "bodyweight" | null;
+
+function ourEquipmentBucket(equipment: string | null | undefined): EquipBucket {
+  switch (equipment) {
+    case "barbell":       return "barbell";
+    case "dumbbell":      return "dumbbell";
+    case "cable":         return "cable";
+    case "machine":       return "machine";
+    case "smith_machine": return "smith";
+    case "bodyweight":
+    case "none":          return "bodyweight";
+    default:              return null; // unknown enum value — skip filtering
+  }
+}
+
+const WORKOUTX_EQUIPMENT_SUBSTRINGS: Record<Exclude<EquipBucket, null>, string[]> = {
+  barbell:    ["barbell"],       // covers "Barbell", "Olympic Barbell"
+  dumbbell:   ["dumbbell"],
+  cable:      ["cable"],
+  machine:    ["machine", "leverage"], // covers "Machine", "Leverage Machine"
+  smith:      ["smith"],
+  bodyweight: ["body weight", "bodyweight"],
+};
+
+function equipmentMatches(bucket: EquipBucket, workoutXEquipment: string | undefined): boolean {
+  if (bucket === null) return true; // unknown our-side enum — don't filter
+  const e = (workoutXEquipment ?? "").toLowerCase();
+  return WORKOUTX_EQUIPMENT_SUBSTRINGS[bucket].some(sub => e.includes(sub));
+}
+
 /**
- * Look up a real animated GIF from WorkoutX by exercise name.
- * Returns null (never throws) on missing key, network error, rate limit, or no match —
- * callers should treat this as "try the fallback source" rather than a hard failure.
+ * Look up a real animated GIF from WorkoutX by exercise name + equipment category.
+ * Returns null (never throws) on missing key, network error, rate limit, or no
+ * confident match — callers should treat this as "try the fallback source" rather
+ * than a hard failure.
+ *
+ * WorkoutX's own search ranking is not reliable for our purposes (it does not sort
+ * by relevance to a specific equipment variant — e.g. searching "Hammer Curl" ranks
+ * "Cable Hammer Curl" above "Dumbbell Hammer Curl"), so results are re-scored here:
+ * word-overlap against the base movement name, gated by requiring the equipment
+ * bucket to match our own exercise's equipment when known. A candidate is only
+ * accepted if it clears both bars — an ambiguous/no-match result falls through to
+ * the free-exercise-db fallback rather than returning a wrong-equipment GIF.
  */
-async function fetchFromWorkoutX(exerciseName: string): Promise<string | null> {
+async function fetchFromWorkoutX(exerciseName: string, equipment?: string | null): Promise<string | null> {
   const apiKey = process.env.WORKOUTX_API_KEY;
   if (!apiKey) return null;
 
+  const query = buildSearchQuery(exerciseName);
+  const bucket = ourEquipmentBucket(equipment);
+
   try {
     const res = await fetch(
-      `${WORKOUTX_BASE}/v1/exercises/name/${encodeURIComponent(exerciseName)}`,
+      `${WORKOUTX_BASE}/v1/exercises/name/${encodeURIComponent(query)}`,
       { headers: { "X-WorkoutX-Key": apiKey } }
     );
     if (!res.ok) {
@@ -86,10 +154,17 @@ async function fetchFromWorkoutX(exerciseName: string): Promise<string | null> {
     const results: WorkoutXExercise[] = Array.isArray(body) ? body : (body.data ?? []);
     if (results.length === 0) return null;
 
-    const needle = norm(exerciseName);
-    const exact = results.find(e => norm(e.name) === needle);
-    const best  = exact ?? results[0];
-    return best?.gifUrl ?? null;
+    const needle = norm(query);
+    let best: WorkoutXExercise | null = null;
+    let bestScore = 0;
+    for (const e of results) {
+      if (!equipmentMatches(bucket, e.equipment)) continue;
+      const score = overlap(needle, norm(stripEquipmentWords(e.name)));
+      if (score > bestScore) { bestScore = score; best = e; }
+    }
+
+    if (best && bestScore >= 0.5) return best.gifUrl ?? null;
+    return null;
   } catch (err) {
     console.warn("[exercise-gif] WorkoutX lookup failed:", err);
     return null;
@@ -129,9 +204,13 @@ async function fetchFromFreeExerciseDb(exerciseName: string): Promise<string | n
   return null;
 }
 
-/** Resolve a GIF/image URL for an exercise name: WorkoutX first, free-exercise-db fallback. */
-export async function fetchExerciseGif(exerciseName: string): Promise<string | null> {
-  const fromWorkoutX = await fetchFromWorkoutX(exerciseName);
+/**
+ * Resolve a GIF/image URL for an exercise: WorkoutX first, free-exercise-db fallback.
+ * Pass `equipment` (our schema's exercises.equipment enum value) whenever available —
+ * it's the difference between a correctly-matched GIF and a wrong-equipment one.
+ */
+export async function fetchExerciseGif(exerciseName: string, equipment?: string | null): Promise<string | null> {
+  const fromWorkoutX = await fetchFromWorkoutX(exerciseName, equipment);
   if (fromWorkoutX) return fromWorkoutX;
 
   return fetchFromFreeExerciseDb(exerciseName);

@@ -250728,12 +250728,72 @@ function overlap(a2, b2) {
   });
   return common / Math.max(wa.size, wb.size);
 }
-async function fetchFromWorkoutX(exerciseName) {
+var EQUIPMENT_WORDS = [
+  "barbell",
+  "dumbbell",
+  "cable",
+  "machine",
+  "smith machine",
+  "smith",
+  "ez bar",
+  "ez-bar",
+  "bodyweight",
+  "band",
+  "kettlebell"
+];
+function stripEquipmentWords(s2) {
+  let out = s2;
+  for (const w2 of EQUIPMENT_WORDS) {
+    out = out.replace(new RegExp(`\\b${w2}\\b`, "gi"), " ");
+  }
+  return out.replace(/\s+/g, " ").trim();
+}
+function buildSearchQuery(exerciseName) {
+  const noParens = exerciseName.replace(/\s*\([^)]*\)/g, " ").trim();
+  return stripEquipmentWords(noParens) || noParens;
+}
+function ourEquipmentBucket(equipment) {
+  switch (equipment) {
+    case "barbell":
+      return "barbell";
+    case "dumbbell":
+      return "dumbbell";
+    case "cable":
+      return "cable";
+    case "machine":
+      return "machine";
+    case "smith_machine":
+      return "smith";
+    case "bodyweight":
+    case "none":
+      return "bodyweight";
+    default:
+      return null;
+  }
+}
+var WORKOUTX_EQUIPMENT_SUBSTRINGS = {
+  barbell: ["barbell"],
+  // covers "Barbell", "Olympic Barbell"
+  dumbbell: ["dumbbell"],
+  cable: ["cable"],
+  machine: ["machine", "leverage"],
+  // covers "Machine", "Leverage Machine"
+  smith: ["smith"],
+  bodyweight: ["body weight", "bodyweight"]
+};
+function equipmentMatches(bucket, workoutXEquipment) {
+  if (bucket === null) return true;
+  const e2 = (workoutXEquipment ?? "").toLowerCase();
+  return WORKOUTX_EQUIPMENT_SUBSTRINGS[bucket].some((sub) => e2.includes(sub));
+}
+async function fetchFromWorkoutX(exerciseName, equipment) {
   const apiKey = process.env.WORKOUTX_API_KEY;
   if (!apiKey) return null;
+  const query = buildSearchQuery(exerciseName);
+  const bucket = ourEquipmentBucket(equipment);
   try {
     const res = await fetch(
-      `${WORKOUTX_BASE}/v1/exercises/name/${encodeURIComponent(exerciseName)}`,
+      `${WORKOUTX_BASE}/v1/exercises/name/${encodeURIComponent(query)}`,
       { headers: { "X-WorkoutX-Key": apiKey } }
     );
     if (!res.ok) {
@@ -250744,10 +250804,19 @@ async function fetchFromWorkoutX(exerciseName) {
     const body = await res.json();
     const results = Array.isArray(body) ? body : body.data ?? [];
     if (results.length === 0) return null;
-    const needle = norm(exerciseName);
-    const exact = results.find((e2) => norm(e2.name) === needle);
-    const best = exact ?? results[0];
-    return best?.gifUrl ?? null;
+    const needle = norm(query);
+    let best = null;
+    let bestScore = 0;
+    for (const e2 of results) {
+      if (!equipmentMatches(bucket, e2.equipment)) continue;
+      const score = overlap(needle, norm(stripEquipmentWords(e2.name)));
+      if (score > bestScore) {
+        bestScore = score;
+        best = e2;
+      }
+    }
+    if (best && bestScore >= 0.5) return best.gifUrl ?? null;
+    return null;
   } catch (err) {
     console.warn("[exercise-gif] WorkoutX lookup failed:", err);
     return null;
@@ -250775,8 +250844,8 @@ async function fetchFromFreeExerciseDb(exerciseName) {
   }
   return null;
 }
-async function fetchExerciseGif(exerciseName) {
-  const fromWorkoutX = await fetchFromWorkoutX(exerciseName);
+async function fetchExerciseGif(exerciseName, equipment) {
+  const fromWorkoutX = await fetchFromWorkoutX(exerciseName, equipment);
   if (fromWorkoutX) return fromWorkoutX;
   return fetchFromFreeExerciseDb(exerciseName);
 }
@@ -257402,7 +257471,7 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
     if (!exercise) return res.sendStatus(404);
     const toClientUrl = (url) => url.startsWith(WORKOUTX_GIF_BASE) ? `/api/exercises/${id}/gif-image` : url;
     if (exercise.gifUrl) return res.json({ gifUrl: toClientUrl(exercise.gifUrl) });
-    const gifUrl = await fetchExerciseGif(exercise.name);
+    const gifUrl = await fetchExerciseGif(exercise.name, exercise.equipment);
     if (gifUrl) {
       await storage.updateExerciseGifUrl(id, gifUrl);
       return res.json({ gifUrl: toClientUrl(gifUrl) });
