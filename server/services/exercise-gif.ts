@@ -144,15 +144,29 @@ function stripEquipmentWords(s: string): string {
  * datasets), and loosening the coverage threshold to compensate let "Chest Fly"
  * match "Lever Chest Press" (wrong movement) and reopened the earlier
  * "Face Pull" → "Cable Twisting Pull" bug. Each entry here is a specific,
- * verified case rather than a rule with side effects elsewhere — key is the
- * normalised query after equipment/parens stripping.
+ * verified case rather than a rule with side effects elsewhere.
+ *
+ * Keyed on the *full* normalised name (parens included) so direction/detail
+ * carried only in a parenthetical — e.g. "(High to Low)" vs "(Low to High)" —
+ * can still resolve to different overrides, since buildSearchQuery would
+ * otherwise discard that parenthetical entirely and collapse both to the
+ * same stripped query.
  */
+const FULL_NAME_QUERY_ALIASES: Record<string, string> = {
+  "cable crossover low to high": "low fly",
+  "cable crossover high to low": "standing up straight crossovers",
+};
+
+/** Second-tier aliases keyed on the query *after* parens/equipment stripping. */
 const QUERY_ALIASES: Record<string, string> = {
   "chest fly": "fly", // machine/cable "chest fly" entries are typically named just "Fly" ("Lever Seated Fly")
 };
 
 /** Build a search query from our exercise name: drop parenthetical suffix + equipment words. */
 function buildSearchQuery(exerciseName: string): string {
+  const fullNameAlias = FULL_NAME_QUERY_ALIASES[norm(exerciseName)];
+  if (fullNameAlias) return fullNameAlias;
+
   const noParens = exerciseName.replace(/\s*\([^)]*\)/g, " ").trim();
   const stripped = stripEquipmentWords(noParens) || noParens;
   return QUERY_ALIASES[norm(stripped)] ?? stripped;

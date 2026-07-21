@@ -250774,11 +250774,17 @@ function stripEquipmentWords(s2) {
   }
   return out.replace(/\s+/g, " ").trim();
 }
+var FULL_NAME_QUERY_ALIASES = {
+  "cable crossover low to high": "low fly",
+  "cable crossover high to low": "standing up straight crossovers"
+};
 var QUERY_ALIASES = {
   "chest fly": "fly"
   // machine/cable "chest fly" entries are typically named just "Fly" ("Lever Seated Fly")
 };
 function buildSearchQuery(exerciseName) {
+  const fullNameAlias = FULL_NAME_QUERY_ALIASES[norm(exerciseName)];
+  if (fullNameAlias) return fullNameAlias;
   const noParens = exerciseName.replace(/\s*\([^)]*\)/g, " ").trim();
   const stripped = stripEquipmentWords(noParens) || noParens;
   return QUERY_ALIASES[norm(stripped)] ?? stripped;
