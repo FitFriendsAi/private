@@ -803,10 +803,10 @@ export default function ExerciseDetailPage() {
       <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 40 }}>
         {/* Exercise image / GIF */}
         <View style={{
-          backgroundColor: CARD, borderRadius: 16, overflow: "hidden",
+          backgroundColor: gifData?.gifUrl ? "#ffffff" : CARD, borderRadius: 16, overflow: "hidden",
           marginBottom: 20, height: 220,
           alignItems: "center", justifyContent: "center",
-          borderWidth: 1, borderColor: "#2a2a2a",
+          borderWidth: 1, borderColor: gifData?.gifUrl ? "#e8e8e8" : "#2a2a2a",
         }}>
           {gifData?.gifUrl ? (
             <Image
