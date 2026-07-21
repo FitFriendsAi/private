@@ -1578,6 +1578,11 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
     res.json(sets);
   });
 
+  // WorkoutX GIFs require an X-WorkoutX-Key header to fetch the image bytes,
+  // which an <Image> tag can't attach (and the key must never reach the client).
+  // Any cached URL on this domain is routed through our own proxy instead.
+  const WORKOUTX_GIF_BASE = "https://api.workoutxapp.com";
+
   // Return cached gifUrl, or fetch-and-cache from ExerciseDB if missing
   app.get("/api/exercises/:id/gif", async (req, res) => {
     if (!requireAuth(req, res)) return;
@@ -1585,17 +1590,48 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
     const exercise = await storage.getExerciseById(id);
     if (!exercise) return res.sendStatus(404);
 
-    // Serve from cache
-    if (exercise.gifUrl) return res.json({ gifUrl: exercise.gifUrl });
+    const toClientUrl = (url: string) =>
+      url.startsWith(WORKOUTX_GIF_BASE) ? `/api/exercises/${id}/gif-image` : url;
 
-    // Lazy-fetch from ExerciseDB, then cache
+    // Serve from cache
+    if (exercise.gifUrl) return res.json({ gifUrl: toClientUrl(exercise.gifUrl) });
+
+    // Lazy-fetch (WorkoutX first, ExerciseDB fallback), then cache the source URL
     const gifUrl = await fetchExerciseGif(exercise.name);
     if (gifUrl) {
       await storage.updateExerciseGifUrl(id, gifUrl);
-      return res.json({ gifUrl });
+      return res.json({ gifUrl: toClientUrl(gifUrl) });
     }
 
     res.json({ gifUrl: null });
+  });
+
+  // Proxies WorkoutX GIF bytes server-side (auth header never reaches the client).
+  // No requireAuth: exercise GIFs are generic, non-sensitive media, same as the
+  // previously-public free-exercise-db URLs this replaces for <Image> tags.
+  app.get("/api/exercises/:id/gif-image", async (req, res) => {
+    const id = Number(req.params.id);
+    const exercise = await storage.getExerciseById(id);
+    if (!exercise?.gifUrl) return res.sendStatus(404);
+
+    if (!exercise.gifUrl.startsWith(WORKOUTX_GIF_BASE)) {
+      return res.redirect(exercise.gifUrl);
+    }
+
+    const apiKey = process.env.WORKOUTX_API_KEY;
+    if (!apiKey) return res.sendStatus(404);
+
+    try {
+      const upstream = await fetch(exercise.gifUrl, { headers: { "X-WorkoutX-Key": apiKey } });
+      if (!upstream.ok || !upstream.body) return res.sendStatus(502);
+      res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "image/gif");
+      res.setHeader("Cache-Control", "public, max-age=604800, immutable");
+      const buf = Buffer.from(await upstream.arrayBuffer());
+      res.send(buf);
+    } catch (err) {
+      console.warn("[exercise gif-image] proxy failed:", err);
+      res.sendStatus(502);
+    }
   });
 
   // ── Templates ───────────────────────────────────────────────────────────────

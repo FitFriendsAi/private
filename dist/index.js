@@ -250698,6 +250698,7 @@ function estimateAdaptiveTDEE(params) {
 }
 
 // server/services/exercise-gif.ts
+var WORKOUTX_BASE = "https://api.workoutxapp.com";
 var EXERCISES_JSON_URL = "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/dist/exercises.json";
 var IMAGE_BASE = "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises";
 var cachedExercises = null;
@@ -250727,7 +250728,32 @@ function overlap(a2, b2) {
   });
   return common / Math.max(wa.size, wb.size);
 }
-async function fetchExerciseGif(exerciseName) {
+async function fetchFromWorkoutX(exerciseName) {
+  const apiKey = process.env.WORKOUTX_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const res = await fetch(
+      `${WORKOUTX_BASE}/v1/exercises/name/${encodeURIComponent(exerciseName)}`,
+      { headers: { "X-WorkoutX-Key": apiKey } }
+    );
+    if (!res.ok) {
+      if (res.status === 429) console.warn("[exercise-gif] WorkoutX rate limit hit");
+      else if (res.status !== 404) console.warn(`[exercise-gif] WorkoutX HTTP ${res.status}`);
+      return null;
+    }
+    const body = await res.json();
+    const results = Array.isArray(body) ? body : body.data ?? [];
+    if (results.length === 0) return null;
+    const needle = norm(exerciseName);
+    const exact = results.find((e2) => norm(e2.name) === needle);
+    const best = exact ?? results[0];
+    return best?.gifUrl ?? null;
+  } catch (err) {
+    console.warn("[exercise-gif] WorkoutX lookup failed:", err);
+    return null;
+  }
+}
+async function fetchFromFreeExerciseDb(exerciseName) {
   const list = await loadExercises();
   if (list.length === 0) return null;
   const needle = norm(exerciseName);
@@ -250748,6 +250774,11 @@ async function fetchExerciseGif(exerciseName) {
     return `${IMAGE_BASE}/${bestMatch.id}`;
   }
   return null;
+}
+async function fetchExerciseGif(exerciseName) {
+  const fromWorkoutX = await fetchFromWorkoutX(exerciseName);
+  if (fromWorkoutX) return fromWorkoutX;
+  return fetchFromFreeExerciseDb(exerciseName);
 }
 
 // node_modules/postal-mime/src/decode-strings.js
@@ -257363,18 +257394,41 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
     const sets = await storage.getPreviousWorkoutSets(req.user.id, Number(req.params.id));
     res.json(sets);
   });
+  const WORKOUTX_GIF_BASE = "https://api.workoutxapp.com";
   app2.get("/api/exercises/:id/gif", async (req, res) => {
     if (!requireAuth(req, res)) return;
     const id = Number(req.params.id);
     const exercise = await storage.getExerciseById(id);
     if (!exercise) return res.sendStatus(404);
-    if (exercise.gifUrl) return res.json({ gifUrl: exercise.gifUrl });
+    const toClientUrl = (url) => url.startsWith(WORKOUTX_GIF_BASE) ? `/api/exercises/${id}/gif-image` : url;
+    if (exercise.gifUrl) return res.json({ gifUrl: toClientUrl(exercise.gifUrl) });
     const gifUrl = await fetchExerciseGif(exercise.name);
     if (gifUrl) {
       await storage.updateExerciseGifUrl(id, gifUrl);
-      return res.json({ gifUrl });
+      return res.json({ gifUrl: toClientUrl(gifUrl) });
     }
     res.json({ gifUrl: null });
+  });
+  app2.get("/api/exercises/:id/gif-image", async (req, res) => {
+    const id = Number(req.params.id);
+    const exercise = await storage.getExerciseById(id);
+    if (!exercise?.gifUrl) return res.sendStatus(404);
+    if (!exercise.gifUrl.startsWith(WORKOUTX_GIF_BASE)) {
+      return res.redirect(exercise.gifUrl);
+    }
+    const apiKey = process.env.WORKOUTX_API_KEY;
+    if (!apiKey) return res.sendStatus(404);
+    try {
+      const upstream = await fetch(exercise.gifUrl, { headers: { "X-WorkoutX-Key": apiKey } });
+      if (!upstream.ok || !upstream.body) return res.sendStatus(502);
+      res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "image/gif");
+      res.setHeader("Cache-Control", "public, max-age=604800, immutable");
+      const buf = Buffer.from(await upstream.arrayBuffer());
+      res.send(buf);
+    } catch (err) {
+      console.warn("[exercise gif-image] proxy failed:", err);
+      res.sendStatus(502);
+    }
   });
   app2.get("/api/templates", async (req, res) => {
     if (!requireAuth(req, res)) return;
