@@ -204,7 +204,8 @@ export const exercises = pgTable("exercises", {
   equipment: text("equipment"), // barbell | dumbbell | machine | cable | bodyweight | smith_machine | none
   isCustom: boolean("is_custom").default(false),
   userId: integer("user_id"), // null = global, set = user-specific
-  gifUrl: text("gif_url"),    // cached from ExerciseDB API
+  gifUrl: text("gif_url"),    // cached from exercise GIF source
+  instructions: jsonb("instructions").$type<string[]>(), // cached step-by-step instructions
 });
 
 export const insertExerciseSchema = createInsertSchema(exercises).omit({ id: true });

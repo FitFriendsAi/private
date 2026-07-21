@@ -8,7 +8,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Polyline } from "react-native-svg";
-import { ChevronLeft, Dumbbell, TrendingUp } from "lucide-react-native";
+import { ChevronLeft, Dumbbell, TrendingUp, ListOrdered } from "lucide-react-native";
 import { apiRequest } from "@/lib/api";
 import { gramsToLbs } from "@/lib/utils";
 
@@ -259,6 +259,58 @@ function BarChart({
 }
 
 // ── Personal records banner ────────────────────────────────────────────────────
+// ── How-to instructions ─────────────────────────────────────────────────────
+function InstructionsCard({ instructions }: { instructions: string[] }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!instructions.length) return null;
+
+  const COLLAPSED_COUNT = 3;
+  const visible = expanded ? instructions : instructions.slice(0, COLLAPSED_COUNT);
+  const hasMore = instructions.length > COLLAPSED_COUNT;
+
+  return (
+    <View style={{
+      backgroundColor: CARD, borderRadius: 16, padding: 16,
+      marginBottom: 20, borderWidth: 1, borderColor: "#2a2a2a",
+    }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
+        <ListOrdered size={14} color={LIME} />
+        <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: "#fff" }}>
+          How To
+        </Text>
+      </View>
+      <View style={{ gap: 12 }}>
+        {visible.map((step, i) => (
+          <View key={i} style={{ flexDirection: "row", gap: 10, alignItems: "flex-start" }}>
+            <View style={{
+              width: 20, height: 20, borderRadius: 10,
+              backgroundColor: LIME + "22", alignItems: "center", justifyContent: "center",
+              marginTop: 1,
+            }}>
+              <Text style={{ fontFamily: "Manrope-Bold", fontSize: 10, color: LIME }}>
+                {i + 1}
+              </Text>
+            </View>
+            <Text style={{ flex: 1, fontFamily: "Manrope", fontSize: 13, color: "#ddd", lineHeight: 19 }}>
+              {step}
+            </Text>
+          </View>
+        ))}
+      </View>
+      {hasMore && (
+        <Pressable
+          onPress={() => setExpanded(e => !e)}
+          style={({ pressed }) => ({ marginTop: 12, opacity: pressed ? 0.6 : 1 })}
+        >
+          <Text style={{ fontFamily: "Manrope-SemiBold", fontSize: 12, color: LIME }}>
+            {expanded ? "Show less" : `Show ${instructions.length - COLLAPSED_COUNT} more steps`}
+          </Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
 function PRBanner({ history }: { history: any[] }) {
   if (!history.length) return null;
   const maxW    = Math.max(...history.map(h => h.maxWeightGrams));
@@ -694,7 +746,7 @@ export default function ExerciseDetailPage() {
 
   const { data: gifData } = useQuery({
     queryKey: [`/api/exercises/${exerciseId}/gif`],
-    queryFn:  () => apiRequest<{ gifUrl: string | null }>("GET", `/api/exercises/${exerciseId}/gif`),
+    queryFn:  () => apiRequest<{ gifUrl: string | null; instructions: string[] }>("GET", `/api/exercises/${exerciseId}/gif`),
     enabled:  !!exerciseId,
   });
 
@@ -777,6 +829,9 @@ export default function ExerciseDetailPage() {
             </View>
           )}
         </View>
+
+        {/* How-to instructions */}
+        <InstructionsCard instructions={gifData?.instructions ?? []} />
 
         {/* Personal records */}
         <PRBanner history={history} />

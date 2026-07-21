@@ -1583,7 +1583,7 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
   // Any cached URL on this domain is routed through our own proxy instead.
   const WORKOUTX_GIF_BASE = "https://api.workoutxapp.com";
 
-  // Return cached gifUrl, or fetch-and-cache from ExerciseDB if missing
+  // Return cached gifUrl + instructions, or fetch-and-cache if missing
   app.get("/api/exercises/:id/gif", async (req, res) => {
     if (!requireAuth(req, res)) return;
     const id = Number(req.params.id);
@@ -1594,16 +1594,18 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
       url.startsWith(WORKOUTX_GIF_BASE) ? `/api/exercises/${id}/gif-image` : url;
 
     // Serve from cache
-    if (exercise.gifUrl) return res.json({ gifUrl: toClientUrl(exercise.gifUrl) });
-
-    // Lazy-fetch (WorkoutX first, ExerciseDB fallback), then cache the source URL
-    const gifUrl = await fetchExerciseGif(exercise.name, exercise.equipment);
-    if (gifUrl) {
-      await storage.updateExerciseGifUrl(id, gifUrl);
-      return res.json({ gifUrl: toClientUrl(gifUrl) });
+    if (exercise.gifUrl) {
+      return res.json({ gifUrl: toClientUrl(exercise.gifUrl), instructions: exercise.instructions ?? [] });
     }
 
-    res.json({ gifUrl: null });
+    // Lazy-fetch (exercises-gifs repo → WorkoutX → free-exercise-db), then cache
+    const media = await fetchExerciseGif(exercise.name, exercise.equipment);
+    if (media) {
+      await storage.updateExerciseGifUrl(id, media.gifUrl, media.instructions);
+      return res.json({ gifUrl: toClientUrl(media.gifUrl), instructions: media.instructions });
+    }
+
+    res.json({ gifUrl: null, instructions: [] });
   });
 
   // Proxies WorkoutX GIF bytes server-side (auth header never reaches the client).

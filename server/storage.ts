@@ -544,8 +544,8 @@ export const storage = {
     const [e] = await db.select().from(exercises).where(eq(exercises.id, id));
     return e;
   },
-  async updateExerciseGifUrl(id: number, gifUrl: string): Promise<void> {
-    await db.update(exercises).set({ gifUrl }).where(eq(exercises.id, id));
+  async updateExerciseGifUrl(id: number, gifUrl: string, instructions?: string[]): Promise<void> {
+    await db.update(exercises).set({ gifUrl, instructions }).where(eq(exercises.id, id));
   },
   async countExercises(): Promise<number> {
     const result = await db.select().from(exercises).where(isNull(exercises.userId));

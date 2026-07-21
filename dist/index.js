@@ -245609,8 +245609,10 @@ var exercises = pgTable("exercises", {
   isCustom: boolean("is_custom").default(false),
   userId: integer("user_id"),
   // null = global, set = user-specific
-  gifUrl: text("gif_url")
-  // cached from ExerciseDB API
+  gifUrl: text("gif_url"),
+  // cached from exercise GIF source
+  instructions: jsonb("instructions").$type()
+  // cached step-by-step instructions
 });
 var insertExerciseSchema = c(exercises).omit({ id: true });
 var workoutTemplates = pgTable("workout_templates", {
@@ -246152,8 +246154,8 @@ var storage = {
     const [e2] = await db.select().from(exercises).where(eq(exercises.id, id));
     return e2;
   },
-  async updateExerciseGifUrl(id, gifUrl) {
-    await db.update(exercises).set({ gifUrl }).where(eq(exercises.id, id));
+  async updateExerciseGifUrl(id, gifUrl, instructions) {
+    await db.update(exercises).set({ gifUrl, instructions }).where(eq(exercises.id, id));
   },
   async countExercises() {
     const result = await db.select().from(exercises).where(isNull(exercises.userId));
@@ -250822,12 +250824,14 @@ async function loadExGifsCsv() {
     const idxEquipment = header.indexOf("equipment");
     const idxId = header.indexOf("id");
     const idxName = header.indexOf("name");
+    const instructionIndices = header.map((h2, i2) => ({ h: h2, i: i2 })).filter(({ h: h2 }) => h2.startsWith("instructions/")).sort((a2, b2) => parseInt(a2.h.split("/")[1], 10) - parseInt(b2.h.split("/")[1], 10)).map(({ i: i2 }) => i2);
     cachedExGifs = lines.slice(1).map((line2) => {
       const cols = parseCSVRow(line2);
       return {
         id: cols[idxId] ?? "",
         name: cols[idxName] ?? "",
-        equipment: cols[idxEquipment] ?? ""
+        equipment: cols[idxEquipment] ?? "",
+        instructions: instructionIndices.map((i2) => cols[i2]?.trim()).filter((s2) => !!s2)
       };
     }).filter((e2) => e2.id && e2.name);
     console.log(`[exercise-gif] Loaded ${cachedExGifs.length} exercises from exercises-gifs repo`);
@@ -250862,7 +250866,7 @@ async function fetchFromExercisesGifsRepo(exerciseName, equipment) {
     (e2) => stripEquipmentWords(e2.name),
     (e2) => exGifsEquipmentMatches(bucket, e2.equipment)
   );
-  return best ? `${EXGIFS_ASSET_BASE}/${best.id}.gif` : null;
+  return best ? { gifUrl: `${EXGIFS_ASSET_BASE}/${best.id}.gif`, instructions: best.instructions } : null;
 }
 var WORKOUTX_BASE = "https://api.workoutxapp.com";
 var WORKOUTX_EQUIPMENT_SUBSTRINGS = {
@@ -250905,7 +250909,8 @@ async function fetchFromWorkoutX(exerciseName, equipment) {
       (e2) => stripEquipmentWords(e2.name),
       (e2) => equipmentMatches(bucket, e2.equipment)
     );
-    return best?.gifUrl ?? null;
+    if (!best?.gifUrl) return null;
+    return { gifUrl: best.gifUrl, instructions: best.instructions ?? [] };
   } catch (err) {
     console.warn("[exercise-gif] WorkoutX lookup failed:", err);
     return null;
@@ -250933,10 +250938,10 @@ async function fetchFromFreeExerciseDb(exerciseName) {
   const needle = norm(exerciseName);
   const exact = list.find((e2) => norm(e2.name) === needle);
   if (exact && exact.images.length > 0) {
-    return `${IMAGE_BASE}/${exact.id}`;
+    return { gifUrl: `${IMAGE_BASE}/${exact.id}`, instructions: exact.instructions ?? [] };
   }
   const bestMatch = pickBestMatch(needle, list, (e2) => e2.name, (e2) => e2.images.length > 0);
-  return bestMatch ? `${IMAGE_BASE}/${bestMatch.id}` : null;
+  return bestMatch ? { gifUrl: `${IMAGE_BASE}/${bestMatch.id}`, instructions: bestMatch.instructions ?? [] } : null;
 }
 async function fetchExerciseGif(exerciseName, equipment) {
   const fromExGifs = await fetchFromExercisesGifsRepo(exerciseName, equipment);
@@ -257566,13 +257571,15 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
     const exercise = await storage.getExerciseById(id);
     if (!exercise) return res.sendStatus(404);
     const toClientUrl = (url) => url.startsWith(WORKOUTX_GIF_BASE) ? `/api/exercises/${id}/gif-image` : url;
-    if (exercise.gifUrl) return res.json({ gifUrl: toClientUrl(exercise.gifUrl) });
-    const gifUrl = await fetchExerciseGif(exercise.name, exercise.equipment);
-    if (gifUrl) {
-      await storage.updateExerciseGifUrl(id, gifUrl);
-      return res.json({ gifUrl: toClientUrl(gifUrl) });
+    if (exercise.gifUrl) {
+      return res.json({ gifUrl: toClientUrl(exercise.gifUrl), instructions: exercise.instructions ?? [] });
     }
-    res.json({ gifUrl: null });
+    const media = await fetchExerciseGif(exercise.name, exercise.equipment);
+    if (media) {
+      await storage.updateExerciseGifUrl(id, media.gifUrl, media.instructions);
+      return res.json({ gifUrl: toClientUrl(media.gifUrl), instructions: media.instructions });
+    }
+    res.json({ gifUrl: null, instructions: [] });
   });
   app2.get("/api/exercises/:id/gif-image", async (req, res) => {
     const id = Number(req.params.id);

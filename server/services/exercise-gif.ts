@@ -1,20 +1,31 @@
 /**
- * Exercise GIF lookup, tried in order:
+ * Exercise GIF + instructions lookup, tried in order:
  *
  * 1. omercotkd/exercises-gifs (https://github.com/omercotkd/exercises-gifs) —
  *    1,323 unwatermarked GIFs on jsDelivr's public CDN, no API key, no rate limit.
- *    We fetch its exercises.csv once and match locally by name + equipment.
+ *    We fetch its exercises.csv once and match locally by name + equipment; the
+ *    same CSV also has step-by-step instructions per exercise.
  *
  * 2. WorkoutX API (https://workoutxapp.com) — real animated GIFs via name search,
  *    but watermarked and metered. Requires WORKOUTX_API_KEY. Results are cached
  *    by the caller (storage.updateExerciseGifUrl) so each exercise is only ever
- *    looked up once against WorkoutX's quota.
+ *    looked up once against WorkoutX's quota. Its response also includes
+ *    instructions per exercise.
  *
  * 3. free-exercise-db (https://github.com/yuhonas/free-exercise-db) — final
  *    fallback when neither of the above has a confident match. No API key
  *    required; images are hosted on GitHub's CDN. We fetch its exercises.json
- *    once on first use and keep it in memory.
+ *    once on first use and keep it in memory; it also has instructions.
+ *
+ * Every source is matched once per exercise and returns gif + instructions
+ * together from the same candidate, so the two can never come from different
+ * (and possibly disagreeing) matches.
  */
+
+export interface ExerciseMedia {
+  gifUrl: string;
+  instructions: string[];
+}
 
 // ── Shared matching helpers ───────────────────────────────────────────────────
 
@@ -173,9 +184,10 @@ const EXGIFS_ASSET_BASE =
   "https://cdn.jsdelivr.net/gh/omercotkd/exercises-gifs@main/assets";
 
 interface ExGifsExercise {
-  id: string;         // e.g. "0025" — matches assets/0025.gif
-  name: string;        // e.g. "barbell bench press"
-  equipment: string;   // e.g. "barbell", "leverage machine", "body weight"
+  id: string;              // e.g. "0025" — matches assets/0025.gif
+  name: string;             // e.g. "barbell bench press"
+  equipment: string;        // e.g. "barbell", "leverage machine", "body weight"
+  instructions: string[];
 }
 
 let cachedExGifs: ExGifsExercise[] | null = null;
@@ -191,12 +203,25 @@ async function loadExGifsCsv(): Promise<ExGifsExercise[]> {
     const idxEquipment = header.indexOf("equipment");
     const idxId = header.indexOf("id");
     const idxName = header.indexOf("name");
+    // instructions/0, instructions/1, ... columns are interleaved with
+    // secondaryMuscles/N columns in this CSV (an artifact of how it was
+    // flattened from JSON), so find them by header name and sort numerically
+    // rather than assuming fixed positions.
+    const instructionIndices = header
+      .map((h, i) => ({ h, i }))
+      .filter(({ h }) => h.startsWith("instructions/"))
+      .sort((a, b) => parseInt(a.h.split("/")[1], 10) - parseInt(b.h.split("/")[1], 10))
+      .map(({ i }) => i);
+
     cachedExGifs = lines.slice(1).map(line => {
       const cols = parseCSVRow(line);
       return {
         id: cols[idxId] ?? "",
         name: cols[idxName] ?? "",
         equipment: cols[idxEquipment] ?? "",
+        instructions: instructionIndices
+          .map(i => cols[i]?.trim())
+          .filter((s): s is string => !!s),
       };
     }).filter(e => e.id && e.name);
     console.log(`[exercise-gif] Loaded ${cachedExGifs.length} exercises from exercises-gifs repo`);
@@ -229,7 +254,7 @@ function exGifsEquipmentMatches(bucket: EquipBucket, datasetEquipment: string): 
  * Word-overlap on the equipment-stripped name, gated by requiring the equipment
  * bucket to match. No confident match returns null so the caller tries WorkoutX next.
  */
-async function fetchFromExercisesGifsRepo(exerciseName: string, equipment?: string | null): Promise<string | null> {
+async function fetchFromExercisesGifsRepo(exerciseName: string, equipment?: string | null): Promise<ExerciseMedia | null> {
   const list = await loadExGifsCsv();
   if (list.length === 0) return null;
 
@@ -242,7 +267,7 @@ async function fetchFromExercisesGifsRepo(exerciseName: string, equipment?: stri
     e => exGifsEquipmentMatches(bucket, e.equipment),
   );
 
-  return best ? `${EXGIFS_ASSET_BASE}/${best.id}.gif` : null;
+  return best ? { gifUrl: `${EXGIFS_ASSET_BASE}/${best.id}.gif`, instructions: best.instructions } : null;
 }
 
 // ── Source 2: WorkoutX API (watermarked, metered, requires key) ───────────────
@@ -254,6 +279,7 @@ interface WorkoutXExercise {
   name: string;
   equipment?: string;
   gifUrl?: string;
+  instructions?: string[];
 }
 
 const WORKOUTX_EQUIPMENT_SUBSTRINGS: Record<Exclude<EquipBucket, null>, string[]> = {
@@ -289,7 +315,7 @@ function equipmentMatches(bucket: EquipBucket, workoutXEquipment: string | undef
  * accepted if it clears both bars — an ambiguous/no-match result falls through to
  * the free-exercise-db fallback rather than returning a wrong-equipment GIF.
  */
-async function fetchFromWorkoutX(exerciseName: string, equipment?: string | null): Promise<string | null> {
+async function fetchFromWorkoutX(exerciseName: string, equipment?: string | null): Promise<ExerciseMedia | null> {
   const apiKey = process.env.WORKOUTX_API_KEY;
   if (!apiKey) return null;
 
@@ -316,7 +342,8 @@ async function fetchFromWorkoutX(exerciseName: string, equipment?: string | null
       e => equipmentMatches(bucket, e.equipment),
     );
 
-    return best?.gifUrl ?? null;
+    if (!best?.gifUrl) return null;
+    return { gifUrl: best.gifUrl, instructions: best.instructions ?? [] };
   } catch (err) {
     console.warn("[exercise-gif] WorkoutX lookup failed:", err);
     return null;
@@ -331,10 +358,11 @@ const IMAGE_BASE =
   "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises";
 
 interface FreeExercise {
-  id: string;        // e.g. "Barbell_Bench_Press_-_Medium_Grip"
-  name: string;      // e.g. "Barbell Bench Press - Medium Grip"
+  id: string;              // e.g. "Barbell_Bench_Press_-_Medium_Grip"
+  name: string;             // e.g. "Barbell Bench Press - Medium Grip"
   primaryMuscles: string[];
-  images: string[];  // relative paths like "Barbell_Bench_Press_-_Medium_Grip/0.jpg"
+  images: string[];         // relative paths like "Barbell_Bench_Press_-_Medium_Grip/0.jpg"
+  instructions?: string[];
 }
 
 let cachedExercises: FreeExercise[] | null = null;
@@ -354,12 +382,12 @@ async function loadExercises(): Promise<FreeExercise[]> {
 }
 
 /**
- * Fallback: find an image base URL for the given exercise name from free-exercise-db.
- * Returns a URL like:
+ * Fallback: find an image + instructions for the given exercise name from
+ * free-exercise-db. gifUrl is a base URL like
  *   https://raw.githubusercontent.com/.../exercises/Barbell_Bench_Press_-_Medium_Grip
  * The caller appends /0.jpg and /1.jpg for the two frames.
  */
-async function fetchFromFreeExerciseDb(exerciseName: string): Promise<string | null> {
+async function fetchFromFreeExerciseDb(exerciseName: string): Promise<ExerciseMedia | null> {
   const list = await loadExercises();
   if (list.length === 0) return null;
 
@@ -368,23 +396,23 @@ async function fetchFromFreeExerciseDb(exerciseName: string): Promise<string | n
   // 1. Exact normalised match
   const exact = list.find(e => norm(e.name) === needle);
   if (exact && exact.images.length > 0) {
-    return `${IMAGE_BASE}/${exact.id}`;
+    return { gifUrl: `${IMAGE_BASE}/${exact.id}`, instructions: exact.instructions ?? [] };
   }
 
   // 2. Best word-overlap match, threshold scaled by query length (see overlapThreshold)
   const bestMatch = pickBestMatch(needle, list, e => e.name, e => e.images.length > 0);
-  return bestMatch ? `${IMAGE_BASE}/${bestMatch.id}` : null;
+  return bestMatch ? { gifUrl: `${IMAGE_BASE}/${bestMatch.id}`, instructions: bestMatch.instructions ?? [] } : null;
 }
 
 // ── Orchestrator ────────────────────────────────────────────────────────────
 
 /**
- * Resolve a GIF/image URL for an exercise: exercises-gifs repo first (unwatermarked,
- * unmetered), then WorkoutX, then free-exercise-db as a last resort.
+ * Resolve a GIF + instructions for an exercise: exercises-gifs repo first
+ * (unwatermarked, unmetered), then WorkoutX, then free-exercise-db as a last resort.
  * Pass `equipment` (our schema's exercises.equipment enum value) whenever available —
  * it's the difference between a correctly-matched GIF and a wrong-equipment one.
  */
-export async function fetchExerciseGif(exerciseName: string, equipment?: string | null): Promise<string | null> {
+export async function fetchExerciseGif(exerciseName: string, equipment?: string | null): Promise<ExerciseMedia | null> {
   const fromExGifs = await fetchFromExercisesGifsRepo(exerciseName, equipment);
   if (fromExGifs) return fromExGifs;
 
