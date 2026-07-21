@@ -250698,35 +250698,59 @@ function estimateAdaptiveTDEE(params) {
 }
 
 // server/services/exercise-gif.ts
-var WORKOUTX_BASE = "https://api.workoutxapp.com";
-var EXERCISES_JSON_URL = "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/dist/exercises.json";
-var IMAGE_BASE = "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises";
-var cachedExercises = null;
-async function loadExercises() {
-  if (cachedExercises) return cachedExercises;
-  try {
-    const res = await fetch(EXERCISES_JSON_URL);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    cachedExercises = await res.json();
-    console.log(`[exercise-gif] Loaded ${cachedExercises.length} exercises from free-exercise-db`);
-  } catch (err) {
-    console.warn("[exercise-gif] Could not load free-exercise-db:", err);
-    cachedExercises = [];
-  }
-  return cachedExercises;
-}
 function norm(s2) {
   return s2.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 }
-function overlap(a2, b2) {
-  const wa = new Set(a2.split(" ").filter((w2) => w2.length > 2));
-  const wb = new Set(b2.split(" ").filter((w2) => w2.length > 2));
-  if (wa.size === 0 || wb.size === 0) return 0;
-  let common = 0;
-  wa.forEach((w2) => {
-    if (wb.has(w2)) common++;
-  });
-  return common / Math.max(wa.size, wb.size);
+function overlap(query, candidate) {
+  const queryWords = query.split(" ").filter((w2) => w2.length > 2);
+  const candidateWords = new Set(candidate.split(" ").filter((w2) => w2.length > 2));
+  if (queryWords.length === 0) return 0;
+  const common = queryWords.filter((w2) => candidateWords.has(w2)).length;
+  return common / queryWords.length;
+}
+function overlapThreshold(query) {
+  const wordCount = query.split(" ").filter((w2) => w2.length > 2).length;
+  return wordCount <= 2 ? 1 : 0.6;
+}
+function pickBestMatch(query, candidates, getName2, isEligible = () => true) {
+  const needle = norm(query);
+  const threshold = overlapThreshold(needle);
+  let best = null;
+  let bestScore = 0;
+  let bestWordCount = Infinity;
+  for (const c3 of candidates) {
+    if (!isEligible(c3)) continue;
+    const candidateName = norm(getName2(c3));
+    const score = overlap(needle, candidateName);
+    if (score < threshold) continue;
+    const wordCount = candidateName.split(" ").filter((w2) => w2.length > 2).length;
+    if (score > bestScore || score === bestScore && wordCount < bestWordCount) {
+      best = c3;
+      bestScore = score;
+      bestWordCount = wordCount;
+    }
+  }
+  return best;
+}
+function parseCSVRow(line2) {
+  const result = [];
+  let current = "";
+  let inQuote = false;
+  for (let i2 = 0; i2 < line2.length; i2++) {
+    const ch = line2[i2];
+    if (ch === '"') {
+      inQuote = !inQuote;
+      continue;
+    }
+    if (ch === "," && !inQuote) {
+      result.push(current);
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  result.push(current);
+  return result;
 }
 var EQUIPMENT_WORDS = [
   "barbell",
@@ -250752,7 +250776,7 @@ function buildSearchQuery(exerciseName) {
   const noParens = exerciseName.replace(/\s*\([^)]*\)/g, " ").trim();
   return stripEquipmentWords(noParens) || noParens;
 }
-function ourEquipmentBucket(equipment) {
+function bucketFromEnum(equipment) {
   switch (equipment) {
     case "barbell":
       return "barbell";
@@ -250771,26 +250795,97 @@ function ourEquipmentBucket(equipment) {
       return null;
   }
 }
+function bucketFromName(exerciseName) {
+  const lower = exerciseName.toLowerCase();
+  if (/\bsmith\b/.test(lower)) return "smith";
+  if (/\bmachine\b/.test(lower)) return "machine";
+  if (/\bbarbell\b/.test(lower)) return "barbell";
+  if (/\bdumbbell\b/.test(lower)) return "dumbbell";
+  if (/\bcable\b/.test(lower)) return "cable";
+  if (/\bbody\s*weight\b/.test(lower) || /\bbodyweight\b/.test(lower)) return "bodyweight";
+  return null;
+}
+function resolveEquipmentBucket(exerciseName, equipment) {
+  return bucketFromEnum(equipment) ?? bucketFromName(exerciseName);
+}
+var EXGIFS_CSV_URL = "https://cdn.jsdelivr.net/gh/omercotkd/exercises-gifs@main/exercises.csv";
+var EXGIFS_ASSET_BASE = "https://cdn.jsdelivr.net/gh/omercotkd/exercises-gifs@main/assets";
+var cachedExGifs = null;
+async function loadExGifsCsv() {
+  if (cachedExGifs) return cachedExGifs;
+  try {
+    const res = await fetch(EXGIFS_CSV_URL);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text2 = await res.text();
+    const lines = text2.split("\n").filter((l2) => l2.trim().length > 0);
+    const header = parseCSVRow(lines[0]);
+    const idxEquipment = header.indexOf("equipment");
+    const idxId = header.indexOf("id");
+    const idxName = header.indexOf("name");
+    cachedExGifs = lines.slice(1).map((line2) => {
+      const cols = parseCSVRow(line2);
+      return {
+        id: cols[idxId] ?? "",
+        name: cols[idxName] ?? "",
+        equipment: cols[idxEquipment] ?? ""
+      };
+    }).filter((e2) => e2.id && e2.name);
+    console.log(`[exercise-gif] Loaded ${cachedExGifs.length} exercises from exercises-gifs repo`);
+  } catch (err) {
+    console.warn("[exercise-gif] Could not load exercises-gifs CSV:", err);
+    cachedExGifs = [];
+  }
+  return cachedExGifs;
+}
+var EXGIFS_EQUIPMENT_SUBSTRINGS = {
+  barbell: ["barbell"],
+  // covers "barbell", "ez barbell", "olympic barbell"
+  dumbbell: ["dumbbell"],
+  cable: ["cable"],
+  machine: ["leverage machine"],
+  smith: ["smith machine"],
+  bodyweight: ["body weight"]
+};
+function exGifsEquipmentMatches(bucket, datasetEquipment) {
+  if (bucket === null) return true;
+  const e2 = datasetEquipment.toLowerCase();
+  return EXGIFS_EQUIPMENT_SUBSTRINGS[bucket].some((sub) => e2.includes(sub));
+}
+async function fetchFromExercisesGifsRepo(exerciseName, equipment) {
+  const list = await loadExGifsCsv();
+  if (list.length === 0) return null;
+  const query = buildSearchQuery(exerciseName);
+  const bucket = resolveEquipmentBucket(exerciseName, equipment);
+  const best = pickBestMatch(
+    query,
+    list,
+    (e2) => stripEquipmentWords(e2.name),
+    (e2) => exGifsEquipmentMatches(bucket, e2.equipment)
+  );
+  return best ? `${EXGIFS_ASSET_BASE}/${best.id}.gif` : null;
+}
+var WORKOUTX_BASE = "https://api.workoutxapp.com";
 var WORKOUTX_EQUIPMENT_SUBSTRINGS = {
   barbell: ["barbell"],
   // covers "Barbell", "Olympic Barbell"
   dumbbell: ["dumbbell"],
   cable: ["cable"],
   machine: ["machine", "leverage"],
-  // covers "Machine", "Leverage Machine"
+  // covers "Machine", "Leverage Machine" — but NOT "Smith Machine", see below
   smith: ["smith"],
   bodyweight: ["body weight", "bodyweight"]
 };
 function equipmentMatches(bucket, workoutXEquipment) {
   if (bucket === null) return true;
   const e2 = (workoutXEquipment ?? "").toLowerCase();
+  if (bucket === "machine" && e2.includes("smith")) return false;
   return WORKOUTX_EQUIPMENT_SUBSTRINGS[bucket].some((sub) => e2.includes(sub));
 }
 async function fetchFromWorkoutX(exerciseName, equipment) {
   const apiKey = process.env.WORKOUTX_API_KEY;
   if (!apiKey) return null;
   const query = buildSearchQuery(exerciseName);
-  const bucket = ourEquipmentBucket(equipment);
+  const bucket = resolveEquipmentBucket(exerciseName, equipment);
   try {
     const res = await fetch(
       `${WORKOUTX_BASE}/v1/exercises/name/${encodeURIComponent(query)}`,
@@ -250804,23 +250899,33 @@ async function fetchFromWorkoutX(exerciseName, equipment) {
     const body = await res.json();
     const results = Array.isArray(body) ? body : body.data ?? [];
     if (results.length === 0) return null;
-    const needle = norm(query);
-    let best = null;
-    let bestScore = 0;
-    for (const e2 of results) {
-      if (!equipmentMatches(bucket, e2.equipment)) continue;
-      const score = overlap(needle, norm(stripEquipmentWords(e2.name)));
-      if (score > bestScore) {
-        bestScore = score;
-        best = e2;
-      }
-    }
-    if (best && bestScore >= 0.5) return best.gifUrl ?? null;
-    return null;
+    const best = pickBestMatch(
+      query,
+      results,
+      (e2) => stripEquipmentWords(e2.name),
+      (e2) => equipmentMatches(bucket, e2.equipment)
+    );
+    return best?.gifUrl ?? null;
   } catch (err) {
     console.warn("[exercise-gif] WorkoutX lookup failed:", err);
     return null;
   }
+}
+var EXERCISES_JSON_URL = "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/dist/exercises.json";
+var IMAGE_BASE = "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises";
+var cachedExercises = null;
+async function loadExercises() {
+  if (cachedExercises) return cachedExercises;
+  try {
+    const res = await fetch(EXERCISES_JSON_URL);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    cachedExercises = await res.json();
+    console.log(`[exercise-gif] Loaded ${cachedExercises.length} exercises from free-exercise-db`);
+  } catch (err) {
+    console.warn("[exercise-gif] Could not load free-exercise-db:", err);
+    cachedExercises = [];
+  }
+  return cachedExercises;
 }
 async function fetchFromFreeExerciseDb(exerciseName) {
   const list = await loadExercises();
@@ -250830,21 +250935,12 @@ async function fetchFromFreeExerciseDb(exerciseName) {
   if (exact && exact.images.length > 0) {
     return `${IMAGE_BASE}/${exact.id}`;
   }
-  let bestScore = 0;
-  let bestMatch = null;
-  for (const e2 of list) {
-    const score = overlap(needle, norm(e2.name));
-    if (score > bestScore) {
-      bestScore = score;
-      bestMatch = e2;
-    }
-  }
-  if (bestMatch && bestScore >= 0.5 && bestMatch.images.length > 0) {
-    return `${IMAGE_BASE}/${bestMatch.id}`;
-  }
-  return null;
+  const bestMatch = pickBestMatch(needle, list, (e2) => e2.name, (e2) => e2.images.length > 0);
+  return bestMatch ? `${IMAGE_BASE}/${bestMatch.id}` : null;
 }
 async function fetchExerciseGif(exerciseName, equipment) {
+  const fromExGifs = await fetchFromExercisesGifsRepo(exerciseName, equipment);
+  if (fromExGifs) return fromExGifs;
   const fromWorkoutX = await fetchFromWorkoutX(exerciseName, equipment);
   if (fromWorkoutX) return fromWorkoutX;
   return fetchFromFreeExerciseDb(exerciseName);
@@ -257807,7 +257903,7 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
     const { csv } = req.body;
     if (!csv) return res.status(400).json({ message: "No CSV provided" });
     try {
-      let parseCSVRow2 = function(line2) {
+      let parseCSVRow3 = function(line2) {
         const result = [];
         let current = "";
         let inQuote = false;
@@ -257834,14 +257930,14 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
         const d2 = new Date(parseInt(year), months[mon], parseInt(day), parseInt(hour), parseInt(min));
         return { date: d2.toISOString().slice(0, 10), iso: d2.toISOString() };
       };
-      var parseCSVRow = parseCSVRow2, parseHevyDate = parseHevyDate2;
+      var parseCSVRow2 = parseCSVRow3, parseHevyDate = parseHevyDate2;
       const lines = csv.split("\n").map((l2) => l2.trim()).filter(Boolean);
       const header = lines[0];
       const rows = lines.slice(1);
       const sessions = /* @__PURE__ */ new Map();
       for (const line2 of rows) {
         if (!line2) continue;
-        const cols = parseCSVRow2(line2);
+        const cols = parseCSVRow3(line2);
         const [title, startTime, endTime] = cols;
         const key = `${title}|||${startTime}`;
         if (!sessions.has(key)) sessions.set(key, { title, startTime, endTime, rows: [] });
