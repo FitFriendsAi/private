@@ -136,10 +136,26 @@ function stripEquipmentWords(s: string): string {
   return out.replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Confirmed corrections for exercise names where the standard word-overlap
+ * matcher under- or mis-fires. NOT a general "strip body-part words" rule —
+ * that was tried and reverted: dropping "chest" broadly made "Chest Dip" and
+ * "Triceps Dip" indistinguishable (both are bodyweight dip variants in these
+ * datasets), and loosening the coverage threshold to compensate let "Chest Fly"
+ * match "Lever Chest Press" (wrong movement) and reopened the earlier
+ * "Face Pull" → "Cable Twisting Pull" bug. Each entry here is a specific,
+ * verified case rather than a rule with side effects elsewhere — key is the
+ * normalised query after equipment/parens stripping.
+ */
+const QUERY_ALIASES: Record<string, string> = {
+  "chest fly": "fly", // machine/cable "chest fly" entries are typically named just "Fly" ("Lever Seated Fly")
+};
+
 /** Build a search query from our exercise name: drop parenthetical suffix + equipment words. */
 function buildSearchQuery(exerciseName: string): string {
   const noParens = exerciseName.replace(/\s*\([^)]*\)/g, " ").trim();
-  return stripEquipmentWords(noParens) || noParens;
+  const stripped = stripEquipmentWords(noParens) || noParens;
+  return QUERY_ALIASES[norm(stripped)] ?? stripped;
 }
 
 // Canonical equipment buckets. Our schema's `equipment` enum maps 1:1 into these;

@@ -250774,9 +250774,14 @@ function stripEquipmentWords(s2) {
   }
   return out.replace(/\s+/g, " ").trim();
 }
+var QUERY_ALIASES = {
+  "chest fly": "fly"
+  // machine/cable "chest fly" entries are typically named just "Fly" ("Lever Seated Fly")
+};
 function buildSearchQuery(exerciseName) {
   const noParens = exerciseName.replace(/\s*\([^)]*\)/g, " ").trim();
-  return stripEquipmentWords(noParens) || noParens;
+  const stripped = stripEquipmentWords(noParens) || noParens;
+  return QUERY_ALIASES[norm(stripped)] ?? stripped;
 }
 function bucketFromEnum(equipment) {
   switch (equipment) {
