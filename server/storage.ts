@@ -540,6 +540,16 @@ export const storage = {
     const [e] = await db.insert(exercises).values(data as any).returning();
     return e;
   },
+  /** Bulk-insert exercises in chunks (used by CSV import). Order preserved, see bulkCreateWorkouts. */
+  async bulkCreateExercises(data: InsertExercise[]): Promise<Exercise[]> {
+    if (data.length === 0) return [];
+    const CHUNK = 500;
+    const out: Exercise[] = [];
+    for (let i = 0; i < data.length; i += CHUNK) {
+      out.push(...await db.insert(exercises).values(data.slice(i, i + CHUNK) as any).returning());
+    }
+    return out;
+  },
   async getExerciseById(id: number): Promise<Exercise | undefined> {
     const [e] = await db.select().from(exercises).where(eq(exercises.id, id));
     return e;
@@ -660,6 +670,21 @@ export const storage = {
     const [w] = await db.insert(workouts).values(data).returning();
     return w;
   },
+  /**
+   * Bulk-insert workouts in chunks (used by CSV import to avoid one round-trip
+   * per row). Returned rows preserve the same order as `data` — Postgres
+   * processes a single multi-row INSERT's VALUES list in order, and RETURNING
+   * reflects that order.
+   */
+  async bulkCreateWorkouts(data: InsertWorkout[]): Promise<Workout[]> {
+    if (data.length === 0) return [];
+    const CHUNK = 500;
+    const out: Workout[] = [];
+    for (let i = 0; i < data.length; i += CHUNK) {
+      out.push(...await db.insert(workouts).values(data.slice(i, i + CHUNK)).returning());
+    }
+    return out;
+  },
   async getWorkoutById(id: number, userId: number): Promise<Workout | undefined> {
     const [w] = await db.select().from(workouts).where(and(eq(workouts.id, id), eq(workouts.userId, userId)));
     return w;
@@ -757,6 +782,18 @@ export const storage = {
   async createWorkoutSet(data: InsertWorkoutSet): Promise<WorkoutSet> {
     const [s] = await db.insert(workoutSets).values(data).returning();
     return s;
+  },
+  /**
+   * Bulk-insert workout sets in chunks — used by CSV import, which otherwise
+   * awaits one INSERT per set (easily 1,000+ round-trips for a multi-month
+   * history) and was the actual cause of import timeouts on larger files.
+   */
+  async bulkCreateWorkoutSets(data: InsertWorkoutSet[]): Promise<void> {
+    if (data.length === 0) return;
+    const CHUNK = 500;
+    for (let i = 0; i < data.length; i += CHUNK) {
+      await db.insert(workoutSets).values(data.slice(i, i + CHUNK));
+    }
   },
   async updateWorkoutSet(id: number, data: Partial<InsertWorkoutSet>): Promise<WorkoutSet | undefined> {
     const [s] = await db.update(workoutSets).set(data).where(eq(workoutSets.id, id)).returning();

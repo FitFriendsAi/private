@@ -19,6 +19,7 @@ import {
   insertExerciseSchema, insertWorkoutTemplateSchema, insertTemplateExerciseSchema,
   insertWorkoutSchema, insertWorkoutSetSchema, insertHeartRateLogSchema,
   insertSavedMealSchema, insertMealIngredientSchema,
+  type InsertWorkoutSet,
 } from "../shared/schema.js";
 import { getStrengthStandard, computeThresholds, getLevelIndex, LEVEL_NAMES } from "../shared/strength-standards.js";
 import { z } from "zod";
@@ -2053,7 +2054,37 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
       const existingWorkouts = await storage.getWorkouts(userId, 2000);
       const existingKeys = new Set(existingWorkouts.map(w => `${w.name}|||${w.date}`));
 
-      let imported = 0;
+      // Exact match, then fuzzy word-overlap match against exerciseByName (mutated
+      // as new exercises are created below, so re-running this after bulk-create
+      // picks up exact matches for names created earlier in the same import).
+      function matchExercise(exName: string) {
+        let exercise = exerciseByName.get(exName.toLowerCase());
+        if (exercise) return exercise;
+        const norm = exName.toLowerCase().trim();
+        const stripped = norm.replace(/\s*\([^)]*\)\s*/g, " ").trim();
+        for (const [key, ex] of exerciseByName) {
+          const keyStripped = key.replace(/\s*\([^)]*\)\s*/g, " ").trim();
+          if (keyStripped === stripped || key === stripped || keyStripped === norm) return ex;
+        }
+        const words = new Set(stripped.split(/\s+/).filter(w => w.length > 2));
+        let bestMatch: any = undefined;
+        let bestScore = 0;
+        for (const [key, ex] of exerciseByName) {
+          const kw = new Set(key.replace(/\s*\([^)]*\)\s*/g, " ").trim().split(/\s+/).filter(w => w.length > 2));
+          let common = 0; for (const w of words) if (kw.has(w)) common++;
+          const score = Math.max(words.size, kw.size) > 0 ? common / Math.max(words.size, kw.size) : 0;
+          if (score > bestScore && score >= 0.6) { bestScore = score; bestMatch = ex; }
+        }
+        return bestMatch;
+      }
+
+      // ── Pass 1: filter to non-duplicate sessions, group each session's rows by exercise ──
+      type SetRow = { setIndex: number; weightLbs: number | null; reps: number | null; setType: string };
+      type SessionToImport = {
+        title: string; date: string; endIso: string; durationMinutes: number;
+        exGroups: Map<string, SetRow[]>;
+      };
+      const toImport: SessionToImport[] = [];
       let skipped = 0;
 
       for (const [, session] of sessions) {
@@ -2061,20 +2092,10 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
         const { iso: endIso } = parseHevyDate(session.endTime);
         const durationMinutes = Math.round((new Date(endIso).getTime() - new Date(startIso).getTime()) / 60000);
 
-        // Check for duplicate (same name + date) — uses cached set
         if (existingKeys.has(`${session.title}|||${date}`)) { skipped++; continue; }
         existingKeys.add(`${session.title}|||${date}`);
 
-        const workout = await storage.createWorkout({
-          userId,
-          name: session.title,
-          date,
-          durationMinutes: durationMinutes > 0 ? durationMinutes : undefined,
-          completedAt: new Date(endIso),
-        });
-
-        // Group sets by exercise within this session
-        const exGroups = new Map<string, { setIndex: number; weightLbs: number | null; reps: number | null; setType: string }[]>();
+        const exGroups = new Map<string, SetRow[]>();
         for (const cols of session.rows) {
           const exerciseName = cols[4];
           const setIndex = parseInt(cols[7]) || 0;
@@ -2085,47 +2106,44 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
           exGroups.get(exerciseName)!.push({ setIndex, weightLbs, reps, setType });
         }
 
-        for (const [exName, sets] of exGroups) {
-          // Find or create exercise — try exact match, then fuzzy match
-          let exercise = exerciseByName.get(exName.toLowerCase());
-          if (!exercise) {
-            const norm = exName.toLowerCase().trim();
-            const stripped = norm.replace(/\s*\([^)]*\)\s*/g, " ").trim();
-            for (const [key, ex] of exerciseByName) {
-              const keyStripped = key.replace(/\s*\([^)]*\)\s*/g, " ").trim();
-              if (keyStripped === stripped || key === stripped || keyStripped === norm) {
-                exercise = ex; break;
-              }
-            }
-            if (!exercise) {
-              const words = new Set(stripped.split(/\s+/).filter(w => w.length > 2));
-              let bestMatch: any = undefined;
-              let bestScore = 0;
-              for (const [key, ex] of exerciseByName) {
-                const kw = new Set(key.replace(/\s*\([^)]*\)\s*/g, " ").trim().split(/\s+/).filter(w => w.length > 2));
-                let common = 0; for (const w of words) if (kw.has(w)) common++;
-                const score = Math.max(words.size, kw.size) > 0 ? common / Math.max(words.size, kw.size) : 0;
-                if (score > bestScore && score >= 0.6) { bestScore = score; bestMatch = ex; }
-              }
-              if (bestMatch) exercise = bestMatch;
-            }
-          }
-          if (!exercise) {
-            exercise = await storage.createExercise({
-              name: exName,
-              primaryMuscle: "Other",
-              secondaryMuscles: [],
-              category: "compound",
-              equipment: "other",
-              isCustom: true,
-              userId,
-            });
-            exerciseByName.set(exName.toLowerCase(), exercise);
-          }
+        toImport.push({ title: session.title, date, endIso, durationMinutes, exGroups });
+      }
 
-          const sortedSets = sets.sort((a, b) => a.setIndex - b.setIndex);
+      // ── Pass 2: collect exercise names with no existing match, bulk-create them once ──
+      const pendingNewExercises = new Map<string, string>(); // lowercase key -> original-cased name
+      for (const s of toImport) {
+        for (const exName of s.exGroups.keys()) {
+          if (!matchExercise(exName) && !pendingNewExercises.has(exName.toLowerCase())) {
+            pendingNewExercises.set(exName.toLowerCase(), exName);
+          }
+        }
+      }
+      if (pendingNewExercises.size > 0) {
+        const created = await storage.bulkCreateExercises([...pendingNewExercises.values()].map(name => ({
+          name, primaryMuscle: "Other", secondaryMuscles: [], category: "compound",
+          equipment: "other", isCustom: true, userId,
+        })));
+        for (const ex of created) exerciseByName.set(ex.name.toLowerCase(), ex);
+      }
+
+      // ── Pass 3: bulk-create all workouts, preserving order to map sets back to IDs ──
+      const createdWorkouts = await storage.bulkCreateWorkouts(toImport.map(s => ({
+        userId,
+        name: s.title,
+        date: s.date,
+        durationMinutes: s.durationMinutes > 0 ? s.durationMinutes : undefined,
+        completedAt: new Date(s.endIso),
+      })));
+
+      // ── Pass 4: bulk-create every set across every session in one go ──
+      const setRows: InsertWorkoutSet[] = [];
+      toImport.forEach((s, i) => {
+        const workout = createdWorkouts[i];
+        for (const [exName, sets] of s.exGroups) {
+          const exercise = matchExercise(exName);
+          const sortedSets = [...sets].sort((a, b) => a.setIndex - b.setIndex);
           for (const set of sortedSets) {
-            await storage.createWorkoutSet({
+            setRows.push({
               workoutId: workout.id,
               exerciseId: exercise.id,
               setNumber: set.setIndex + 1,
@@ -2135,10 +2153,10 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
             });
           }
         }
-        imported++;
-      }
+      });
+      await storage.bulkCreateWorkoutSets(setRows);
 
-      res.json({ imported, skipped, total: sessions.size });
+      res.json({ imported: toImport.length, skipped, total: sessions.size });
     } catch (err: any) {
       console.error("CSV import error:", err);
       res.status(500).json({ message: err.message });

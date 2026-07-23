@@ -246150,6 +246150,16 @@ var storage = {
     const [e2] = await db.insert(exercises).values(data).returning();
     return e2;
   },
+  /** Bulk-insert exercises in chunks (used by CSV import). Order preserved, see bulkCreateWorkouts. */
+  async bulkCreateExercises(data) {
+    if (data.length === 0) return [];
+    const CHUNK = 500;
+    const out = [];
+    for (let i2 = 0; i2 < data.length; i2 += CHUNK) {
+      out.push(...await db.insert(exercises).values(data.slice(i2, i2 + CHUNK)).returning());
+    }
+    return out;
+  },
   async getExerciseById(id) {
     const [e2] = await db.select().from(exercises).where(eq(exercises.id, id));
     return e2;
@@ -246245,6 +246255,21 @@ var storage = {
     const [w2] = await db.insert(workouts).values(data).returning();
     return w2;
   },
+  /**
+   * Bulk-insert workouts in chunks (used by CSV import to avoid one round-trip
+   * per row). Returned rows preserve the same order as `data` — Postgres
+   * processes a single multi-row INSERT's VALUES list in order, and RETURNING
+   * reflects that order.
+   */
+  async bulkCreateWorkouts(data) {
+    if (data.length === 0) return [];
+    const CHUNK = 500;
+    const out = [];
+    for (let i2 = 0; i2 < data.length; i2 += CHUNK) {
+      out.push(...await db.insert(workouts).values(data.slice(i2, i2 + CHUNK)).returning());
+    }
+    return out;
+  },
   async getWorkoutById(id, userId) {
     const [w2] = await db.select().from(workouts).where(and(eq(workouts.id, id), eq(workouts.userId, userId)));
     return w2;
@@ -246318,6 +246343,18 @@ var storage = {
   async createWorkoutSet(data) {
     const [s2] = await db.insert(workoutSets).values(data).returning();
     return s2;
+  },
+  /**
+   * Bulk-insert workout sets in chunks — used by CSV import, which otherwise
+   * awaits one INSERT per set (easily 1,000+ round-trips for a multi-month
+   * history) and was the actual cause of import timeouts on larger files.
+   */
+  async bulkCreateWorkoutSets(data) {
+    if (data.length === 0) return;
+    const CHUNK = 500;
+    for (let i2 = 0; i2 < data.length; i2 += CHUNK) {
+      await db.insert(workoutSets).values(data.slice(i2, i2 + CHUNK));
+    }
   },
   async updateWorkoutSet(id, data) {
     const [s2] = await db.update(workoutSets).set(data).where(eq(workoutSets.id, id)).returning();
@@ -257947,8 +257984,31 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
         const [, day, mon, year, hour, min] = m3;
         const d2 = new Date(parseInt(year), months[mon], parseInt(day), parseInt(hour), parseInt(min));
         return { date: d2.toISOString().slice(0, 10), iso: d2.toISOString() };
+      }, matchExercise2 = function(exName) {
+        let exercise = exerciseByName.get(exName.toLowerCase());
+        if (exercise) return exercise;
+        const norm2 = exName.toLowerCase().trim();
+        const stripped = norm2.replace(/\s*\([^)]*\)\s*/g, " ").trim();
+        for (const [key, ex] of exerciseByName) {
+          const keyStripped = key.replace(/\s*\([^)]*\)\s*/g, " ").trim();
+          if (keyStripped === stripped || key === stripped || keyStripped === norm2) return ex;
+        }
+        const words = new Set(stripped.split(/\s+/).filter((w2) => w2.length > 2));
+        let bestMatch = void 0;
+        let bestScore = 0;
+        for (const [key, ex] of exerciseByName) {
+          const kw = new Set(key.replace(/\s*\([^)]*\)\s*/g, " ").trim().split(/\s+/).filter((w2) => w2.length > 2));
+          let common = 0;
+          for (const w2 of words) if (kw.has(w2)) common++;
+          const score = Math.max(words.size, kw.size) > 0 ? common / Math.max(words.size, kw.size) : 0;
+          if (score > bestScore && score >= 0.6) {
+            bestScore = score;
+            bestMatch = ex;
+          }
+        }
+        return bestMatch;
       };
-      var parseCSVRow2 = parseCSVRow3, parseHevyDate = parseHevyDate2;
+      var parseCSVRow2 = parseCSVRow3, parseHevyDate = parseHevyDate2, matchExercise = matchExercise2;
       const lines = csv.split("\n").map((l2) => l2.trim()).filter(Boolean);
       const header = lines[0];
       const rows = lines.slice(1);
@@ -257965,7 +258025,7 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
       const exerciseByName = new Map(allExercises.map((e2) => [e2.name.toLowerCase(), e2]));
       const existingWorkouts = await storage.getWorkouts(userId, 2e3);
       const existingKeys = new Set(existingWorkouts.map((w2) => `${w2.name}|||${w2.date}`));
-      let imported = 0;
+      const toImport = [];
       let skipped = 0;
       for (const [, session2] of sessions) {
         const { date: date2, iso: startIso } = parseHevyDate2(session2.startTime);
@@ -257976,13 +258036,6 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
           continue;
         }
         existingKeys.add(`${session2.title}|||${date2}`);
-        const workout = await storage.createWorkout({
-          userId,
-          name: session2.title,
-          date: date2,
-          durationMinutes: durationMinutes > 0 ? durationMinutes : void 0,
-          completedAt: new Date(endIso)
-        });
         const exGroups = /* @__PURE__ */ new Map();
         for (const cols of session2.rows) {
           const exerciseName = cols[4];
@@ -257993,50 +258046,43 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
           if (!exGroups.has(exerciseName)) exGroups.set(exerciseName, []);
           exGroups.get(exerciseName).push({ setIndex, weightLbs, reps, setType: setType2 });
         }
-        for (const [exName, sets] of exGroups) {
-          let exercise = exerciseByName.get(exName.toLowerCase());
-          if (!exercise) {
-            const norm2 = exName.toLowerCase().trim();
-            const stripped = norm2.replace(/\s*\([^)]*\)\s*/g, " ").trim();
-            for (const [key, ex] of exerciseByName) {
-              const keyStripped = key.replace(/\s*\([^)]*\)\s*/g, " ").trim();
-              if (keyStripped === stripped || key === stripped || keyStripped === norm2) {
-                exercise = ex;
-                break;
-              }
-            }
-            if (!exercise) {
-              const words = new Set(stripped.split(/\s+/).filter((w2) => w2.length > 2));
-              let bestMatch = void 0;
-              let bestScore = 0;
-              for (const [key, ex] of exerciseByName) {
-                const kw = new Set(key.replace(/\s*\([^)]*\)\s*/g, " ").trim().split(/\s+/).filter((w2) => w2.length > 2));
-                let common = 0;
-                for (const w2 of words) if (kw.has(w2)) common++;
-                const score = Math.max(words.size, kw.size) > 0 ? common / Math.max(words.size, kw.size) : 0;
-                if (score > bestScore && score >= 0.6) {
-                  bestScore = score;
-                  bestMatch = ex;
-                }
-              }
-              if (bestMatch) exercise = bestMatch;
-            }
+        toImport.push({ title: session2.title, date: date2, endIso, durationMinutes, exGroups });
+      }
+      const pendingNewExercises = /* @__PURE__ */ new Map();
+      for (const s2 of toImport) {
+        for (const exName of s2.exGroups.keys()) {
+          if (!matchExercise2(exName) && !pendingNewExercises.has(exName.toLowerCase())) {
+            pendingNewExercises.set(exName.toLowerCase(), exName);
           }
-          if (!exercise) {
-            exercise = await storage.createExercise({
-              name: exName,
-              primaryMuscle: "Other",
-              secondaryMuscles: [],
-              category: "compound",
-              equipment: "other",
-              isCustom: true,
-              userId
-            });
-            exerciseByName.set(exName.toLowerCase(), exercise);
-          }
-          const sortedSets = sets.sort((a2, b2) => a2.setIndex - b2.setIndex);
+        }
+      }
+      if (pendingNewExercises.size > 0) {
+        const created = await storage.bulkCreateExercises([...pendingNewExercises.values()].map((name) => ({
+          name,
+          primaryMuscle: "Other",
+          secondaryMuscles: [],
+          category: "compound",
+          equipment: "other",
+          isCustom: true,
+          userId
+        })));
+        for (const ex of created) exerciseByName.set(ex.name.toLowerCase(), ex);
+      }
+      const createdWorkouts = await storage.bulkCreateWorkouts(toImport.map((s2) => ({
+        userId,
+        name: s2.title,
+        date: s2.date,
+        durationMinutes: s2.durationMinutes > 0 ? s2.durationMinutes : void 0,
+        completedAt: new Date(s2.endIso)
+      })));
+      const setRows = [];
+      toImport.forEach((s2, i2) => {
+        const workout = createdWorkouts[i2];
+        for (const [exName, sets] of s2.exGroups) {
+          const exercise = matchExercise2(exName);
+          const sortedSets = [...sets].sort((a2, b2) => a2.setIndex - b2.setIndex);
           for (const set of sortedSets) {
-            await storage.createWorkoutSet({
+            setRows.push({
               workoutId: workout.id,
               exerciseId: exercise.id,
               setNumber: set.setIndex + 1,
@@ -258046,9 +258092,9 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
             });
           }
         }
-        imported++;
-      }
-      res.json({ imported, skipped, total: sessions.size });
+      });
+      await storage.bulkCreateWorkoutSets(setRows);
+      res.json({ imported: toImport.length, skipped, total: sessions.size });
     } catch (err) {
       console.error("CSV import error:", err);
       res.status(500).json({ message: err.message });

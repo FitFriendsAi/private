@@ -80,7 +80,7 @@ export async function apiRequest<T = unknown>(
   } catch (err: any) {
     clearTimeout(timer);
     if (err?.name === "AbortError") {
-      throw new ApiError(0, "Cannot reach server — check that Fit Friends is running and you're on the same Wi-Fi.");
+      throw new ApiError(0, "Request timed out. Check your internet connection and try again.");
     }
     throw new ApiError(0, err?.message ?? "Network error");
   }
