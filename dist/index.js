@@ -245946,7 +245946,7 @@ var storage = {
         buckets.push({ key, label });
       }
     }
-    const fromDate = buckets[0].key;
+    const fromDate = groupBy === "month" ? `${buckets[0].key}-01` : buckets[0].key;
     const toDate = ds(today);
     const rows = await db.select({
       date: foodLog.date,

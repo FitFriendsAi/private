@@ -297,7 +297,11 @@ export const storage = {
     }
 
     // ── 2. Fetch actual daily totals from DB ──────────────────────────────────
-    const fromDate = buckets[0].key;
+    // Month buckets key on "YYYY-MM" (no day component) for grouping purposes,
+    // which isn't a valid `date` literal on its own — Postgres rejects it
+    // outright ("invalid input syntax for type date"). Append the first of the
+    // month so the query bound is always a real date, regardless of groupBy.
+    const fromDate = groupBy === "month" ? `${buckets[0].key}-01` : buckets[0].key;
     const toDate   = ds(today);
 
     const rows = await db
