@@ -1,15 +1,18 @@
 /**
  * MuscleHeatmap — anatomical front/back body figures with muscle regions
- * colored by training volume over the selected window (week / month).
+ * colored by training volume over the selected window (week / month / 90
+ * days / year).
  *
  * Body rendering via react-native-body-highlighter (MIT), which ships
  * clean flat-region front/back SVGs — https://github.com/HichamELBSI/react-native-body-highlighter
  *
- * Data: GET /api/muscle-volume?days=7|30
+ * Data: GET /api/muscle-volume?days=7|30|90|365
  *   { days, muscles: { chest: { sets, volumeGrams, lastTrained }, ... } }
  *
  * Effective sets: primary muscle = 1 per set, secondary = 0.5 (server-side).
- * Intensity tiers are based on weekly set rate so week/month views compare fairly.
+ * Fill intensity is scaled relative to the most-trained muscle in the current
+ * window (see tierFill) rather than a fixed absolute threshold, so the
+ * gradient stays meaningful regardless of the viewer's overall training volume.
  */
 import { useState } from "react";
 import { View, Text, Pressable, ActivityIndicator } from "react-native";
@@ -56,12 +59,32 @@ for (const [region, slugs] of Object.entries(BACK_SLUGS) as [Region, Slug[]][]) 
 
 type MuscleData = { sets: number; volumeGrams: number; lastTrained: string | null };
 
-// weekly-rate tiers → fill color
-function tierFill(weeklySets: number): string {
-  if (weeklySets <= 0)  return GHOST;
-  if (weeklySets < 3)   return LIME + "40";
-  if (weeklySets < 6)   return LIME + "73";
-  if (weeklySets < 10)  return LIME + "B3";
+const DAY_OPTIONS = [7, 30, 90, 365] as const;
+type DayOption = (typeof DAY_OPTIONS)[number];
+const DAY_LABELS: Record<DayOption, string> = {
+  7: "This Week", 30: "This Month", 90: "90 Days", 365: "This Year",
+};
+// Natural phrasing for "Not trained ___" — "this week"/"this month"/"this year"
+// read fine bare, but "90 Days" needs "in the last" to not sound broken.
+const NOT_TRAINED_PHRASE: Record<DayOption, string> = {
+  7: "this week", 30: "this month", 90: "in the last 90 days", 365: "this year",
+};
+
+/**
+ * Fill color scaled relative to whichever muscle got the most sets in the
+ * current window, not a fixed absolute threshold — a fixed scale either maxes
+ * everything out for a high-volume lifter or leaves everything dim for a
+ * lower-volume one, in both cases hiding which muscles got relatively more
+ * or less work (the whole point of the legend's gradient). Comparing against
+ * the window's own max means the most-trained muscle is always the brightest
+ * tier and the rest scale visibly beneath it.
+ */
+function tierFill(sets: number, maxSets: number): string {
+  if (sets <= 0) return GHOST;
+  const ratio = maxSets > 0 ? sets / maxSets : 0;
+  if (ratio < 0.25) return LIME + "40";
+  if (ratio < 0.5)  return LIME + "73";
+  if (ratio < 0.75) return LIME + "B3";
   return LIME;
 }
 
@@ -74,13 +97,13 @@ function daysAgo(dateStr: string | null): number | null {
 function buildBodyData(
   slugMap: Partial<Record<Region, Slug[]>>,
   muscles: Record<Region, MuscleData> | undefined,
-  days: number,
+  maxSets: number,
   selected: Region | null,
 ): ExtendedBodyPart[] {
   const out: ExtendedBodyPart[] = [];
   for (const [region, slugs] of Object.entries(slugMap) as [Region, Slug[]][]) {
     const sets = muscles?.[region]?.sets ?? 0;
-    const fill = tierFill(sets / (days / 7));
+    const fill = tierFill(sets, maxSets);
     for (const slug of slugs) {
       out.push({
         slug,
@@ -99,7 +122,7 @@ function buildBodyData(
 export function MuscleHeatmap({ width }: { width: number }) {
   const { palette } = useTheme();
   const { text, muted, cardBorder: border } = palette;
-  const [days, setDays] = useState<7 | 30>(7);
+  const [days, setDays] = useState<DayOption>(7);
   const [selected, setSelected] = useState<Region | null>(null);
 
   const { data, isLoading } = useQuery<{ days: number; muscles: Record<Region, MuscleData> }>({
@@ -109,6 +132,9 @@ export function MuscleHeatmap({ width }: { width: number }) {
 
   const muscles = data?.muscles;
   const figScale = Math.min(1.5, Math.max(0.8, width / 460));
+  const maxSets = muscles
+    ? Math.max(0, ...(Object.keys(LABELS) as Region[]).map(r => muscles[r]?.sets ?? 0))
+    : 0;
 
   // Neglected: 0 sets in window, sorted by longest-untrained first
   const neglected = muscles
@@ -132,8 +158,8 @@ export function MuscleHeatmap({ width }: { width: number }) {
   return (
     <View>
       {/* Period toggle */}
-      <View style={{ flexDirection: "row", gap: 6, marginBottom: 12 }}>
-        {([7, 30] as const).map(d => {
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+        {DAY_OPTIONS.map(d => {
           const active = days === d;
           return (
             <Pressable
@@ -149,7 +175,7 @@ export function MuscleHeatmap({ width }: { width: number }) {
                 fontFamily: "Manrope-Bold", fontSize: 11,
                 color: active ? "#111" : muted,
               }}>
-                {d === 7 ? "This Week" : "This Month"}
+                {DAY_LABELS[d]}
               </Text>
             </Pressable>
           );
@@ -166,7 +192,7 @@ export function MuscleHeatmap({ width }: { width: number }) {
           <View style={{ flexDirection: "row", justifyContent: "space-around", alignItems: "flex-start" }}>
             <View style={{ alignItems: "center" }}>
               <Body
-                data={buildBodyData(FRONT_SLUGS, muscles, days, selected)}
+                data={buildBodyData(FRONT_SLUGS, muscles, maxSets, selected)}
                 side="front"
                 gender="male"
                 scale={figScale}
@@ -180,7 +206,7 @@ export function MuscleHeatmap({ width }: { width: number }) {
             </View>
             <View style={{ alignItems: "center" }}>
               <Body
-                data={buildBodyData(BACK_SLUGS, muscles, days, selected)}
+                data={buildBodyData(BACK_SLUGS, muscles, maxSets, selected)}
                 side="back"
                 gender="male"
                 scale={figScale}
@@ -236,7 +262,7 @@ export function MuscleHeatmap({ width }: { width: number }) {
           {neglected.length > 0 && (
             <View style={{ marginTop: 12 }}>
               <Text style={{ fontFamily: "Manrope-Bold", fontSize: 11, color: muted, marginBottom: 6 }}>
-                Not trained {days === 7 ? "this week" : "this month"}
+                Not trained {NOT_TRAINED_PHRASE[days]}
               </Text>
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
                 {neglected.map(r => {

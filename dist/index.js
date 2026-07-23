@@ -257808,7 +257808,7 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
   app2.get("/api/muscle-volume", async (req, res) => {
     if (!requireAuth(req, res)) return;
     const userId = req.user.id;
-    const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 90);
+    const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 365);
     const toDateStr = (d2) => d2.toISOString().slice(0, 10);
     const since = /* @__PURE__ */ new Date();
     since.setDate(since.getDate() - days);

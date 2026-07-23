@@ -1820,7 +1820,7 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
   });
 
   /**
-   * GET /api/muscle-volume?days=7|30
+   * GET /api/muscle-volume?days=7|30|90|365
    * Aggregates training volume per muscle region for the heatmap.
    * Effective sets: primary muscle = 1.0 per set, secondary = 0.5.
    * lastTrained is computed over the past 365 days regardless of the window.
@@ -1828,7 +1828,7 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
   app.get("/api/muscle-volume", async (req, res) => {
     if (!requireAuth(req, res)) return;
     const userId = (req.user as any).id;
-    const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 90);
+    const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 365);
 
     const toDateStr = (d: Date) => d.toISOString().slice(0, 10);
     const since    = new Date(); since.setDate(since.getDate() - days);
