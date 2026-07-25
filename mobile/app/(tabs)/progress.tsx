@@ -714,6 +714,7 @@ export default function ProgressScreen() {
 
   // ── Queries ──
   const { data: targets }           = useQuery<any>({ queryKey: ["/api/targets"], queryFn: () => apiRequest("GET", "/api/targets") });
+  const { data: profile }           = useQuery<any>({ queryKey: ["/api/profile"], queryFn: () => apiRequest("GET", "/api/profile") });
   const { data: measurements = [] } = useQuery<any[]>({ queryKey: ["/api/measurements"], queryFn: () => apiRequest("GET", "/api/measurements") });
   const { data: exercises = [] }    = useQuery<any[]>({ queryKey: ["/api/exercises"], queryFn: () => apiRequest("GET", "/api/exercises") });
   const { data: loggedIds = [] }    = useQuery<number[]>({ queryKey: ["/api/exercises/logged-ids"], queryFn: () => apiRequest("GET", "/api/exercises/logged-ids") });
@@ -851,6 +852,18 @@ export default function ProgressScreen() {
     ? Math.max((new Date(filteredMeasurements[0].date).getTime() - new Date(filteredMeasurements[filteredMeasurements.length - 1].date).getTime()) / (7 * 24 * 3600 * 1000), 1)
     : periodDays(period) / 7;
   const perWeek = weightData.length >= 2 ? weightChange / weeksElapsed : 0;
+
+  // ── BMI (weight kg / height m²) — needs both a logged weight and a saved height ──
+  const heightCm = profile?.heightCm as number | undefined;
+  const latestWeightGrams = measurements[0]?.weightGrams as number | undefined;
+  const bmi = heightCm && latestWeightGrams
+    ? (latestWeightGrams / 1000) / ((heightCm / 100) ** 2)
+    : null;
+  const bmiCategory = bmi == null ? null
+    : bmi < 18.5 ? { label: "Underweight", color: "#9bd1ff" }
+    : bmi < 25   ? { label: "Normal", color: LIME }
+    : bmi < 30   ? { label: "Overweight", color: "#f8c86a" }
+    : { label: "Obese", color: "#ff6b6b" };
 
   // Weight data in bar-chart format (for PeriodLine, interpolated)
   const weightLineData = useMemo(() => {
@@ -1010,6 +1023,20 @@ export default function ProgressScreen() {
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
               <Scale size={16} color="#ffffff" />
               <Text style={{ fontSize: 16, fontFamily: "Manrope-Bold", color: text }}>Body Weight</Text>
+              {bmi != null && bmiCategory && (
+                <View style={{
+                  flexDirection: "row", alignItems: "center", gap: 4,
+                  paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10,
+                  backgroundColor: bmiCategory.color + "22",
+                }}>
+                  <Text style={{ fontSize: 10, fontFamily: "Manrope-Bold", color: bmiCategory.color }}>
+                    BMI {bmi.toFixed(1)}
+                  </Text>
+                  <Text style={{ fontSize: 9, fontFamily: "Manrope", color: muted }}>
+                    {bmiCategory.label}
+                  </Text>
+                </View>
+              )}
             </View>
             <View style={{ flexDirection: "row", backgroundColor: "#1a1a1a", borderRadius: 10, padding: 2 }}>
               {(["bar", "line"] as const).map(t => (
@@ -1022,6 +1049,12 @@ export default function ProgressScreen() {
               ))}
             </View>
           </View>
+
+          {bmi == null && latestWeightGrams != null && (
+            <Text style={{ fontSize: 11, fontFamily: "Manrope", color: muted, marginBottom: 14 }}>
+              Add your height in Settings to see your BMI
+            </Text>
+          )}
 
           {weightData.length >= 1 ? (
             <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
