@@ -9,7 +9,7 @@ import {
   users, userProfiles, goals, bodyMeasurements, progressPhotos, foodItems, foodLog,
   nutritionTargets, waterLog, supplementLog, exercises, workoutTemplates,
   templateExercises, workouts, workoutSets, heartRateLog, savedMeals, mealIngredients,
-  friendships, aiCoachPlans, activeRoutines,
+  friendships, aiCoachPlans, activeRoutines, userBadges,
   type User, type UserProfile, type Goal, type BodyMeasurement, type ProgressPhoto, type FoodItem,
   type FoodLogEntry, type NutritionTarget, type WaterLogEntry, type SupplementLogEntry,
   type Exercise, type WorkoutTemplate, type TemplateExercise, type Workout, type WorkoutSet,
@@ -19,7 +19,7 @@ import {
   type InsertFoodItem, type InsertFoodLogEntry, type InsertNutritionTarget,
   type InsertWaterLogEntry, type InsertSupplementLogEntry, type InsertExercise,
   type InsertWorkoutTemplate, type InsertTemplateExercise, type InsertWorkout, type InsertWorkoutSet,
-  type Friendship, type ActiveRoutine, type RoutineDay,
+  type Friendship, type ActiveRoutine, type RoutineDay, type UserBadge,
 } from "../shared/schema.js";
 
 // For Supabase connections, parse the URL ourselves and pass explicit params to pg
@@ -664,6 +664,43 @@ export const storage = {
       primaryMuscle:    r.primaryMuscle ?? "",
       secondaryMuscles: (r.secondaryMuscles as string[] | null) ?? [],
     }));
+  },
+
+  /** Every set the user has ever logged, with exercise name — for badge detection. */
+  async getAllSetsWithExerciseNames(userId: number): Promise<
+    { date: string; exerciseName: string; reps: number; weightGrams: number }[]
+  > {
+    const rows = await db
+      .select({
+        date:         workouts.date,
+        exerciseName: exercises.name,
+        reps:         workoutSets.reps,
+        weightGrams:  workoutSets.weightGrams,
+      })
+      .from(workoutSets)
+      .innerJoin(workouts, eq(workoutSets.workoutId, workouts.id))
+      .innerJoin(exercises, eq(workoutSets.exerciseId, exercises.id))
+      .where(eq(workouts.userId, userId));
+
+    return rows.map(r => ({
+      date:         (r.date as unknown) instanceof Date ? (r.date as unknown as Date).toISOString().slice(0, 10) : String(r.date).slice(0, 10),
+      exerciseName: r.exerciseName,
+      reps:         r.reps ?? 0,
+      weightGrams:  r.weightGrams ?? 0,
+    }));
+  },
+
+  // ── Badges ─────────────────────────────────────────────────────────────────
+  async getUserBadgeIds(userId: number): Promise<Set<string>> {
+    const rows = await db.select({ badgeId: userBadges.badgeId }).from(userBadges).where(eq(userBadges.userId, userId));
+    return new Set(rows.map(r => r.badgeId));
+  },
+  async awardBadges(userId: number, badgeIds: string[]): Promise<void> {
+    if (badgeIds.length === 0) return;
+    await db.insert(userBadges).values(badgeIds.map(badgeId => ({ userId, badgeId })));
+  },
+  async getUserBadges(userId: number): Promise<UserBadge[]> {
+    return db.select().from(userBadges).where(eq(userBadges.userId, userId)).orderBy(desc(userBadges.earnedAt));
   },
 
   // ── Workouts ───────────────────────────────────────────────────────────────

@@ -245714,6 +245714,13 @@ var activeRoutines = pgTable("active_routines", {
   createdAt: timestamp("created_at").defaultNow().notNull()
 });
 var insertActiveRoutineSchema = c(activeRoutines).omit({ id: true, createdAt: true });
+var userBadges = pgTable("user_badges", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  badgeId: text("badge_id").notNull(),
+  earnedAt: timestamp("earned_at").defaultNow().notNull()
+});
+var insertUserBadgeSchema = c(userBadges).omit({ id: true, earnedAt: true });
 
 // server/storage.ts
 var _rawDbUrl = process.env.DATABASE_URL ?? "";
@@ -246247,6 +246254,33 @@ var storage = {
       secondaryMuscles: r2.secondaryMuscles ?? []
     }));
   },
+  /** Every set the user has ever logged, with exercise name — for badge detection. */
+  async getAllSetsWithExerciseNames(userId) {
+    const rows = await db.select({
+      date: workouts.date,
+      exerciseName: exercises.name,
+      reps: workoutSets.reps,
+      weightGrams: workoutSets.weightGrams
+    }).from(workoutSets).innerJoin(workouts, eq(workoutSets.workoutId, workouts.id)).innerJoin(exercises, eq(workoutSets.exerciseId, exercises.id)).where(eq(workouts.userId, userId));
+    return rows.map((r2) => ({
+      date: r2.date instanceof Date ? r2.date.toISOString().slice(0, 10) : String(r2.date).slice(0, 10),
+      exerciseName: r2.exerciseName,
+      reps: r2.reps ?? 0,
+      weightGrams: r2.weightGrams ?? 0
+    }));
+  },
+  // ── Badges ─────────────────────────────────────────────────────────────────
+  async getUserBadgeIds(userId) {
+    const rows = await db.select({ badgeId: userBadges.badgeId }).from(userBadges).where(eq(userBadges.userId, userId));
+    return new Set(rows.map((r2) => r2.badgeId));
+  },
+  async awardBadges(userId, badgeIds) {
+    if (badgeIds.length === 0) return;
+    await db.insert(userBadges).values(badgeIds.map((badgeId) => ({ userId, badgeId })));
+  },
+  async getUserBadges(userId) {
+    return db.select().from(userBadges).where(eq(userBadges.userId, userId)).orderBy(desc(userBadges.earnedAt));
+  },
   // ── Workouts ───────────────────────────────────────────────────────────────
   async getWorkouts(userId, limit = 20) {
     return db.select().from(workouts).where(eq(workouts.userId, userId)).orderBy(desc(workouts.date)).limit(limit);
@@ -246293,14 +246327,14 @@ var storage = {
       reps: workoutSets.reps,
       setNumber: workoutSets.setNumber
     }).from(workoutSets).innerJoin(workouts, eq(workoutSets.workoutId, workouts.id)).where(and(eq(workoutSets.exerciseId, exerciseId), eq(workouts.userId, userId))).orderBy(workouts.date, workoutSets.setNumber);
-    function toDateStr(d2) {
+    function toDateStr2(d2) {
       if (d2 instanceof Date) return d2.toISOString().slice(0, 10);
       if (typeof d2 === "string") return d2.slice(0, 10);
       return String(d2).slice(0, 10);
     }
     const byDate = /* @__PURE__ */ new Map();
     for (const r2 of rows) {
-      const key = toDateStr(r2.date);
+      const key = toDateStr2(r2.date);
       const w2 = r2.weightGrams ?? 0;
       const rep = r2.reps ?? 0;
       const e1rm = rep > 0 ? w2 * (1 + rep / 30) : w2;
@@ -256220,6 +256254,145 @@ Candidates: ${JSON.stringify(candidateSummaries)}`
   }
 }
 
+// shared/badges.ts
+var TIER_BY_INDEX = ["bronze", "silver", "gold", "platinum", "diamond", "diamond", "diamond"];
+var tierFor = (i2) => TIER_BY_INDEX[i2] ?? "diamond";
+var LIFT_THRESHOLDS = {
+  bench: [135, 185, 225, 275, 315, 405],
+  squat: [135, 185, 225, 275, 315, 405, 495],
+  deadlift: [135, 225, 315, 405, 495, 585],
+  ohp: [95, 135, 185, 225]
+};
+var LIFT_LABELS = {
+  bench: "Bench Press",
+  squat: "Squat",
+  deadlift: "Deadlift",
+  ohp: "Overhead Press"
+};
+var LIFT_EMOJI = {
+  bench: "\u{1F3CB}\uFE0F",
+  squat: "\u{1F9B5}",
+  deadlift: "\u{1F480}",
+  ohp: "\u{1F64C}"
+};
+var LIFT_MATCHERS = {
+  bench: (n2) => n2.toLowerCase().includes("bench press"),
+  squat: (n2) => n2.toLowerCase().includes("squat"),
+  deadlift: (n2) => n2.toLowerCase().includes("deadlift"),
+  ohp: (n2) => {
+    const lower = n2.toLowerCase();
+    return (lower.includes("overhead press") || lower.includes("military press")) && !lower.includes("dumbbell");
+  }
+};
+var STREAK_THRESHOLDS = [7, 30, 100, 365];
+var VOLUME_THRESHOLDS = [1e4, 5e4, 1e5, 5e5, 1e6];
+var WORKOUT_COUNT_THRESHOLDS = [1, 10, 50, 100, 250, 500];
+function strengthBadges() {
+  const out = [];
+  for (const [lift, thresholds] of Object.entries(LIFT_THRESHOLDS)) {
+    thresholds.forEach((t2, i2) => {
+      out.push({
+        id: `${lift}_${t2}`,
+        category: "strength",
+        label: `${t2} lb ${LIFT_LABELS[lift]}`,
+        description: `Hit an estimated ${t2} lb 1-rep max on ${LIFT_LABELS[lift]}`,
+        emoji: LIFT_EMOJI[lift],
+        tier: tierFor(i2)
+      });
+    });
+  }
+  return out;
+}
+function streakBadges() {
+  return STREAK_THRESHOLDS.map((days, i2) => ({
+    id: `streak_${days}`,
+    category: "streak",
+    label: days === 365 ? "1 Year Streak" : `${days}-Day Streak`,
+    description: `Train ${days} days in a row`,
+    emoji: "\u{1F525}",
+    tier: tierFor(i2)
+  }));
+}
+function volumeBadges() {
+  return VOLUME_THRESHOLDS.map((lbs, i2) => ({
+    id: `volume_${lbs}`,
+    category: "volume",
+    label: `${(lbs / 1e3).toLocaleString()}K lbs Lifted`,
+    description: `Lift a cumulative total of ${lbs.toLocaleString()} lbs across all workouts`,
+    emoji: "\u{1F4C8}",
+    tier: tierFor(i2)
+  }));
+}
+function consistencyBadges() {
+  return WORKOUT_COUNT_THRESHOLDS.map((n2, i2) => ({
+    id: `workouts_${n2}`,
+    category: "consistency",
+    label: n2 === 1 ? "First Workout" : `${n2} Workouts Logged`,
+    description: n2 === 1 ? "Log your first workout" : `Log ${n2} total workouts`,
+    emoji: "\u2705",
+    tier: tierFor(i2)
+  }));
+}
+var BADGE_CATALOG = [
+  ...strengthBadges(),
+  ...streakBadges(),
+  ...volumeBadges(),
+  ...consistencyBadges()
+];
+var BADGE_BY_ID = Object.fromEntries(
+  BADGE_CATALOG.map((b2) => [b2.id, b2])
+);
+
+// server/services/badges.ts
+var LBS_PER_GRAM = 1 / 453.592;
+var KG_TO_LBS = 2.20462;
+function toDateStr(d2) {
+  if (d2 instanceof Date) return d2.toISOString().slice(0, 10);
+  return String(d2).slice(0, 10);
+}
+async function checkAndAwardBadges(userId) {
+  const alreadyEarned = await storage.getUserBadgeIds(userId);
+  const toAward = [];
+  const [allSets, allWorkouts] = await Promise.all([
+    storage.getAllSetsWithExerciseNames(userId),
+    storage.getWorkouts(userId, 5e3)
+  ]);
+  for (const [lift, matcher] of Object.entries(LIFT_MATCHERS)) {
+    let bestKg = 0;
+    for (const s2 of allSets) {
+      if (s2.weightGrams <= 0 || s2.reps <= 0) continue;
+      if (!matcher(s2.exerciseName)) continue;
+      const e1 = estimate1RMKg(s2.weightGrams / 1e3, s2.reps);
+      if (e1 > bestKg) bestKg = e1;
+    }
+    const bestLbs = bestKg * KG_TO_LBS;
+    for (const threshold of LIFT_THRESHOLDS[lift]) {
+      const id = `${lift}_${threshold}`;
+      if (!alreadyEarned.has(id) && bestLbs >= threshold) toAward.push(id);
+    }
+  }
+  const activeDates = new Set(allWorkouts.map((w2) => toDateStr(w2.date)));
+  const streak = streakFromDates(activeDates);
+  for (const threshold of STREAK_THRESHOLDS) {
+    const id = `streak_${threshold}`;
+    if (!alreadyEarned.has(id) && streak >= threshold) toAward.push(id);
+  }
+  const totalVolumeLbs = allSets.reduce((sum, s2) => sum + s2.weightGrams * LBS_PER_GRAM * s2.reps, 0);
+  for (const threshold of VOLUME_THRESHOLDS) {
+    const id = `volume_${threshold}`;
+    if (!alreadyEarned.has(id) && totalVolumeLbs >= threshold) toAward.push(id);
+  }
+  for (const threshold of WORKOUT_COUNT_THRESHOLDS) {
+    const id = `workouts_${threshold}`;
+    if (!alreadyEarned.has(id) && allWorkouts.length >= threshold) toAward.push(id);
+  }
+  if (toAward.length > 0) {
+    await storage.awardBadges(userId, toAward);
+  }
+  const byId = new Map(BADGE_CATALOG.map((b2) => [b2.id, b2]));
+  return toAward.map((id) => byId.get(id)).filter((b2) => !!b2);
+}
+
 // shared/strength-standards.ts
 var LEVEL_NAMES = ["Untrained", "Beginner", "Novice", "Intermediate", "Advanced", "Elite"];
 var STANDARDS = {
@@ -257809,13 +257982,13 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
     if (!requireAuth(req, res)) return;
     const userId = req.user.id;
     const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 365);
-    const toDateStr = (d2) => d2.toISOString().slice(0, 10);
+    const toDateStr2 = (d2) => d2.toISOString().slice(0, 10);
     const since = /* @__PURE__ */ new Date();
     since.setDate(since.getDate() - days);
     const yearAgo = /* @__PURE__ */ new Date();
     yearAgo.setDate(yearAgo.getDate() - 365);
-    const rows = await storage.getSetsWithMuscles(userId, toDateStr(yearAgo));
-    const sinceStr = toDateStr(since);
+    const rows = await storage.getSetsWithMuscles(userId, toDateStr2(yearAgo));
+    const sinceStr = toDateStr2(since);
     const contributions = (muscle) => {
       const m3 = muscle.toLowerCase();
       if (m3.includes("chest") || m3.includes("pec")) return [["chest", 1]];
@@ -258094,11 +258267,30 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
         }
       });
       await storage.bulkCreateWorkoutSets(setRows);
+      await checkAndAwardBadges(userId).catch((err) => console.warn("[import-csv] badge check failed:", err));
       res.json({ imported: toImport.length, skipped, total: sessions.size });
     } catch (err) {
       console.error("CSV import error:", err);
       res.status(500).json({ message: err.message });
     }
+  });
+  app2.get("/api/badges", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = req.user.id;
+    const earned = await storage.getUserBadges(userId);
+    const earnedMap = new Map(earned.map((b2) => [b2.badgeId, b2.earnedAt]));
+    const badges = BADGE_CATALOG.map((b2) => ({
+      ...b2,
+      earned: earnedMap.has(b2.id),
+      earnedAt: earnedMap.get(b2.id) ?? null
+    }));
+    res.json(badges);
+  });
+  app2.post("/api/badges/check", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = req.user.id;
+    const newlyAwarded = await checkAndAwardBadges(userId);
+    res.json(newlyAwarded);
   });
   app2.post("/api/routines/generate-ai", async (req, res) => {
     if (!requireAuth(req, res)) return;

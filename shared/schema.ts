@@ -367,3 +367,17 @@ export const activeRoutines = pgTable("active_routines", {
 export const insertActiveRoutineSchema = createInsertSchema(activeRoutines).omit({ id: true, createdAt: true });
 export type ActiveRoutine = typeof activeRoutines.$inferSelect;
 export type InsertActiveRoutine = z.infer<typeof insertActiveRoutineSchema>;
+
+// ─── Badges (earned achievements) ──────────────────────────────────────────────
+// `badgeId` matches a key in the static catalog (shared/badges.ts) — the catalog
+// itself isn't stored in the DB since it never varies per-user, only which ones
+// a user has earned and when.
+export const userBadges = pgTable("user_badges", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  badgeId: text("badge_id").notNull(),
+  earnedAt: timestamp("earned_at").defaultNow().notNull(),
+});
+export const insertUserBadgeSchema = createInsertSchema(userBadges).omit({ id: true, earnedAt: true });
+export type UserBadge = typeof userBadges.$inferSelect;
+export type InsertUserBadge = z.infer<typeof insertUserBadgeSchema>;

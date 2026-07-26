@@ -426,8 +426,21 @@ export default function WorkoutSessionScreen() {
         }
       }
 
-      if (prLines.length > 0) {
-        setCelebration({ title: "Personal Records!", lines: prLines });
+      // Check for newly-earned badges (strength milestones, streaks, volume, etc.)
+      let badgeLines: string[] = [];
+      try {
+        const newBadges = await apiRequest<{ emoji: string; label: string }[]>("POST", "/api/badges/check");
+        badgeLines = newBadges.map(b => `${b.emoji} New Badge: ${b.label}`);
+      } catch {
+        // Non-critical — the workout is already saved either way.
+      }
+
+      const allLines = [...prLines, ...badgeLines];
+      if (allLines.length > 0) {
+        const title = prLines.length > 0 && badgeLines.length > 0
+          ? "Records & Badges!"
+          : badgeLines.length > 0 ? "New Badge!" : "Personal Records!";
+        setCelebration({ title, lines: allLines });
       } else {
         router.replace("/(tabs)/workouts");
       }

@@ -14,7 +14,9 @@ import { Platform } from "react-native";
 import {
   Zap, Plus, X, Clock, Upload, ChevronRight, Trash2,
   MoreHorizontal, Pencil, Sparkles, Moon, Dumbbell, Share2, Users, Check,
+  Calculator, Trophy,
 } from "lucide-react-native";
+import { PlateCalculator } from "@/components/PlateCalculator";
 
 const LIME   = "#c8e84c";
 const PURPLE = "#a78bfa";
@@ -85,6 +87,7 @@ export default function WorkoutsScreen() {
   // ── Modal state ──
   const [showNewRoutine,  setShowNewRoutine]  = useState(false);
   const [routineName,     setRoutineName]     = useState("");
+  const [showPlateCalc,   setShowPlateCalc]   = useState(false);
 
   // Rename
   const [showRename,      setShowRename]      = useState(false);
@@ -277,6 +280,32 @@ export default function WorkoutsScreen() {
             </View>
             {totalHours7d ? <Text style={{ fontFamily: "Manrope", fontSize: 12, color: "#666666", marginTop: 2 }}>{totalHours7d}</Text> : null}
           </View>
+        </View>
+
+        {/* Tools */}
+        <View style={{ flexDirection: "row", gap: 10, paddingHorizontal: 16, marginBottom: 22 }}>
+          <Pressable
+            onPress={() => setShowPlateCalc(true)}
+            style={({ pressed }) => ({
+              flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7,
+              backgroundColor: card, borderRadius: 14, paddingVertical: 12,
+              borderWidth: 1, borderColor: border, opacity: pressed ? 0.7 : 1,
+            })}
+          >
+            <Calculator size={15} color={LIME} />
+            <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: text }}>Plate Calculator</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => router.push("/badges")}
+            style={({ pressed }) => ({
+              flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7,
+              backgroundColor: card, borderRadius: 14, paddingVertical: 12,
+              borderWidth: 1, borderColor: border, opacity: pressed ? 0.7 : 1,
+            })}
+          >
+            <Trophy size={15} color="#f8c86a" />
+            <Text style={{ fontFamily: "Manrope-Bold", fontSize: 13, color: text }}>Trophy Case</Text>
+          </Pressable>
         </View>
 
         {/* NEXT UP (active AI routine) */}
@@ -925,6 +954,8 @@ export default function WorkoutsScreen() {
           </Pressable>
         </View>
       </Modal>
+
+      <PlateCalculator visible={showPlateCalc} onClose={() => setShowPlateCalc(false)} />
 
     </SafeAreaView>
   );

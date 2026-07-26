@@ -12,6 +12,8 @@ import { fetchExerciseGif } from "./services/exercise-gif.js";
 import { sendInviteEmail, sendInviteSms } from "./services/notifications.js";
 import { rollForward, completeCurrentDay, buildDaysFromSchedule, type ActiveRoutineState } from "./services/active-routine.js";
 import { generateAdaptiveProposals } from "./services/training-coach.js";
+import { checkAndAwardBadges } from "./services/badges.js";
+import { BADGE_CATALOG } from "../shared/badges.js";
 import {
   insertUserSchema, insertUserProfileSchema, insertGoalSchema, insertBodyMeasurementSchema,
   insertProgressPhotoSchema,
@@ -2156,11 +2158,40 @@ ${hasWeightGoal ? 'Include "nutritionAdjustment" only if the current targets nee
       });
       await storage.bulkCreateWorkoutSets(setRows);
 
+      // Retroactively award any badges the imported history now qualifies for.
+      // Not surfaced in this response — the user will see them in the trophy
+      // case rather than a celebration modal, since there's no single "just
+      // finished a workout" moment to hang it on for a bulk import.
+      await checkAndAwardBadges(userId).catch(err => console.warn("[import-csv] badge check failed:", err));
+
       res.json({ imported: toImport.length, skipped, total: sessions.size });
     } catch (err: any) {
       console.error("CSV import error:", err);
       res.status(500).json({ message: err.message });
     }
+  });
+
+  // ── Badges ─────────────────────────────────────────────────────────────────
+  /** GET /api/badges — full catalog with earned status + timestamp for each. */
+  app.get("/api/badges", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = (req.user as any).id;
+    const earned = await storage.getUserBadges(userId);
+    const earnedMap = new Map(earned.map(b => [b.badgeId, b.earnedAt]));
+    const badges = BADGE_CATALOG.map(b => ({
+      ...b,
+      earned: earnedMap.has(b.id),
+      earnedAt: earnedMap.get(b.id) ?? null,
+    }));
+    res.json(badges);
+  });
+
+  /** POST /api/badges/check — recompute + award, returns newly-earned badges for a celebration UI. */
+  app.post("/api/badges/check", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = (req.user as any).id;
+    const newlyAwarded = await checkAndAwardBadges(userId);
+    res.json(newlyAwarded);
   });
 
   // ── AI Routine Generator ────────────────────────────────────────────────────
